@@ -1,0 +1,15 @@
+.godot/
+.vs/
+bin/
+obj/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.log
+__pycache__/
+*.py[cod]
+Scripts/Training/.eval-deps/
+Scripts/Preview/.clip-cache/
+Scripts/Preview/.semantic-cache/
+card_features.local.bin

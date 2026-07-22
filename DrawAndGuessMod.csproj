@@ -1,0 +1,61 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>true</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <Sts2Dir Condition="'$(Sts2Dir)' == '' and '$(STS2_DIR)' != ''">$(STS2_DIR)</Sts2Dir>
+    <Sts2Dir Condition="'$(Sts2Dir)' == '' and Exists('G:\SteamLibrary\steamapps\common\Slay the Spire 2')">G:\SteamLibrary\steamapps\common\Slay the Spire 2</Sts2Dir>
+    <Sts2Dir Condition="'$(Sts2Dir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2')">C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2</Sts2Dir>
+    <Sts2DataDir>$(Sts2Dir)\data_sts2_windows_x86_64</Sts2DataDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="sts2">
+      <HintPath>$(Sts2DataDir)\sts2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(Sts2DataDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.27.1" GeneratePathProperty="true" />
+    <PackageReference Include="System.Numerics.Tensors" Version="9.0.0" GeneratePathProperty="true" />
+    <PackageReference Include="STS2.RitsuLib" Version="0.4.60" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Models\card_features.bin" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\card_dino_features.bin" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\dinov2_vits14.onnx" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="Generate Card Art Model" BeforeTargets="BeforeBuild"
+          Condition="!Exists('Models\card_features.bin') and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts109\images\atlases\card_atlas_0.png')">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\train-card-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts109&quot; &quot;$(MSBuildProjectDirectory)\Models\card_features.bin&quot;" />
+  </Target>
+
+  <Target Name="Generate DINOv2 Model" BeforeTargets="BeforeBuild"
+          Condition="(!Exists('Models\dinov2_vits14.onnx') or !Exists('Models\card_dino_features.bin')) and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts109\images\atlases\card_atlas_0.png')">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\build-dino-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts109&quot; &quot;$(MSBuildProjectDirectory)\Models\dinov2_vits14.onnx&quot; &quot;$(MSBuildProjectDirectory)\Models\card_dino_features.bin&quot;" />
+  </Target>
+
+  <Target Name="Copy Mod" AfterTargets="PostBuildEvent" Condition="'$(SkipModDeploy)' != 'true' and Exists('$(Sts2Dir)')">
+    <Message Text="Copying DrawAndGuessMod to Slay the Spire 2 mods folder..." Importance="high" />
+    <MakeDir Directories="$(Sts2Dir)\mods\$(MSBuildProjectName)\" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" />
+    <Copy SourceFiles="$(MSBuildProjectName).json" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" />
+    <Copy SourceFiles="Models\card_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Models\card_dino_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Models\dinov2_vits14.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)Microsoft.ML.OnnxRuntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)Microsoft.ML.OnnxRuntime.dll')" />
+    <Copy SourceFiles="$(TargetDir)onnxruntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)onnxruntime.dll')" />
+    <Copy SourceFiles="$(TargetDir)onnxruntime_providers_shared.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)onnxruntime_providers_shared.dll')" />
+    <Copy SourceFiles="$(PkgMicrosoft_ML_OnnxRuntime_Managed)\lib\net8.0\Microsoft.ML.OnnxRuntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(PkgSystem_Numerics_Tensors)\lib\net9.0\System.Numerics.Tensors.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

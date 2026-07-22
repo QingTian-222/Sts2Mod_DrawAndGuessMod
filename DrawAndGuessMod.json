@@ -1,0 +1,17 @@
+{
+  "id": "DrawAndGuessMod",
+  "name": "你画瓦猜",
+  "author": "QingTian",
+  "description": "你来画，瓦库来猜",
+  "version": "0.7.24",
+  "min_game_version": "0.109.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [
+    {
+      "id": "STS2-RitsuLib",
+      "min_version": "0.4.60"
+    }
+  ],
+  "affects_gameplay": true
+}
