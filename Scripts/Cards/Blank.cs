@@ -7,6 +7,7 @@ using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.CardPools;
@@ -22,12 +23,13 @@ public sealed class Blank : CardModel
     public override CardPoolModel VisualCardPool => ModelDb.CardPool<ColorlessCardPool>();
     public override IEnumerable<CardKeyword> CanonicalKeywords => [CardKeyword.Exhaust];
 
-    public Blank() : base(1, CardType.Skill, CardRarity.Rare, TargetType.Self)
+    public Blank() : base(1, CardType.Skill, CardRarity.Rare, TargetType.AnyPlayer)
     {
     }
 
     protected override async Task OnPlay(PlayerChoiceContext choiceContext, CardPlay cardPlay)
     {
+        Player recipient = cardPlay.Target?.Player ?? Owner;
         uint sessionId = choiceContext is GameActionPlayerChoiceContext actionContext
             ? actionContext.Action.Id ?? 0u
             : 0u;
@@ -37,9 +39,18 @@ public sealed class Blank : CardModel
             return;
         }
 
+        ICombatState? combatState = CombatState;
+        if (combatState == null)
+        {
+            Entry.Logger.Warn("[DrawAndGuessMod] Combat ended before the guessed card could be created.");
+            return;
+        }
+
         List<CardModel> options = drawing.Guess.NearestCards
             .Take(3)
-            .Select(candidate => Owner.RunState.CreateCard(candidate, Owner))
+            .Select(candidate => drawing.SkipAddingToDeck
+                ? combatState.CreateCard(candidate, recipient)
+                : Owner.RunState.CreateCard(candidate, recipient))
             .ToList();
         if (options.Count == 0)
         {
@@ -55,7 +66,7 @@ public sealed class Blank : CardModel
             }
         }
 
-        CardModel? selectedCard = await CardSelectCmd.FromChooseACardScreen(choiceContext, options, Owner);
+        CardModel? selectedCard = await CardSelectCmd.FromChooseACardScreen(choiceContext, options, recipient);
         if (selectedCard == null)
         {
             return;
@@ -63,10 +74,20 @@ public sealed class Blank : CardModel
 
         ArtworkStore.Set(Owner.RunState, selectedCard.Id.Entry, drawing.PngBytes);
 
-        ICombatState? combatState = CombatState;
-        if (combatState == null)
+        if (drawing.SkipAddingToDeck)
         {
-            Entry.Logger.Warn("[DrawAndGuessMod] Combat ended before the guessed card could be created.");
+            CardPileAddResult handResult = await CardPileCmd.AddGeneratedCardToCombat(
+                selectedCard,
+                PileType.Hand,
+                Owner);
+            if (!handResult.success)
+            {
+                Entry.Logger.Warn($"[DrawAndGuessMod] Failed to add selected card {selectedCard.Id.Entry} to hand.");
+                return;
+            }
+
+            int handOnlyRank = options.FindIndex(card => ReferenceEquals(card, selectedCard)) + 1;
+            Entry.Logger.Info($"[DrawAndGuessMod] Recipient {recipient.NetId} selected hand-only card {selectedCard.Id.Entry} at AI rank {handOnlyRank}; card played by {Owner.NetId}.");
             return;
         }
 
@@ -83,7 +104,7 @@ public sealed class Blank : CardModel
         await CardPileCmd.Add(handCard, PileType.Hand);
         CardCmd.PreviewCardPileAdd(deckResult, 2f);
         int selectedRank = options.FindIndex(card => ReferenceEquals(card, selectedCard)) + 1;
-        Entry.Logger.Info($"[DrawAndGuessMod] Player selected {selectedCard.Id.Entry} at AI rank {selectedRank}.");
+        Entry.Logger.Info($"[DrawAndGuessMod] Recipient {recipient.NetId} selected {selectedCard.Id.Entry} at AI rank {selectedRank}; card played by {Owner.NetId}.");
     }
 
     protected override void OnUpgrade()

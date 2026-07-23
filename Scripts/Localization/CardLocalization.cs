@@ -53,8 +53,10 @@ internal static class CardLocalization
 
     private static void Add(IDictionary<string, string> values, string id)
     {
-        values[id + ".title"] = "空白";
-        values[id + ".description"] = "绘制一张卡面，瓦库会把它猜测的{IfUpgraded:show:[gold]升级过的[/gold]}卡牌加入你的手牌和牌组。";
+        values[id + ".title"] = ModText.Get("空白", "Blank");
+        values[id + ".description"] = ModText.Get(
+            "绘制一张卡面，瓦库会把它猜测的{IfUpgraded:show:[gold]升级过的[/gold]}卡牌加入你的[gold]手牌[/gold]和[gold]牌组[/gold]。",
+            "Draw a card illustration. VAKUU adds the {IfUpgraded:show:[gold]upgraded[/gold] }card it guesses to your [gold]Hand[/gold] and [gold]Deck[/gold].");
     }
 }
 

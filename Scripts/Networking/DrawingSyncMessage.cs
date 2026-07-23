@@ -133,6 +133,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
     public ulong OwnerId { get; set; }
     public uint SessionId { get; set; }
     public bool Cancelled { get; set; }
+    public bool SkipAddingToDeck { get; set; }
     public List<string> CardIds { get; set; } = new();
     public byte[] PngBytes { get; set; } = [];
     public RunLocation LocationValue { get; set; }
@@ -152,8 +153,8 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         for (int index = 0; index < CardIds.Count; index++)
         {
             writer.WriteString(CardIds[index]);
-            // 保留旧协议的浮点槽位，确保联机SL时仍能读取已经缓冲的消息；该值不再参与游戏逻辑。
-            writer.WriteFloat(0f);
+            // 复用旧协议保留的浮点槽位同步设置；负数哨兵不会与旧版置信度值冲突。
+            writer.WriteFloat(index == 0 && SkipAddingToDeck ? -1f : 0f);
         }
         writer.WriteInt(PngBytes.Length);
         writer.WriteBytes(PngBytes, PngBytes.Length);
@@ -170,7 +171,11 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         for (int i = 0; i < cardCount; i++)
         {
             CardIds.Add(reader.ReadString());
-            _ = reader.ReadFloat();
+            float compatibilityValue = reader.ReadFloat();
+            if (i == 0)
+            {
+                SkipAddingToDeck = compatibilityValue < -0.5f;
+            }
         }
 
         int pngLength = reader.ReadInt();
@@ -185,6 +190,6 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
 
     public override string ToString()
     {
-        return $"DrawingFinalMessage owner={OwnerId} session={SessionId} cancelled={Cancelled} cards={CardIds.Count} png={PngBytes.Length}";
+        return $"DrawingFinalMessage owner={OwnerId} session={SessionId} cancelled={Cancelled} skipDeck={SkipAddingToDeck} cards={CardIds.Count} png={PngBytes.Length}";
     }
 }

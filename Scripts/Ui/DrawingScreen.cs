@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Ai;
+using DrawAndGuessMod.Scripts.Config;
+using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
 using Godot;
 using MegaCrit.Sts2.Core.Context;
@@ -12,7 +14,7 @@ using MegaCrit.Sts2.Core.Models.Characters;
 
 namespace DrawAndGuessMod.Scripts.Ui;
 
-public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess);
+public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess, bool SkipAddingToDeck);
 
 public partial class DrawingScreen : Control
 {
@@ -167,7 +169,7 @@ public partial class DrawingScreen : Control
 
         Label title = new()
         {
-            Text = "空白",
+            Text = Localized("空白", "Blank"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 30);
@@ -176,8 +178,12 @@ public partial class DrawingScreen : Control
         Label help = new()
         {
             Text = DrawingNetSync.IsMultiplayer
-                ? "所有玩家都可以在这张卡面上共同作画，只有出牌者可以确认并选择卡牌。"
-                : "绘制卡面后，让瓦库给出三个候选。",
+                ? Localized(
+                    "所有玩家都可以共同作画；出牌者负责确认，被指定的玩家进行三选一。",
+                    "Everyone can draw together. The player who played the card confirms the drawing, and the targeted player chooses from three cards.")
+                : Localized(
+                    "绘制卡面后，让瓦库给出三个候选。",
+                    "Draw a card illustration and let VAKUU suggest three candidates."),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
@@ -219,7 +225,9 @@ public partial class DrawingScreen : Control
         Button openColorPicker = new()
         {
             Text = "🎨",
-            TooltipText = "调色盘：从色图选择或输入 RGB",
+            TooltipText = Localized(
+                "调色盘：从色图选择或输入 RGB",
+                "Color palette: choose from the color field or enter RGB values"),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             ClipText = true,
             FocusMode = FocusModeEnum.None
@@ -233,7 +241,7 @@ public partial class DrawingScreen : Control
             Button customColor = new()
             {
                 Disabled = true,
-                TooltipText = "空白自定义颜色",
+                TooltipText = Localized("空白自定义颜色", "Empty custom color slot"),
                 CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
                 FocusMode = FocusModeEnum.None
             };
@@ -259,9 +267,18 @@ public partial class DrawingScreen : Control
         tools.AddChild(drawingTools);
 
         ButtonGroup drawingToolGroup = new() { AllowUnpress = true };
-        _brushToolButton = CreateDrawingToolButton("画笔", "使用当前颜色绘制", drawingToolGroup);
-        _eraserToolButton = CreateDrawingToolButton("橡皮", "使用当前粗细擦除", drawingToolGroup);
-        _fillToolButton = CreateDrawingToolButton("填充", "使用当前颜色填充封闭区域", drawingToolGroup);
+        _brushToolButton = CreateDrawingToolButton(
+            Localized("画笔", "Brush"),
+            Localized("使用当前颜色绘制", "Draw using the current color"),
+            drawingToolGroup);
+        _eraserToolButton = CreateDrawingToolButton(
+            Localized("橡皮", "Eraser"),
+            Localized("使用当前粗细擦除", "Erase using the current size"),
+            drawingToolGroup);
+        _fillToolButton = CreateDrawingToolButton(
+            Localized("填充", "Fill"),
+            Localized("使用当前颜色填充封闭区域", "Fill an enclosed area with the current color"),
+            drawingToolGroup);
         _brushToolButton.Pressed += () =>
         {
             SelectDrawingTool(_brushToolButton);
@@ -298,7 +315,9 @@ public partial class DrawingScreen : Control
 
         Label brushSizeLabel = new()
         {
-            Text = $"粗细：{DrawingCanvas.DefaultBrushSize} px",
+            Text = Localized(
+                $"粗细：{DrawingCanvas.DefaultBrushSize} px",
+                $"Size: {DrawingCanvas.DefaultBrushSize} px"),
             VerticalAlignment = VerticalAlignment.Center,
             CustomMinimumSize = new Vector2(92f, 0f)
         };
@@ -311,13 +330,15 @@ public partial class DrawingScreen : Control
             Step = 1d,
             Value = DrawingCanvas.DefaultBrushSize,
             CustomMinimumSize = new Vector2(170f, 32f),
-            TooltipText = "调整画笔和橡皮的粗细，同时改变角色印花大小"
+            TooltipText = Localized(
+                "调整画笔和橡皮的粗细，同时改变角色印花大小",
+                "Adjust brush and eraser size; this also changes character stamp size")
         };
         brushSizeSlider.ValueChanged += value =>
         {
             int size = Mathf.RoundToInt(value);
             _canvas.SetBrushSize(size);
-            brushSizeLabel.Text = $"粗细：{size} px";
+            brushSizeLabel.Text = Localized($"粗细：{size} px", $"Size: {size} px");
         };
         brushSizeRow.AddChild(brushSizeSlider);
 
@@ -330,19 +351,23 @@ public partial class DrawingScreen : Control
 
         Label stampLabel = new()
         {
-            Text = "角色印花：",
+            Text = Localized("角色印花：", "Character stamps:"),
             VerticalAlignment = VerticalAlignment.Center
         };
         stampRow.AddChild(stampLabel);
-        AddStampButton(stampRow, "铁甲战士", ModelDb.Character<Ironclad>(), 0);
-        AddStampButton(stampRow, "静默猎手", ModelDb.Character<Silent>(), 1);
-        AddStampButton(stampRow, "故障机器人", ModelDb.Character<Defect>(), 2);
-        AddStampButton(stampRow, "亡灵契约师", ModelDb.Character<Necrobinder>(), 3);
-        AddStampButton(stampRow, "储君", ModelDb.Character<Regent>(), 4);
+        AddStampButton(stampRow, ModelDb.Character<Ironclad>(), 0);
+        AddStampButton(stampRow, ModelDb.Character<Silent>(), 1);
+        AddStampButton(stampRow, ModelDb.Character<Defect>(), 2);
+        AddStampButton(stampRow, ModelDb.Character<Necrobinder>(), 3);
+        AddStampButton(stampRow, ModelDb.Character<Regent>(), 4);
 
         _status = new Label
         {
-            Text = _isChooser ? "完成后由你确认。" : "正在共同绘制，等待出牌者确认。",
+            Text = _isChooser
+                ? Localized("完成后由你确认。", "Confirm the drawing when everyone is finished.")
+                : Localized(
+                    "正在共同绘制，等待出牌者确认。",
+                    "Drawing together. Waiting for the player who played the card to confirm."),
             Visible = false,
             MouseFilter = MouseFilterEnum.Ignore
         };
@@ -355,7 +380,7 @@ public partial class DrawingScreen : Control
         buttons.AddThemeConstantOverride("separation", 12);
         column.AddChild(buttons);
 
-        Button clear = new() { Text = "清空" };
+        Button clear = new() { Text = Localized("清空", "Clear") };
         clear.Pressed += _canvas.ClearCanvas;
         buttons.AddChild(clear);
 
@@ -363,14 +388,16 @@ public partial class DrawingScreen : Control
         {
             Button undo = new()
             {
-                Text = "撤回",
-                TooltipText = $"撤回最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步"
+                Text = Localized("撤回", "Undo"),
+                TooltipText = Localized(
+                    $"撤回最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
+                    $"Undo the most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained")
             };
             undo.Pressed += RequestUndo;
             buttons.AddChild(undo);
         }
 
-        _guessButton = new Button { Text = "确认" };
+        _guessButton = new Button { Text = Localized("确认", "Confirm") };
         _guessButton.Disabled = !_isChooser;
         _guessButton.Pressed += OnGuessPressed;
         buttons.AddChild(_guessButton);
@@ -387,7 +414,7 @@ public partial class DrawingScreen : Control
         {
             Name = "PeekButton",
             Text = string.Empty,
-            TooltipText = "观察战局",
+            TooltipText = Localized("观察战局", "View combat"),
             FocusMode = FocusModeEnum.None,
             MouseFilter = MouseFilterEnum.Stop
         };
@@ -441,7 +468,9 @@ public partial class DrawingScreen : Control
         _peekButton.MouseFilter = MouseFilterEnum.Stop;
         _peekBackdrop.Visible = !peeking;
         _peekPanelContainer.Visible = !peeking;
-        _peekButton.TooltipText = peeking ? "返回绘画（Esc）" : "观察战局";
+        _peekButton.TooltipText = peeking
+            ? Localized("返回绘画（Esc）", "Return to drawing (Esc)")
+            : Localized("观察战局", "View combat");
         _peekIcon.SetActive(peeking);
         AnimatePeekButton();
     }
@@ -475,22 +504,27 @@ public partial class DrawingScreen : Control
         {
             byte[] png = _canvas.ExportPng();
             CardGuess guess = CardArtClassifier.Guess(_canvas.Snapshot(), _owner);
+            bool skipAddingToDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck;
             _status.Text = "";
             FlushCommands();
             DrawingNetSync.SendFinal(new DrawingFinalMessage
             {
                 OwnerId = _owner.NetId,
                 SessionId = _sessionId,
+                SkipAddingToDeck = skipAddingToDeck,
                 CardIds = guess.NearestCards.Select(card => card.Id.Entry).ToList(),
                 PngBytes = png
             });
             await ToSignal(GetTree().CreateTimer(0.6d, processAlways: true), SceneTreeTimer.SignalName.Timeout);
-            Complete(new DrawingResult(png, guess));
+            Complete(new DrawingResult(
+                png,
+                guess,
+                skipAddingToDeck));
         }
         catch (Exception ex)
         {
             Entry.Logger.Error($"[DrawAndGuessMod] Guess failed: {ex}");
-            _status.Text = "识别失败：" + ex.Message;
+            _status.Text = Localized("识别失败：", "Recognition failed: ") + ex.Message;
             _guessButton.Disabled = false;
             _finishing = false;
         }
@@ -574,13 +608,13 @@ public partial class DrawingScreen : Control
             {
                 Color color = _customColors[index];
                 button.Disabled = false;
-                button.TooltipText = "自定义 #" + color.ToHtml(false).ToUpperInvariant();
+                button.TooltipText = Localized("自定义 #", "Custom #") + color.ToHtml(false).ToUpperInvariant();
                 ApplyColorButtonStyle(button, color);
             }
             else
             {
                 button.Disabled = true;
-                button.TooltipText = "空白自定义颜色";
+                button.TooltipText = Localized("空白自定义颜色", "Empty custom color slot");
                 ApplyColorButtonStyle(button, new Color("2B3038"));
             }
         }
@@ -629,7 +663,7 @@ public partial class DrawingScreen : Control
 
         Label title = new()
         {
-            Text = "添加自定义颜色",
+            Text = Localized("添加自定义颜色", "Add Custom Color"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 24);
@@ -689,11 +723,19 @@ public partial class DrawingScreen : Control
             MouseFilter = MouseFilterEnum.Ignore
         };
         rgbColumn.AddChild(spacer);
-        Button cancel = new() { Text = "取消", CustomMinimumSize = new Vector2(150f, 50f) };
+        Button cancel = new()
+        {
+            Text = Localized("取消", "Cancel"),
+            CustomMinimumSize = new Vector2(150f, 50f)
+        };
         ApplyColorPickerCancelStyle(cancel);
         cancel.Pressed += CloseColorPicker;
         rgbColumn.AddChild(cancel);
-        _confirmColorButton = new Button { Text = "确认添加", CustomMinimumSize = new Vector2(150f, 50f) };
+        _confirmColorButton = new Button
+        {
+            Text = Localized("确认添加", "Add Color"),
+            CustomMinimumSize = new Vector2(150f, 50f)
+        };
         UpdateConfirmColorButton(_selectedColor);
         _confirmColorButton.Pressed += ConfirmCustomColor;
         rgbColumn.AddChild(_confirmColorButton);
@@ -816,7 +858,9 @@ public partial class DrawingScreen : Control
         Color foreground = lightColor ? new Color("171B20") : new Color("FFF8E8");
         Color hoverFill = lightColor ? normalized.Darkened(0.08f) : normalized.Lightened(0.10f);
         Color pressedFill = lightColor ? normalized.Darkened(0.16f) : normalized.Lightened(0.18f);
-        _confirmColorButton.TooltipText = $"添加颜色 #{normalized.ToHtml(false).ToUpperInvariant()}";
+        _confirmColorButton.TooltipText = Localized(
+            $"添加颜色 #{normalized.ToHtml(false).ToUpperInvariant()}",
+            $"Add color #{normalized.ToHtml(false).ToUpperInvariant()}");
         _confirmColorButton.AddThemeFontSizeOverride("font_size", 19);
         _confirmColorButton.AddThemeColorOverride("font_color", foreground);
         _confirmColorButton.AddThemeColorOverride("font_hover_color", foreground);
@@ -884,8 +928,9 @@ public partial class DrawingScreen : Control
         _fillToolButton.ButtonPressed = false;
     }
 
-    private void AddStampButton(HBoxContainer tools, string characterName, CharacterModel character, byte stampIndex)
+    private void AddStampButton(HBoxContainer tools, CharacterModel character, byte stampIndex)
     {
+        string characterName = character.Title.GetFormattedText();
         Texture2D texture = character.IconTexture;
         _canvas.RegisterStamp(stampIndex, texture);
         Button button = new()
@@ -903,7 +948,9 @@ public partial class DrawingScreen : Control
             }
             else
             {
-                _status.Text = "无法读取角色头像：" + characterName;
+                _status.Text = Localized(
+                    "无法读取角色头像：" + characterName,
+                    "Could not load character portrait: " + characterName);
             }
         };
         tools.AddChild(button);
@@ -987,7 +1034,9 @@ public partial class DrawingScreen : Control
 
         _historyEpoch = message.Epoch;
         _pendingCommands.Clear();
-        _status.Text = "已同步撤回后的画布。";
+        _status.Text = Localized(
+            "已同步撤回后的画布。",
+            "The canvas has been synchronized after the undo.");
     }
 
     internal void ReceiveFinal(DrawingFinalMessage message)
@@ -1024,7 +1073,7 @@ public partial class DrawingScreen : Control
         }
 
         CardGuess guess = new(candidates[0], 0, 0d, candidates);
-        Complete(new DrawingResult(message.PngBytes, guess));
+        Complete(new DrawingResult(message.PngBytes, guess, message.SkipAddingToDeck));
     }
 
     private void OnLocalCommand(DrawingCommand command)
@@ -1073,7 +1122,9 @@ public partial class DrawingScreen : Control
         }
 
         DrawingNetSync.SendUndoRequest(_owner.NetId, _sessionId);
-        _status.Text = "已请求出牌者撤回最近一次操作。";
+        _status.Text = Localized(
+            "已请求出牌者撤回最近一次操作。",
+            "Asked the player who played the card to undo the most recent action.");
     }
 
     private void ApplyAuthoritativeUndo(ulong requesterId)
@@ -1087,7 +1138,9 @@ public partial class DrawingScreen : Control
         LinkedListNode<DrawingOperationKey>? last = _undoableOperations.Last;
         if (last == null)
         {
-            _status.Text = "没有可以撤回的操作。";
+            _status.Text = Localized(
+                "没有可以撤回的操作。",
+                "There are no actions to undo.");
             return;
         }
 
@@ -1106,7 +1159,9 @@ public partial class DrawingScreen : Control
             .Select(entry => entry.Command));
         _historyEpoch++;
         _pendingCommands.Clear();
-        _status.Text = $"已撤回最近一次操作（剩余 {_undoableOperations.Count} 步可撤回）。";
+        _status.Text = Localized(
+            $"已撤回最近一次操作（剩余 {_undoableOperations.Count} 步可撤回）。",
+            $"Undid the most recent action ({_undoableOperations.Count} undoable actions remain).");
         Entry.Logger.Debug($"[DrawAndGuessMod] Undo requested by {requesterId}: sender={operation.SenderId}, operation={operation.OperationId}, epoch={_historyEpoch}.");
         DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
         {
@@ -1147,6 +1202,11 @@ public partial class DrawingScreen : Control
         {
             QueueFree();
         }
+    }
+
+    private static string Localized(string simplifiedChinese, string english)
+    {
+        return ModText.Get(simplifiedChinese, english);
     }
 
     private sealed partial class EyeIconControl : Control

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Config;
+using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
@@ -140,7 +141,9 @@ internal static class CardArtClassifier
 
         if (generatedFeatures.Count == 0)
         {
-            throw new InvalidOperationException("当前没有可预训练的卡牌立绘。");
+            throw new InvalidOperationException(ModText.Get(
+                "当前没有可用于建立识别缓存的卡牌图片。",
+                "No card images are available for building the recognition cache."));
         }
 
         string modelPath = GetUserModelPath();
@@ -170,7 +173,9 @@ internal static class CardArtClassifier
         List<TrainingSample> candidates = FilterCandidates(owner).ToList();
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException("当前设置下没有可用于识别的卡牌立绘。");
+            throw new InvalidOperationException(ModText.Get(
+                "当前设置下没有可用于识别的卡牌立绘。",
+                "No card illustrations are available under the current recognition settings."));
         }
 
         double[] drawingFeatures = ExtractFeatures(drawing, treatAsSketch: true);
