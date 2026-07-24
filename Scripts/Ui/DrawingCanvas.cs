@@ -11,16 +11,14 @@ public partial class DrawingCanvas : Control
     public const int MinBrushSize = 4;
     public const int MaxBrushSize = 48;
     public const int DefaultBrushSize = 14;
-    private const int MinStampSize = 40;
-    private const int MaxStampSize = 192;
+    public const int MinStampSize = 40;
+    public const int MaxStampSize = 192;
+    public const int DefaultStampSize = 96;
     private static readonly Color StampPreviewModulate = new(1f, 1f, 1f, 0.45f);
-    private static readonly Color EraserPreviewFill = new(1f, 1f, 1f, 0.18f);
-    private static readonly Color EraserPreviewOutline = new(0.12f, 0.12f, 0.12f, 0.92f);
 
     private enum DrawingTool
     {
         Brush,
-        Eraser,
         Fill,
         Stamp
     }
@@ -28,24 +26,27 @@ public partial class DrawingCanvas : Control
     private readonly Color _paperColor = new("F4EEDC");
     private Image _image = null!;
     private ImageTexture _texture = null!;
-    private Color _brushColor = new("1B1A18");
+    private Color _leftColor = new("1B1A18");
+    private Color _rightColor = Colors.White;
+    private Color _activeStrokeColor = new("1B1A18");
     private DrawingTool _tool = DrawingTool.Brush;
     private Image? _stampImage;
     private ImageTexture? _stampPreviewTexture;
     private byte _stampIndex;
     private byte _brushSize = DefaultBrushSize;
+    private byte _stampSize = DefaultStampSize;
     private uint _nextOperationId = 1u;
     private uint _activeStrokeOperationId;
     private readonly Dictionary<byte, Image> _stampImages = new();
-    private readonly Dictionary<(byte StampIndex, byte BrushSize), Image> _scaledStampImages = new();
+    private readonly Dictionary<(byte StampIndex, byte StampSize), Image> _scaledStampImages = new();
     private bool _drawing;
-    private bool _erasing;
     private bool _batchApplying;
     private bool _pointerInside;
     private Vector2 _lastPixel;
     private Vector2 _pointerPosition;
 
     internal event Action<DrawingCommand>? LocalCommandGenerated;
+    internal event Action<Color>? LeftColorSampled;
 
     public override void _Ready()
     {
@@ -72,13 +73,6 @@ public partial class DrawingCanvas : Control
             Rect2 previewRect = new(_pointerPosition - previewSize / 2f, previewSize);
             DrawTextureRect(_stampPreviewTexture, previewRect, false, StampPreviewModulate);
         }
-        else if (_tool == DrawingTool.Eraser && _pointerInside)
-        {
-            float displayScale = Mathf.Min(Size.X / CanvasWidth, Size.Y / CanvasHeight);
-            float radius = Mathf.Max(2f, _brushSize * displayScale / 2f);
-            DrawCircle(_pointerPosition, radius, EraserPreviewFill, true, -1f, true);
-            DrawCircle(_pointerPosition, radius, EraserPreviewOutline, false, 2f, true);
-        }
         DrawRect(new Rect2(Vector2.Zero, Size), new Color("6D624E"), false, 3f);
     }
 
@@ -92,6 +86,21 @@ public partial class DrawingCanvas : Control
 
     public override void _GuiInput(InputEvent @event)
     {
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Middle } middleButton)
+        {
+            if (middleButton.Pressed)
+            {
+                Vector2 pixel = ToPixel(middleButton.Position);
+                Color sampled = NormalizeColor(_image.GetPixel(
+                    Mathf.RoundToInt(pixel.X),
+                    Mathf.RoundToInt(pixel.Y)));
+                _leftColor = sampled;
+                LeftColorSampled?.Invoke(sampled);
+            }
+            AcceptEvent();
+            return;
+        }
+
         if (@event is InputEventMouseButton button && (button.ButtonIndex == MouseButton.Left || button.ButtonIndex == MouseButton.Right))
         {
             if (!button.Pressed)
@@ -102,23 +111,20 @@ public partial class DrawingCanvas : Control
             }
 
             _lastPixel = ToPixel(button.Position);
-            if (button.ButtonIndex == MouseButton.Right)
+            Color inputColor = button.ButtonIndex == MouseButton.Right ? _rightColor : _leftColor;
+            if (_tool == DrawingTool.Brush)
             {
                 _activeStrokeOperationId = NextOperationId();
+                _activeStrokeColor = inputColor;
                 _drawing = true;
-                _erasing = true;
-                PaintLineLocal(_lastPixel, _lastPixel);
-            }
-            else if (_tool == DrawingTool.Brush || _tool == DrawingTool.Eraser)
-            {
-                _activeStrokeOperationId = NextOperationId();
-                _drawing = true;
-                _erasing = _tool == DrawingTool.Eraser;
                 PaintLineLocal(_lastPixel, _lastPixel);
             }
             else if (_tool == DrawingTool.Fill)
             {
-                FloodFillLocal(Mathf.RoundToInt(_lastPixel.X), Mathf.RoundToInt(_lastPixel.Y));
+                FloodFillLocal(
+                    Mathf.RoundToInt(_lastPixel.X),
+                    Mathf.RoundToInt(_lastPixel.Y),
+                    inputColor);
             }
             else if (_stampImage != null)
             {
@@ -156,42 +162,41 @@ public partial class DrawingCanvas : Control
         LocalCommandGenerated?.Invoke(DrawingCommand.Clear(NextOperationId()));
     }
 
-    public void SetBrushColor(Color color)
+    public void SetMouseColors(Color leftColor, Color rightColor)
     {
-        _brushColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
+        _leftColor = NormalizeColor(leftColor);
+        _rightColor = NormalizeColor(rightColor);
+        if (_tool == DrawingTool.Fill && _pointerInside)
+        {
+            QueueRedraw();
+        }
     }
 
     public void SetBrushTool()
     {
         _tool = DrawingTool.Brush;
-        QueueRedraw();
-    }
-
-    public void SetEraserTool()
-    {
-        _tool = DrawingTool.Eraser;
+        UpdateMouseCursor();
         QueueRedraw();
     }
 
     public void SetFillTool()
     {
         _tool = DrawingTool.Fill;
+        UpdateMouseCursor();
         QueueRedraw();
     }
 
     public void SetBrushSize(int size)
     {
         _brushSize = (byte)Mathf.Clamp(size, MinBrushSize, MaxBrushSize);
-        if (HasPointerPreview())
+    }
+
+    public void SetStampSize(int size)
+    {
+        _stampSize = (byte)Mathf.Clamp(size, MinStampSize, MaxStampSize);
+        if (_tool == DrawingTool.Stamp)
         {
-            if (_tool == DrawingTool.Stamp)
-            {
-                UpdateSelectedStampImage();
-            }
-            else
-            {
-                QueueRedraw();
-            }
+            UpdateSelectedStampImage();
         }
     }
 
@@ -207,7 +212,7 @@ public partial class DrawingCanvas : Control
 
             image.Convert(Image.Format.Rgba8);
             _stampImages[stampIndex] = image;
-            foreach ((byte StampIndex, byte BrushSize) key in _scaledStampImages.Keys.Where(key => key.StampIndex == stampIndex).ToList())
+            foreach ((byte StampIndex, byte StampSize) key in _scaledStampImages.Keys.Where(key => key.StampIndex == stampIndex).ToList())
             {
                 _scaledStampImages.Remove(key);
             }
@@ -228,12 +233,25 @@ public partial class DrawingCanvas : Control
 
         _stampIndex = stampIndex;
         _tool = DrawingTool.Stamp;
+        UpdateMouseCursor();
         UpdateSelectedStampImage();
         Vector2 localMouse = GetLocalMousePosition();
         _pointerInside = new Rect2(Vector2.Zero, Size).HasPoint(localMouse);
         _pointerPosition = localMouse;
         QueueRedraw();
         return true;
+    }
+
+    public bool IsStampTool()
+    {
+        return _tool == DrawingTool.Stamp;
+    }
+
+    private void UpdateMouseCursor()
+    {
+        MouseDefaultCursorShape = _tool == DrawingTool.Fill
+            ? CursorShape.PointingHand
+            : CursorShape.Cross;
     }
 
     internal void ApplyRemote(DrawingCommand command)
@@ -254,7 +272,7 @@ public partial class DrawingCanvas : Control
                 ApplyFloodFill(command.X1, command.Y1, DrawingCommand.UnpackRgb(command.ColorRgb));
                 break;
             case DrawingCommandKind.Stamp:
-                Image? stamp = GetScaledStampImage(command.StampIndex, command.BrushSize);
+                Image? stamp = GetScaledStampImage(command.StampIndex, command.StampSize);
                 if (stamp != null)
                 {
                     ApplyStamp(command.X1, command.Y1, stamp);
@@ -277,7 +295,6 @@ public partial class DrawingCanvas : Control
         imported.Convert(Image.Format.Rgba8);
         imported.Resize(CanvasWidth, CanvasHeight, Image.Interpolation.Lanczos);
         _drawing = false;
-        _erasing = false;
         _activeStrokeOperationId = 0u;
         _image = imported;
         _texture.Update(_image);
@@ -304,14 +321,14 @@ public partial class DrawingCanvas : Control
 
     private void PaintLineLocal(Vector2 from, Vector2 to)
     {
-        ApplyLine(from, to, _brushColor, _erasing, _brushSize);
+        ApplyLine(from, to, _activeStrokeColor, false, _brushSize);
         LocalCommandGenerated?.Invoke(DrawingCommand.Line(
             ToUShort(from.X),
             ToUShort(from.Y),
             ToUShort(to.X),
             ToUShort(to.Y),
-            _brushColor,
-            _erasing,
+            _activeStrokeColor,
+            false,
             _brushSize,
             _activeStrokeOperationId));
     }
@@ -351,14 +368,14 @@ public partial class DrawingCanvas : Control
         }
     }
 
-    private void FloodFillLocal(int startX, int startY)
+    private void FloodFillLocal(int startX, int startY, Color fillColor)
     {
-        if (ApplyFloodFill(startX, startY, _brushColor))
+        if (ApplyFloodFill(startX, startY, fillColor))
         {
             LocalCommandGenerated?.Invoke(DrawingCommand.Fill(
                 (ushort)startX,
                 (ushort)startY,
-                _brushColor,
+                fillColor,
                 NextOperationId()));
         }
     }
@@ -432,22 +449,22 @@ public partial class DrawingCanvas : Control
                 (ushort)centerX,
                 (ushort)centerY,
                 _stampIndex,
-                _brushSize,
+                _stampSize,
                 NextOperationId()));
         }
     }
 
     private void UpdateSelectedStampImage()
     {
-        _stampImage = GetScaledStampImage(_stampIndex, _brushSize);
+        _stampImage = GetScaledStampImage(_stampIndex, _stampSize);
         _stampPreviewTexture = _stampImage == null ? null : ImageTexture.CreateFromImage(_stampImage);
         QueueRedraw();
     }
 
-    private Image? GetScaledStampImage(byte stampIndex, byte brushSize)
+    private Image? GetScaledStampImage(byte stampIndex, byte stampSize)
     {
-        byte normalizedBrushSize = (byte)Mathf.Clamp(brushSize, MinBrushSize, MaxBrushSize);
-        (byte StampIndex, byte BrushSize) key = (stampIndex, normalizedBrushSize);
+        byte normalizedStampSize = (byte)Mathf.Clamp(stampSize, MinStampSize, MaxStampSize);
+        (byte StampIndex, byte StampSize) key = (stampIndex, normalizedStampSize);
         if (_scaledStampImages.TryGetValue(key, out Image? cached))
         {
             return cached;
@@ -457,18 +474,10 @@ public partial class DrawingCanvas : Control
             return null;
         }
 
-        int stampSize = GetStampPixelSize(normalizedBrushSize);
         Image scaled = Image.CreateFromData(source.GetWidth(), source.GetHeight(), false, source.GetFormat(), source.GetData());
-        scaled.Resize(stampSize, stampSize, Image.Interpolation.Lanczos);
+        scaled.Resize(normalizedStampSize, normalizedStampSize, Image.Interpolation.Lanczos);
         _scaledStampImages[key] = scaled;
         return scaled;
-    }
-
-    private static int GetStampPixelSize(byte brushSize)
-    {
-        float ratio = (Mathf.Clamp(brushSize, MinBrushSize, MaxBrushSize) - MinBrushSize) /
-                      (float)(MaxBrushSize - MinBrushSize);
-        return Mathf.RoundToInt(Mathf.Lerp(MinStampSize, MaxStampSize, ratio));
     }
 
     private void OnMouseEnteredCanvas()
@@ -492,7 +501,7 @@ public partial class DrawingCanvas : Control
 
     private bool HasPointerPreview()
     {
-        return _tool is DrawingTool.Eraser or DrawingTool.Stamp;
+        return _tool == DrawingTool.Stamp;
     }
 
     private bool ApplyStamp(int centerX, int centerY, Image stampImage)
@@ -567,7 +576,6 @@ public partial class DrawingCanvas : Control
             LocalCommandGenerated?.Invoke(DrawingCommand.StrokeEnd(_activeStrokeOperationId));
         }
         _drawing = false;
-        _erasing = false;
         _activeStrokeOperationId = 0u;
         if (HasPointerPreview())
         {
@@ -578,5 +586,10 @@ public partial class DrawingCanvas : Control
     private static ushort ToUShort(float value)
     {
         return (ushort)Mathf.Clamp(Mathf.RoundToInt(value), 0, ushort.MaxValue);
+    }
+
+    private static Color NormalizeColor(Color color)
+    {
+        return DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
     }
 }

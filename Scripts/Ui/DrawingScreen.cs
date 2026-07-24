@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Characters;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Ui;
 
@@ -27,6 +28,10 @@ public partial class DrawingScreen : Control
     private const int CustomColorCapacity = 11;
     private const float ColorButtonHeight = 30f;
     private const ulong TimerSyncIntervalMsec = 250uL;
+    private const string PenNibIconPath =
+        "res://images/atlases/relic_atlas.sprites/pen_nib.tres";
+    private const string InkBottleIconPath =
+        "res://images/atlases/relic_atlas.sprites/ink_bottle.tres";
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
     private readonly List<DrawingCommand> _pendingCommands = new();
@@ -47,8 +52,11 @@ public partial class DrawingScreen : Control
     private Label _status = null!;
     private Button _guessButton = null!;
     private Button _brushToolButton = null!;
-    private Button _eraserToolButton = null!;
     private Button _fillToolButton = null!;
+    private Label _sizeLabel = null!;
+    private HSlider _sizeSlider = null!;
+    private Button _leftColorButton = null!;
+    private Button _rightColorButton = null!;
     private Button _peekButton = null!;
     private EyeIconControl _peekIcon = null!;
     private Control _peekBackdrop = null!;
@@ -60,10 +68,16 @@ public partial class DrawingScreen : Control
     private SpinBox _greenInput = null!;
     private SpinBox _blueInput = null!;
     private Tween? _peekTween;
-    private Color _selectedColor = new("1B1A18");
+    private Color _leftColor = new("1B1A18");
+    private Color _rightColor = Colors.White;
     private bool _syncingColorInputs;
     private bool _peeking;
     private bool _finishing;
+    private bool _gFillHeld;
+    private bool _syncingSizeSlider;
+    private bool _showingStampSize;
+    private int _brushSize = DrawingCanvas.DefaultBrushSize;
+    private int _stampSize = DrawingCanvas.DefaultStampSize;
     private double? _remainingSeconds;
     private ProgressBar? _timerBar;
     private StyleBoxFlat? _timerFillStyle;
@@ -108,6 +122,16 @@ public partial class DrawingScreen : Control
 
     public override void _Process(double delta)
     {
+        if (ShouldCloseForRunExit())
+        {
+            _finishing = true;
+            _pendingCommands.Clear();
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Closing drawing session {_sessionId} because the active run ended.");
+            Complete(null);
+            return;
+        }
+
         if (_pendingCommands.Count > 0 && Time.GetTicksMsec() >= _lastCommandFlushMsec + 50)
         {
             FlushCommands();
@@ -133,8 +157,48 @@ public partial class DrawingScreen : Control
         }
     }
 
+    private bool ShouldCloseForRunExit()
+    {
+        RunManager runManager = RunManager.Instance;
+        return runManager.IsAbandoned ||
+               runManager.IsCleaningUp ||
+               !runManager.IsInProgress ||
+               !ReferenceEquals(runManager.DebugOnlyGetState(), _owner.RunState);
+    }
+
     public override void _Input(InputEvent @event)
     {
+        if (@event is InputEventMouseButton { Pressed: true } wheel &&
+            wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown &&
+            !_finishing)
+        {
+            double direction = wheel.ButtonIndex == MouseButton.WheelUp ? 1d : -1d;
+            _sizeSlider.Value = Math.Clamp(
+                _sizeSlider.Value + direction * _sizeSlider.Step,
+                _sizeSlider.MinValue,
+                _sizeSlider.MaxValue);
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        if (@event is InputEventKey { Echo: false, Keycode: Key.G } fillKey)
+        {
+            if (fillKey.Pressed && !_gFillHeld && !_finishing && !_peeking && !_colorPickerOverlay.Visible)
+            {
+                _gFillHeld = true;
+                ActivateFillTool();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            if (!fillKey.Pressed && _gFillHeld)
+            {
+                _gFillHeld = false;
+                ActivateBrushTool();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
+
         if (@event is InputEventKey { Pressed: true, Echo: false, CtrlPressed: true, Keycode: Key.Z } &&
             !DrawingNetSync.IsMultiplayer && !_peeking && !_colorPickerOverlay.Visible)
         {
@@ -143,18 +207,6 @@ public partial class DrawingScreen : Control
             return;
         }
 
-        if (@event is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
-        {
-            if (_colorPickerOverlay.Visible)
-            {
-                CloseColorPicker();
-            }
-            else if (_peeking)
-            {
-                SetPeeking(false);
-            }
-            GetViewport().SetInputAsHandled();
-        }
     }
 
     public override void _ExitTree()
@@ -187,6 +239,7 @@ public partial class DrawingScreen : Control
         {
             CustomMinimumSize = new Vector2(880f, 760f)
         };
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxEmpty());
         center.AddChild(panel);
 
         MarginContainer margin = new();
@@ -256,14 +309,42 @@ public partial class DrawingScreen : Control
         canvasRow.AddChild(canvasCenter);
         _canvas = new DrawingCanvas();
         _canvas.LocalCommandGenerated += OnLocalCommand;
+        _canvas.LeftColorSampled += OnLeftColorSampled;
+        _canvas.SetMouseColors(_leftColor, _rightColor);
         canvasCenter.AddChild(_canvas);
+
+        HBoxContainer paletteArea = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        paletteArea.AddThemeConstantOverride("separation", 8);
+        column.AddChild(paletteArea);
+
+        VBoxContainer colorAssignments = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        colorAssignments.AddThemeConstantOverride("separation", 4);
+        paletteArea.AddChild(colorAssignments);
+        _leftColorButton = CreateMouseColorButton(
+            Localized("左键", "LMB"),
+            Localized(
+                "当前左键颜色；左键点击右侧色块即可替换",
+                "Current left mouse button color; left-click a swatch to replace it"));
+        _rightColorButton = CreateMouseColorButton(
+            Localized("右键", "RMB"),
+            Localized(
+                "当前右键颜色；右键点击右侧色块即可替换",
+                "Current right mouse button color; right-click a swatch to replace it"));
+        colorAssignments.AddChild(_leftColorButton);
+        colorAssignments.AddChild(_rightColorButton);
 
         VBoxContainer paletteRows = new()
         {
             Alignment = BoxContainer.AlignmentMode.Center
         };
         paletteRows.AddThemeConstantOverride("separation", 4);
-        column.AddChild(paletteRows);
+        paletteArea.AddChild(paletteRows);
 
         HBoxContainer fixedColorsTop = CreateColorRow();
         HBoxContainer fixedColorsBottom = CreateColorRow();
@@ -301,10 +382,20 @@ public partial class DrawingScreen : Control
                 FocusMode = FocusModeEnum.None
             };
             customColor.Pressed += () => SelectCustomColor(slotIndex);
+            customColor.GuiInput += @event =>
+            {
+                if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } &&
+                    slotIndex < _customColors.Count)
+                {
+                    SelectRightColor(_customColors[slotIndex]);
+                    customColor.AcceptEvent();
+                }
+            };
             _customColorButtons.Add(customColor);
             customColors.AddChild(customColor);
         }
         RefreshCustomColorButtons();
+        RefreshMouseColorButtons();
 
         HBoxContainer tools = new()
         {
@@ -323,34 +414,22 @@ public partial class DrawingScreen : Control
 
         ButtonGroup drawingToolGroup = new() { AllowUnpress = true };
         _brushToolButton = CreateDrawingToolButton(
+            ResourceLoader.Load<Texture2D>(PenNibIconPath, null, ResourceLoader.CacheMode.Reuse),
             Localized("画笔", "Brush"),
-            Localized("使用当前颜色绘制", "Draw using the current color"),
-            drawingToolGroup);
-        _eraserToolButton = CreateDrawingToolButton(
-            Localized("橡皮", "Eraser"),
-            Localized("使用当前粗细擦除", "Erase using the current size"),
+            Localized(
+                "使用左键或右键颜色绘制",
+                "Draw with the left or right mouse button color"),
             drawingToolGroup);
         _fillToolButton = CreateDrawingToolButton(
+            ResourceLoader.Load<Texture2D>(InkBottleIconPath, null, ResourceLoader.CacheMode.Reuse),
             Localized("填充", "Fill"),
-            Localized("使用当前颜色填充封闭区域", "Fill an enclosed area with the current color"),
+            Localized(
+                "快捷键：按住 G 临时切换，松开回到画笔\n",
+                "Shortcut: hold G temporarily and release to return to the brush\n"),
             drawingToolGroup);
-        _brushToolButton.Pressed += () =>
-        {
-            SelectDrawingTool(_brushToolButton);
-            _canvas.SetBrushTool();
-        };
-        _eraserToolButton.Pressed += () =>
-        {
-            SelectDrawingTool(_eraserToolButton);
-            _canvas.SetEraserTool();
-        };
-        _fillToolButton.Pressed += () =>
-        {
-            SelectDrawingTool(_fillToolButton);
-            _canvas.SetFillTool();
-        };
+        _brushToolButton.Pressed += ActivateBrushTool;
+        _fillToolButton.Pressed += ActivateFillTool;
         drawingTools.AddChild(_brushToolButton);
-        drawingTools.AddChild(_eraserToolButton);
         drawingTools.AddChild(_fillToolButton);
         SelectDrawingTool(_brushToolButton);
 
@@ -361,14 +440,14 @@ public partial class DrawingScreen : Control
         toolOptions.AddThemeConstantOverride("separation", 10);
         tools.AddChild(toolOptions);
 
-        HBoxContainer brushSizeRow = new()
+        HBoxContainer sizeRow = new()
         {
             Alignment = BoxContainer.AlignmentMode.Center
         };
-        brushSizeRow.AddThemeConstantOverride("separation", 8);
-        toolOptions.AddChild(brushSizeRow);
+        sizeRow.AddThemeConstantOverride("separation", 8);
+        toolOptions.AddChild(sizeRow);
 
-        Label brushSizeLabel = new()
+        _sizeLabel = new Label
         {
             Text = Localized(
                 $"粗细：{DrawingCanvas.DefaultBrushSize} px",
@@ -376,9 +455,9 @@ public partial class DrawingScreen : Control
             VerticalAlignment = VerticalAlignment.Center,
             CustomMinimumSize = new Vector2(92f, 0f)
         };
-        brushSizeRow.AddChild(brushSizeLabel);
+        sizeRow.AddChild(_sizeLabel);
 
-        HSlider brushSizeSlider = new()
+        _sizeSlider = new HSlider
         {
             MinValue = DrawingCanvas.MinBrushSize,
             MaxValue = DrawingCanvas.MaxBrushSize,
@@ -386,16 +465,31 @@ public partial class DrawingScreen : Control
             Value = DrawingCanvas.DefaultBrushSize,
             CustomMinimumSize = new Vector2(170f, 32f),
             TooltipText = Localized(
-                "调整画笔和橡皮的粗细，同时改变角色印花大小",
-                "Adjust brush and eraser size; this also changes character stamp size")
+                "调整画笔粗细",
+                "Adjust brush size")
         };
-        brushSizeSlider.ValueChanged += value =>
+        _sizeSlider.ValueChanged += value =>
         {
+            if (_syncingSizeSlider)
+            {
+                return;
+            }
+
             int size = Mathf.RoundToInt(value);
-            _canvas.SetBrushSize(size);
-            brushSizeLabel.Text = Localized($"粗细：{size} px", $"Size: {size} px");
+            if (_showingStampSize)
+            {
+                _stampSize = size;
+                _canvas.SetStampSize(size);
+                _sizeLabel.Text = Localized($"印花：{size} px", $"Stamp: {size} px");
+            }
+            else
+            {
+                _brushSize = size;
+                _canvas.SetBrushSize(size);
+                _sizeLabel.Text = Localized($"粗细：{size} px", $"Size: {size} px");
+            }
         };
-        brushSizeRow.AddChild(brushSizeSlider);
+        sizeRow.AddChild(_sizeSlider);
 
         HBoxContainer stampRow = new()
         {
@@ -435,30 +529,84 @@ public partial class DrawingScreen : Control
         buttons.AddThemeConstantOverride("separation", 12);
         column.AddChild(buttons);
 
-        Button clear = new() { Text = Localized("清空", "Clear") };
+        Button clear = CreateActionButton(
+            Localized("清空", "Clear"),
+            new Color("5B252B"),
+            new Color("E47A78"));
         clear.Pressed += _canvas.ClearCanvas;
         buttons.AddChild(clear);
 
         if (!DrawingNetSync.IsMultiplayer)
         {
-            Button undo = new()
-            {
-                Text = Localized("撤回", "Undo"),
-                TooltipText = Localized(
-                    $"撤回最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
-                    $"Undo the most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained")
-            };
+            Button undo = CreateActionButton(
+                Localized("撤回", "Undo"),
+                new Color("253D58"),
+                new Color("79BCE8"));
+            undo.TooltipText = Localized(
+                $"撤回最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
+                $"Undo the most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained");
             undo.Pressed += RequestUndo;
             buttons.AddChild(undo);
         }
 
-        _guessButton = new Button { Text = Localized("确认", "Confirm") };
+        _guessButton = CreateActionButton(
+            Localized("确认", "Confirm"),
+            new Color("176B72"),
+            new Color("75F0E6"),
+            primary: true);
         _guessButton.Disabled = !_isChooser;
         _guessButton.Pressed += OnGuessPressed;
         buttons.AddChild(_guessButton);
 
         AddPeekButton(backdrop, center);
         BuildColorPickerOverlay();
+    }
+
+    private static Button CreateActionButton(string text, Color fill, Color border, bool primary = false)
+    {
+        Button button = new()
+        {
+            Text = text,
+            FocusMode = FocusModeEnum.None
+        };
+        button.AddThemeColorOverride("font_color", Colors.White);
+        button.AddThemeColorOverride("font_hover_color", Colors.White);
+        button.AddThemeColorOverride("font_pressed_color", Colors.White);
+        button.AddThemeStyleboxOverride(
+            "normal",
+            CreateActionButtonStyle(fill, border, primary ? 3 : 2, primary ? 7 : 4));
+        button.AddThemeStyleboxOverride(
+            "hover",
+            CreateActionButtonStyle(fill.Lightened(0.14f), border.Lightened(0.12f), 3, primary ? 9 : 6));
+        button.AddThemeStyleboxOverride(
+            "pressed",
+            CreateActionButtonStyle(fill.Darkened(0.12f), border, 3, 2));
+        button.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+        return button;
+    }
+
+    private static StyleBoxFlat CreateActionButtonStyle(Color fill, Color border, int borderWidth, int shadowSize)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = fill,
+            BorderColor = border,
+            BorderWidthLeft = borderWidth,
+            BorderWidthTop = borderWidth,
+            BorderWidthRight = borderWidth,
+            BorderWidthBottom = borderWidth,
+            CornerRadiusTopLeft = 10,
+            CornerRadiusTopRight = 10,
+            CornerRadiusBottomLeft = 10,
+            CornerRadiusBottomRight = 10,
+            ContentMarginLeft = 10f,
+            ContentMarginRight = 10f,
+            ContentMarginTop = 5f,
+            ContentMarginBottom = 5f,
+            ShadowColor = new Color(0f, 0f, 0f, 0.45f),
+            ShadowSize = shadowSize,
+            ShadowOffset = new Vector2(0f, 3f)
+        };
     }
 
     private void AddPeekButton(Control backdrop, Control panelContainer)
@@ -524,7 +672,7 @@ public partial class DrawingScreen : Control
         _peekBackdrop.Visible = !peeking;
         _peekPanelContainer.Visible = !peeking;
         _peekButton.TooltipText = peeking
-            ? Localized("返回绘画（Esc）", "Return to drawing (Esc)")
+            ? Localized("返回绘画", "Return to drawing")
             : _options?.PeekTooltip ?? Localized("观察战局", "View combat");
         _peekIcon.SetActive(peeking);
         AnimatePeekButton();
@@ -636,12 +784,22 @@ public partial class DrawingScreen : Control
         Button button = new()
         {
             Text = string.Empty,
-            TooltipText = colorName,
+            TooltipText = colorName + Localized(
+                "\n右键：设为右键颜色",
+                "\nRight-click: set as the right mouse button color"),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             FocusMode = FocusModeEnum.None
         };
         ApplyColorButtonStyle(button, color);
         button.Pressed += () => SelectColor(color);
+        button.GuiInput += @event =>
+        {
+            if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true })
+            {
+                SelectRightColor(color);
+                button.AcceptEvent();
+            }
+        };
         palette.AddChild(button);
     }
 
@@ -658,8 +816,80 @@ public partial class DrawingScreen : Control
 
     private void SelectColor(Color color)
     {
-        _selectedColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
-        _canvas.SetBrushColor(_selectedColor);
+        _leftColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
+        _canvas.SetMouseColors(_leftColor, _rightColor);
+        RefreshMouseColorButtons();
+        if (_canvas.IsStampTool())
+        {
+            ActivateBrushTool();
+        }
+    }
+
+    private void SelectRightColor(Color color)
+    {
+        _rightColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
+        _canvas.SetMouseColors(_leftColor, _rightColor);
+        RefreshMouseColorButtons();
+        if (_canvas.IsStampTool())
+        {
+            ActivateBrushTool();
+        }
+    }
+
+    private void OnLeftColorSampled(Color color)
+    {
+        _leftColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
+        _canvas.SetMouseColors(_leftColor, _rightColor);
+        RefreshMouseColorButtons();
+    }
+
+    private static Button CreateMouseColorButton(string text, string tooltip)
+    {
+        return new Button
+        {
+            Text = text,
+            TooltipText = tooltip,
+            FocusMode = FocusModeEnum.None,
+            CustomMinimumSize = new Vector2(66f, 47f)
+        };
+    }
+
+    private void RefreshMouseColorButtons()
+    {
+        ApplyMouseColorButtonStyle(_leftColorButton, _leftColor);
+        ApplyMouseColorButtonStyle(_rightColorButton, _rightColor);
+    }
+
+    private static void ApplyMouseColorButtonStyle(Button button, Color color)
+    {
+        float luminance = color.R * 0.2126f + color.G * 0.7152f + color.B * 0.0722f;
+        Color foreground = luminance > 0.55f ? new Color("171B20") : new Color("FFF8E8");
+        Color border = new("8C938F");
+        button.AddThemeFontSizeOverride("font_size", 15);
+        button.AddThemeColorOverride("font_color", foreground);
+        button.AddThemeColorOverride("font_hover_color", foreground);
+        button.AddThemeColorOverride("font_pressed_color", foreground);
+        button.AddThemeColorOverride("font_hover_pressed_color", foreground);
+        button.AddThemeStyleboxOverride("normal", CreateMouseColorButtonStyle(color, border, 2));
+        button.AddThemeStyleboxOverride("hover", CreateMouseColorButtonStyle(color, border, 2));
+        button.AddThemeStyleboxOverride("pressed", CreateMouseColorButtonStyle(color, border, 2));
+    }
+
+    private static StyleBoxFlat CreateMouseColorButtonStyle(Color fill, Color border, int borderWidth)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = fill,
+            BorderColor = border,
+            BorderWidthLeft = borderWidth,
+            BorderWidthTop = borderWidth,
+            BorderWidthRight = borderWidth,
+            BorderWidthBottom = borderWidth,
+            CornerRadiusTopLeft = 7,
+            CornerRadiusTopRight = 7,
+            CornerRadiusBottomLeft = 7,
+            CornerRadiusBottomRight = 7
+        };
     }
 
     private static void ApplyColorButtonStyle(Button button, Color color)
@@ -698,7 +928,12 @@ public partial class DrawingScreen : Control
             {
                 Color color = _customColors[index];
                 button.Disabled = false;
-                button.TooltipText = Localized("自定义 #", "Custom #") + color.ToHtml(false).ToUpperInvariant();
+                button.TooltipText =
+                    Localized("自定义 #", "Custom #") +
+                    color.ToHtml(false).ToUpperInvariant() +
+                    Localized(
+                        "\n右键：设为右键颜色",
+                        "\nRight-click: set as the right mouse button color");
                 ApplyColorButtonStyle(button, color);
             }
             else
@@ -778,7 +1013,7 @@ public partial class DrawingScreen : Control
             SlidersVisible = false,
             HexVisible = false,
             PresetsVisible = false,
-            Color = _selectedColor,
+            Color = _leftColor,
             CustomMinimumSize = new Vector2(370f, 340f),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
@@ -826,7 +1061,7 @@ public partial class DrawingScreen : Control
             Text = Localized("确认添加", "Add Color"),
             CustomMinimumSize = new Vector2(150f, 50f)
         };
-        UpdateConfirmColorButton(_selectedColor);
+        UpdateConfirmColorButton(_leftColor);
         _confirmColorButton.Pressed += ConfirmCustomColor;
         rgbColumn.AddChild(_confirmColorButton);
     }
@@ -893,7 +1128,7 @@ public partial class DrawingScreen : Control
 
     private void OpenColorPicker()
     {
-        SyncColorInputs(_selectedColor);
+        SyncColorInputs(_leftColor);
         _colorPickerOverlay.Visible = true;
     }
 
@@ -974,15 +1209,17 @@ public partial class DrawingScreen : Control
         CloseColorPicker();
     }
 
-    private static Button CreateDrawingToolButton(string text, string tooltip, ButtonGroup group)
+    private static Button CreateDrawingToolButton(Texture2D icon, string text, string tooltip, ButtonGroup group)
     {
         Button button = new()
         {
+            Icon = icon,
             Text = text,
+            ExpandIcon = true,
             TooltipText = tooltip,
             ToggleMode = true,
             ButtonGroup = group,
-            CustomMinimumSize = new Vector2(96f, 38f)
+            CustomMinimumSize = new Vector2(116f, 42f)
         };
         StyleBoxFlat selected = new()
         {
@@ -1007,15 +1244,54 @@ public partial class DrawingScreen : Control
     private void SelectDrawingTool(Button selected)
     {
         _brushToolButton.ButtonPressed = ReferenceEquals(selected, _brushToolButton);
-        _eraserToolButton.ButtonPressed = ReferenceEquals(selected, _eraserToolButton);
         _fillToolButton.ButtonPressed = ReferenceEquals(selected, _fillToolButton);
+    }
+
+    private void ActivateBrushTool()
+    {
+        SelectDrawingTool(_brushToolButton);
+        _canvas.SetBrushTool();
+        ConfigureSizeControl(showStampSize: false);
+    }
+
+    private void ActivateFillTool()
+    {
+        SelectDrawingTool(_fillToolButton);
+        _canvas.SetFillTool();
+        ConfigureSizeControl(showStampSize: false);
     }
 
     private void ClearDrawingToolSelection()
     {
         _brushToolButton.ButtonPressed = false;
-        _eraserToolButton.ButtonPressed = false;
         _fillToolButton.ButtonPressed = false;
+    }
+
+    private void ConfigureSizeControl(bool showStampSize)
+    {
+        _showingStampSize = showStampSize;
+        _syncingSizeSlider = true;
+        if (showStampSize)
+        {
+            _sizeSlider.MinValue = DrawingCanvas.MinStampSize;
+            _sizeSlider.MaxValue = DrawingCanvas.MaxStampSize;
+            _sizeSlider.Value = _stampSize;
+            _sizeSlider.TooltipText = Localized(
+                "调整角色印花大小",
+                "Adjust character stamp size");
+            _sizeLabel.Text = Localized($"印花：{_stampSize} px", $"Stamp: {_stampSize} px");
+        }
+        else
+        {
+            _sizeSlider.MinValue = DrawingCanvas.MinBrushSize;
+            _sizeSlider.MaxValue = DrawingCanvas.MaxBrushSize;
+            _sizeSlider.Value = _brushSize;
+            _sizeSlider.TooltipText = Localized(
+                "调整画笔粗细",
+                "Adjust brush size");
+            _sizeLabel.Text = Localized($"粗细：{_brushSize} px", $"Size: {_brushSize} px");
+        }
+        _syncingSizeSlider = false;
     }
 
     private void AddStampButton(HBoxContainer tools, CharacterModel character, byte stampIndex)
@@ -1035,6 +1311,7 @@ public partial class DrawingScreen : Control
             if (_canvas.SetStampTool(stampIndex))
             {
                 ClearDrawingToolSelection();
+                ConfigureSizeControl(showStampSize: true);
             }
             else
             {

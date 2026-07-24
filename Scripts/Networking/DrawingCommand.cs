@@ -24,6 +24,7 @@ public sealed class DrawingCommand : IPacketSerializable
     public uint OperationId { get; set; }
     public uint ColorRgb { get; set; }
     public byte BrushSize { get; set; } = DrawingCanvas.DefaultBrushSize;
+    public byte StampSize { get; set; } = DrawingCanvas.DefaultStampSize;
     public byte StampIndex { get; set; }
     public bool Erasing { get; set; }
     public bool CompletesOperation => Kind is DrawingCommandKind.StrokeEnd or DrawingCommandKind.Fill or DrawingCommandKind.Stamp or DrawingCommandKind.Clear;
@@ -54,7 +55,7 @@ public sealed class DrawingCommand : IPacketSerializable
         return new DrawingCommand { Kind = DrawingCommandKind.Fill, X1 = x, Y1 = y, ColorRgb = PackRgb(color), OperationId = operationId };
     }
 
-    public static DrawingCommand Stamp(ushort x, ushort y, byte stampIndex, byte brushSize, uint operationId)
+    public static DrawingCommand Stamp(ushort x, ushort y, byte stampIndex, byte stampSize, uint operationId)
     {
         return new DrawingCommand
         {
@@ -62,7 +63,7 @@ public sealed class DrawingCommand : IPacketSerializable
             X1 = x,
             Y1 = y,
             StampIndex = stampIndex,
-            BrushSize = (byte)Math.Clamp((int)brushSize, DrawingCanvas.MinBrushSize, DrawingCanvas.MaxBrushSize),
+            StampSize = (byte)Math.Clamp((int)stampSize, DrawingCanvas.MinStampSize, DrawingCanvas.MaxStampSize),
             OperationId = operationId
         };
     }
@@ -98,7 +99,7 @@ public sealed class DrawingCommand : IPacketSerializable
                 writer.WriteUShort(X1);
                 writer.WriteUShort(Y1);
                 writer.WriteByte(StampIndex, 3);
-                writer.WriteByte(BrushSize, 6);
+                writer.WriteByte(StampSize);
                 break;
             case DrawingCommandKind.Clear:
                 break;
@@ -131,7 +132,7 @@ public sealed class DrawingCommand : IPacketSerializable
                 X1 = reader.ReadUShort();
                 Y1 = reader.ReadUShort();
                 StampIndex = reader.ReadByte(3);
-                BrushSize = reader.ReadByte(6);
+                StampSize = reader.ReadByte();
                 break;
             case DrawingCommandKind.Clear:
                 break;
