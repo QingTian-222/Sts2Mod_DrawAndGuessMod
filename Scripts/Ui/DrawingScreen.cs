@@ -15,12 +15,18 @@ using MegaCrit.Sts2.Core.Models.Characters;
 namespace DrawAndGuessMod.Scripts.Ui;
 
 public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess, bool SkipAddingToDeck);
+public sealed record DrawingScreenOptions(
+    string Title,
+    string Help,
+    double? TimeLimitSeconds = null,
+    string? PeekTooltip = null);
 
 public partial class DrawingScreen : Control
 {
     private const int MaxUndoSteps = 20;
     private const int CustomColorCapacity = 11;
     private const float ColorButtonHeight = 30f;
+    private const ulong TimerSyncIntervalMsec = 250uL;
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
     private readonly List<DrawingCommand> _pendingCommands = new();
@@ -31,10 +37,12 @@ public partial class DrawingScreen : Control
     private readonly List<Color> _customColors = new();
     private readonly List<Button> _customColorButtons = new();
     private Player _owner = null!;
+    private DrawingScreenOptions? _options;
     private uint _sessionId;
     private uint _historyEpoch;
     private bool _isChooser;
     private ulong _lastCommandFlushMsec;
+    private ulong _lastTimerSyncMsec;
     private DrawingCanvas _canvas = null!;
     private Label _status = null!;
     private Button _guessButton = null!;
@@ -56,8 +64,11 @@ public partial class DrawingScreen : Control
     private bool _syncingColorInputs;
     private bool _peeking;
     private bool _finishing;
+    private double? _remainingSeconds;
+    private ProgressBar? _timerBar;
+    private StyleBoxFlat? _timerFillStyle;
 
-    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId)
+    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
@@ -74,7 +85,9 @@ public partial class DrawingScreen : Control
             Name = "DrawAndGuessMod_DrawingScreen",
             _owner = owner,
             _sessionId = sessionId,
-            _isChooser = LocalContext.IsMe(owner)
+            _isChooser = LocalContext.IsMe(owner),
+            _options = options,
+            _remainingSeconds = options?.TimeLimitSeconds
         };
         DrawingNetSync.BeginSession(owner.NetId, sessionId);
         _active = screen;
@@ -90,6 +103,7 @@ public partial class DrawingScreen : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         BuildUi();
         DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
+        SendTimerSync(force: true);
     }
 
     public override void _Process(double delta)
@@ -97,6 +111,25 @@ public partial class DrawingScreen : Control
         if (_pendingCommands.Count > 0 && Time.GetTicksMsec() >= _lastCommandFlushMsec + 50)
         {
             FlushCommands();
+        }
+
+        if (_remainingSeconds is not double remaining || _finishing)
+        {
+            return;
+        }
+
+        if (DrawingNetSync.IsMultiplayer && !_isChooser)
+        {
+            return;
+        }
+
+        remaining = Math.Max(0d, remaining - delta);
+        _remainingSeconds = remaining;
+        UpdateTimerBar();
+        SendTimerSync(force: remaining <= 0d);
+        if (remaining <= 0d && _isChooser)
+        {
+            OnGuessPressed();
         }
     }
 
@@ -169,7 +202,7 @@ public partial class DrawingScreen : Control
 
         Label title = new()
         {
-            Text = Localized("空白", "Blank"),
+            Text = _options?.Title ?? Localized("空白", "Blank"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 30);
@@ -177,17 +210,39 @@ public partial class DrawingScreen : Control
 
         Label help = new()
         {
-            Text = DrawingNetSync.IsMultiplayer
+            Text = _options?.Help ?? (DrawingNetSync.IsMultiplayer
                 ? Localized(
                     "所有玩家都可以共同作画；出牌者负责确认，被指定的玩家进行三选一。",
                     "Everyone can draw together. The player who played the card confirms the drawing, and the targeted player chooses from three cards.")
                 : Localized(
                     "绘制卡面后，让瓦库给出三个候选。",
-                    "Draw a card illustration and let VAKUU suggest three candidates."),
+                    "Draw a card illustration and let VAKUU suggest three candidates.")),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
         column.AddChild(help);
+
+        if (_remainingSeconds.HasValue)
+        {
+            _timerFillStyle = CreateTimerBarStyle(new Color("58D68D"), Colors.Transparent, 0);
+            _timerBar = new ProgressBar
+            {
+                MinValue = 0d,
+                MaxValue = Math.Max(0.001d, _options?.TimeLimitSeconds ?? 1d),
+                Value = _remainingSeconds.Value,
+                ShowPercentage = false,
+                CustomMinimumSize = new Vector2(500f, 12f),
+                MouseFilter = MouseFilterEnum.Ignore
+            };
+            _timerBar.AddThemeStyleboxOverride(
+                "background",
+                CreateTimerBarStyle(new Color("111722"), new Color("526070"), 2));
+            _timerBar.AddThemeStyleboxOverride("fill", _timerFillStyle);
+            CenterContainer timerCenter = new();
+            timerCenter.AddChild(_timerBar);
+            column.AddChild(timerCenter);
+            UpdateTimerBar();
+        }
 
         HBoxContainer canvasRow = new()
         {
@@ -414,7 +469,7 @@ public partial class DrawingScreen : Control
         {
             Name = "PeekButton",
             Text = string.Empty,
-            TooltipText = Localized("观察战局", "View combat"),
+            TooltipText = _options?.PeekTooltip ?? Localized("观察战局", "View combat"),
             FocusMode = FocusModeEnum.None,
             MouseFilter = MouseFilterEnum.Stop
         };
@@ -470,7 +525,7 @@ public partial class DrawingScreen : Control
         _peekPanelContainer.Visible = !peeking;
         _peekButton.TooltipText = peeking
             ? Localized("返回绘画（Esc）", "Return to drawing (Esc)")
-            : Localized("观察战局", "View combat");
+            : _options?.PeekTooltip ?? Localized("观察战局", "View combat");
         _peekIcon.SetActive(peeking);
         AnimatePeekButton();
     }
@@ -528,6 +583,41 @@ public partial class DrawingScreen : Control
             _guessButton.Disabled = false;
             _finishing = false;
         }
+    }
+
+    private void UpdateTimerBar()
+    {
+        if (_timerBar == null || _timerFillStyle == null || !_remainingSeconds.HasValue)
+        {
+            return;
+        }
+
+        double duration = Math.Max(0.001d, _options?.TimeLimitSeconds ?? 1d);
+        float ratio = Mathf.Clamp((float)(_remainingSeconds.Value / duration), 0f, 1f);
+        Color red = new("F05A55");
+        Color yellow = new("F4C95D");
+        Color green = new("58D68D");
+        _timerBar.Value = _remainingSeconds.Value;
+        _timerFillStyle.BgColor = ratio < 0.5f
+            ? red.Lerp(yellow, ratio * 2f)
+            : yellow.Lerp(green, (ratio - 0.5f) * 2f);
+    }
+
+    private static StyleBoxFlat CreateTimerBarStyle(Color fill, Color border, int borderWidth)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = fill,
+            BorderColor = border,
+            BorderWidthLeft = borderWidth,
+            BorderWidthTop = borderWidth,
+            BorderWidthRight = borderWidth,
+            BorderWidthBottom = borderWidth,
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4
+        };
     }
 
     private static HBoxContainer CreateColorRow()
@@ -1002,6 +1092,18 @@ public partial class DrawingScreen : Control
         return true;
     }
 
+    internal static bool TryReceiveTimer(DrawingTimerSyncMessage message)
+    {
+        if (_active == null || !GodotObject.IsInstanceValid(_active) || _active._owner.NetId != message.OwnerId ||
+            _active._sessionId != message.SessionId)
+        {
+            return false;
+        }
+
+        _active.ReceiveTimer(message);
+        return true;
+    }
+
     internal void ReceiveCommands(DrawingSyncMessage message, ulong senderId)
     {
         if (_finishing || senderId == LocalContext.NetId || message.Epoch != _historyEpoch)
@@ -1039,6 +1141,18 @@ public partial class DrawingScreen : Control
             "The canvas has been synchronized after the undo.");
     }
 
+    internal void ReceiveTimer(DrawingTimerSyncMessage message)
+    {
+        if (_finishing || _isChooser || !_remainingSeconds.HasValue)
+        {
+            return;
+        }
+
+        double synchronizedRemaining = Math.Max(0d, message.RemainingMilliseconds / 1000d);
+        _remainingSeconds = Math.Min(_remainingSeconds.Value, synchronizedRemaining);
+        UpdateTimerBar();
+    }
+
     internal void ReceiveFinal(DrawingFinalMessage message)
     {
         if (_finishing)
@@ -1074,6 +1188,23 @@ public partial class DrawingScreen : Control
 
         CardGuess guess = new(candidates[0], 0, 0d, candidates);
         Complete(new DrawingResult(message.PngBytes, guess, message.SkipAddingToDeck));
+    }
+
+    private void SendTimerSync(bool force)
+    {
+        if (!DrawingNetSync.IsMultiplayer || !_isChooser || !_remainingSeconds.HasValue)
+        {
+            return;
+        }
+
+        ulong now = Time.GetTicksMsec();
+        if (!force && now < _lastTimerSyncMsec + TimerSyncIntervalMsec)
+        {
+            return;
+        }
+
+        _lastTimerSyncMsec = now;
+        DrawingNetSync.SendTimer(_owner.NetId, _sessionId, _remainingSeconds.Value);
     }
 
     private void OnLocalCommand(DrawingCommand command)

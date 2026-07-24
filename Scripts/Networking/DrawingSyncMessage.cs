@@ -9,6 +9,41 @@ using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Networking;
 
+public sealed class DrawingChallengeTargetMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint SessionId { get; set; }
+    public string TargetCardId { get; set; } = "";
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(SessionId);
+        writer.WriteString(TargetCardId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        SessionId = reader.ReadUInt();
+        TargetCardId = reader.ReadString();
+        LocationValue = reader.Read<RunLocation>();
+    }
+
+    public override string ToString()
+    {
+        return $"DrawingChallengeTargetMessage owner={OwnerId} session={SessionId} target={TargetCardId}";
+    }
+}
+
 public sealed class DrawingSyncMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     public ulong OwnerId { get; set; }
@@ -123,6 +158,41 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
     public override string ToString()
     {
         return $"DrawingCanvasStateMessage owner={OwnerId} session={SessionId} epoch={Epoch} png={PngBytes.Length}";
+    }
+}
+
+public sealed class DrawingTimerSyncMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint SessionId { get; set; }
+    public int RemainingMilliseconds { get; set; }
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Unreliable;
+    public LogLevel LogLevel => LogLevel.VeryDebug;
+    public bool ShouldBuffer => false;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(SessionId);
+        writer.WriteInt(RemainingMilliseconds);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        SessionId = reader.ReadUInt();
+        RemainingMilliseconds = reader.ReadInt();
+        LocationValue = reader.Read<RunLocation>();
+    }
+
+    public override string ToString()
+    {
+        return $"DrawingTimerSyncMessage owner={OwnerId} session={SessionId} remainingMs={RemainingMilliseconds}";
     }
 }
 

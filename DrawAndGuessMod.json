@@ -3,9 +3,9 @@
   "name": "你画瓦猜 / Draw & Guess",
   "author": "QingTian",
   "description": "你来画，瓦库来猜 / You draw, VAKUU guesses",
-  "version": "0.7.33",
+  "version": "0.7.42",
   "min_game_version": "0.109.0",
-  "has_pck": false,
+  "has_pck": true,
   "has_dll": true,
   "dependencies": [
     {

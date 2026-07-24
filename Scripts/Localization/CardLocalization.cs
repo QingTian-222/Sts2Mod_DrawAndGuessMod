@@ -66,5 +66,6 @@ internal static class LocManagerInitializePatch
     private static void Postfix()
     {
         CardLocalization.Install();
+        EventLocalization.Install();
     }
 }

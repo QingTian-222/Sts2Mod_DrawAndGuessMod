@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using DrawAndGuessMod.Scripts.Ai;
+using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
@@ -37,9 +38,12 @@ public static class Entry
             RitsuLibFramework.EnsureGodotScriptsRegistered(assembly, Logger);
             ModTypeDiscoveryHub.RegisterModAssembly(ModId, assembly);
 
+            DrawAndGuessAssets.Install();
             DrawAndGuessSettings.Register();
             ArtworkStore.Register();
+            GalleryChallengeStore.Register();
             CardLocalization.Install();
+            EventLocalization.Install();
             CardArtClassifier.Preload();
 
             _harmony = new Harmony("sts2.qingtian.drawandguessmod");

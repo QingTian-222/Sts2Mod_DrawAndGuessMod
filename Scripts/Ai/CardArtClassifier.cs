@@ -250,6 +250,15 @@ internal static class CardArtClassifier
         return candidates;
     }
 
+    public static IReadOnlyList<CardModel> GetChallengeCandidates(Player owner)
+    {
+        EnsureTrained();
+        return FilterCandidates(owner)
+            .Select(sample => sample.Card)
+            .OrderBy(card => card.Id.Entry, StringComparer.Ordinal)
+            .ToList();
+    }
+
     private static void EnsureTrained()
     {
         if (_samples != null)
