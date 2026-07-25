@@ -1,8 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Ai;
+using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Localization;
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Models;
 using STS2RitsuLib;
 using STS2RitsuLib.Settings;
 using STS2RitsuLib.Utils.Persistence;
@@ -31,6 +36,9 @@ internal static class DrawAndGuessSettings
     private static double _pretrainingProgress;
     private static ProgressBar? _pretrainingProgressBar;
     private static Label? _pretrainingProgressLabel;
+    private static IReadOnlyList<CandidatePoolInfo>? _detectedCandidatePools;
+    private static string _candidatePoolDetectionError = string.Empty;
+    private static VBoxContainer? _candidatePoolControls;
     private static string PretrainingStatus => Localized(_pretrainingStatusChinese, _pretrainingStatusEnglish);
 
     private static readonly IModSettingsValueBinding<int> CardPoolScopeBinding =
@@ -67,6 +75,20 @@ internal static class DrawAndGuessSettings
             DataKey,
             data => data.RecognitionModelAccuracy,
             (data, value) => data.RecognitionModelAccuracy = Math.Clamp(value, 0, 1));
+
+    private static readonly IModSettingsValueBinding<int> DrawingTimeLimitPresetBinding =
+        ModSettingsBindings.Global<SettingsData, int>(
+            Entry.ModId,
+            DataKey,
+            data => data.DrawingTimeLimitPreset,
+            (data, value) => data.DrawingTimeLimitPreset = NormalizeDrawingTimeLimitPreset(value));
+
+    private static readonly IModSettingsValueBinding<int> CustomDrawingTimeLimitSecondsBinding =
+        ModSettingsBindings.Global<SettingsData, int>(
+            Entry.ModId,
+            DataKey,
+            data => data.CustomDrawingTimeLimitSeconds,
+            (data, value) => data.CustomDrawingTimeLimitSeconds = Math.Clamp(value, 1, 600));
 
     public static GuessCardPoolScope CardPoolScope
     {
@@ -140,6 +162,31 @@ internal static class DrawAndGuessSettings
             {
                 return RecognitionModelAccuracy.Jibao;
             }
+        }
+    }
+
+    public static HashSet<ModelId> GetCardIdsExcludedByAdvancedPoolSettings()
+    {
+        try
+        {
+            List<CandidatePoolInfo> pools = GetCandidateCardPools();
+            HashSet<ModelId> enabledCardIds = new();
+            HashSet<ModelId> disabledCardIds = new();
+            foreach (CandidatePoolInfo poolInfo in pools)
+            {
+                HashSet<ModelId> target = IsCardPoolEnabled(poolInfo.Pool)
+                    ? enabledCardIds
+                    : disabledCardIds;
+                target.UnionWith(poolInfo.Pool.AllCardIds);
+            }
+
+            disabledCardIds.ExceptWith(enabledCardIds);
+            return disabledCardIds;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to apply candidate card-pool settings: {ex.Message}");
+            return new HashSet<ModelId>();
         }
     }
 
@@ -229,6 +276,37 @@ internal static class DrawAndGuessSettings
                         "When enabled, one Blank is added to your starting Deck at the beginning of a new run. In multiplayer, each player uses their own setting. Disabled by default."),
                     () => true)
                 .AddChoice(
+                    "drawing_time_limit",
+                    LocalizedText("作画时间限制", "Drawing Time Limit"),
+                    DrawingTimeLimitPresetBinding,
+                    new[]
+                    {
+                        new ModSettingsChoiceOption<int>(0, LocalizedText("关闭", "Off")),
+                        new ModSettingsChoiceOption<int>(15, LocalizedText("15 秒", "15 Seconds")),
+                        new ModSettingsChoiceOption<int>(30, LocalizedText("30 秒", "30 Seconds")),
+                        new ModSettingsChoiceOption<int>(60, LocalizedText("60 秒", "60 Seconds")),
+                        new ModSettingsChoiceOption<int>(120, LocalizedText("120 秒", "120 Seconds")),
+                        new ModSettingsChoiceOption<int>(-1, LocalizedText("自定义", "Custom"))
+                    },
+                    LocalizedText(
+                        "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。无限画廊事件使用自己的时间规则。",
+                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default. Infinite Gallery uses its own timer."),
+                    ModSettingsChoicePresentation.Dropdown)
+                .AddIntSlider(
+                    "custom_drawing_time_limit_seconds",
+                    LocalizedText("自定义秒数", "Custom Seconds"),
+                    CustomDrawingTimeLimitSecondsBinding,
+                    1,
+                    600,
+                    1,
+                    value => Localized($"{value} 秒", $"{value} sec"),
+                    LocalizedText(
+                        "自定义普通“空白”的作画时间，范围为 1 至 600 秒。",
+                        "Set a custom drawing time for the regular Blank card, from 1 to 600 seconds."))
+                .WithEntryVisibleWhen(
+                    "custom_drawing_time_limit_seconds",
+                    () => NormalizeDrawingTimeLimitPreset(DrawingTimeLimitPresetBinding.Read()) == -1)
+                .AddChoice(
                     "recognition_model_accuracy",
                     LocalizedText("识别模型准确度", "Recognition Model"),
                     RecognitionModelAccuracyBinding,
@@ -260,7 +338,328 @@ internal static class DrawAndGuessSettings
                     StartPretraining,
                     ModSettingsButtonTone.Accent,
                     DynamicText(() => PretrainingStatus))
-                .WithEntryEnabledWhen("pretrain_current_cards", () => !_pretraining));
+                .WithEntryEnabledWhen("pretrain_current_cards", () => !_pretraining))
+            .AddSection("advanced_candidate_pools", section => section
+                .WithTitle(LocalizedText("高级选项", "Advanced Options"))
+                .WithDescription(LocalizedText(
+                    "单独关闭不希望参与识别的候选卡池。新检测到的卡池默认开启。",
+                    "Disable individual card pools that should not participate in recognition. Newly detected pools are enabled by default."))
+                .Collapsible(true)
+                .AddButton(
+                    "detect_candidate_card_pools",
+                    LocalizedText("检测卡池", "Detect Card Pools"),
+                    LocalizedText("检测/重新检测已加载的卡池", "Detect / Re-detect Loaded Card Pools"),
+                    DetectCandidateCardPools,
+                    ModSettingsButtonTone.Accent,
+                    LocalizedText(
+                        "在所有模组加载完成后读取候选卡池，并刷新下方的独立开关列表。",
+                        "Read candidate card pools after all mods have loaded and refresh the individual toggles below."))
+                .AddCustom(
+                    "candidate_card_pools",
+                    LocalizedText("候选卡池", "Candidate Card Pools"),
+                    BuildCandidatePoolControls,
+                    LocalizedText(
+                        "关闭的卡池不会出现在识别结果中；已经建立的识别缓存不会被删除。",
+                        "Disabled pools will not appear in recognition results. Existing recognition cache data is kept."),
+                    () => true));
+    }
+
+    private static IModSettingsValueBinding<bool> CreateCandidatePoolBinding(string poolKey)
+    {
+        return ModSettingsBindings.Global<SettingsData, bool>(
+            Entry.ModId,
+            DataKey,
+            data => data.DisabledCardPools?.Contains(poolKey, StringComparer.Ordinal) != true,
+            (data, enabled) =>
+            {
+                data.DisabledCardPools ??= new List<string>();
+                data.DisabledCardPools.RemoveAll(key => string.Equals(key, poolKey, StringComparison.Ordinal));
+                if (!enabled)
+                {
+                    data.DisabledCardPools.Add(poolKey);
+                }
+            });
+    }
+
+    private static void DetectCandidateCardPools(IModSettingsUiActionHost host)
+    {
+        try
+        {
+            _detectedCandidatePools = GetCandidateCardPools();
+            _candidatePoolDetectionError = string.Empty;
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Detected {_detectedCandidatePools.Count} candidate card pools: " +
+                string.Join(", ", _detectedCandidatePools.Select(poolInfo => GetCardPoolKey(poolInfo.Pool))));
+        }
+        catch (Exception ex)
+        {
+            _detectedCandidatePools = Array.Empty<CandidatePoolInfo>();
+            _candidatePoolDetectionError = ex.Message;
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to detect candidate card pools: {ex}");
+        }
+
+        if (_candidatePoolControls != null && GodotObject.IsInstanceValid(_candidatePoolControls))
+        {
+            PopulateCandidatePoolControls(_candidatePoolControls, host);
+        }
+    }
+
+    public static double? DrawingTimeLimitSeconds
+    {
+        get
+        {
+            try
+            {
+                int preset = NormalizeDrawingTimeLimitPreset(DrawingTimeLimitPresetBinding.Read());
+                return preset switch
+                {
+                    0 => null,
+                    -1 => Math.Clamp(CustomDrawingTimeLimitSecondsBinding.Read(), 1, 600),
+                    _ => preset
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    private static Control BuildCandidatePoolControls(IModSettingsUiActionHost host)
+    {
+        VBoxContainer container = new()
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+        };
+        _candidatePoolControls = container;
+        PopulateCandidatePoolControls(container, host);
+        return container;
+    }
+
+    private static void PopulateCandidatePoolControls(VBoxContainer container, IModSettingsUiActionHost host)
+    {
+        foreach (Node child in container.GetChildren())
+        {
+            container.RemoveChild(child);
+            child.QueueFree();
+        }
+
+        try
+        {
+            if (_detectedCandidatePools == null)
+            {
+                container.AddChild(new Label
+                {
+                    Text = Localized(
+                        "点击“检测已加载的卡池”后，这里会显示当前游戏中的所有候选卡池。",
+                        "Click \"Detect Loaded Card Pools\" to show all candidate card pools currently available in the game."),
+                    AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                    SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+                });
+                return;
+            }
+
+            IReadOnlyList<CandidatePoolInfo> pools = _detectedCandidatePools;
+            if (pools.Count == 0)
+            {
+                container.AddChild(new Label
+                {
+                    Text = string.IsNullOrWhiteSpace(_candidatePoolDetectionError)
+                        ? Localized("没有检测到候选卡池。", "No candidate card pools were detected.")
+                        : Localized(
+                            "检测卡池失败：" + _candidatePoolDetectionError,
+                            "Card-pool detection failed: " + _candidatePoolDetectionError),
+                    AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                    SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+                });
+                return;
+            }
+
+            container.AddChild(new Label
+            {
+                Text = Localized(
+                    $"已检测到 {pools.Count} 个候选卡池。",
+                    $"{pools.Count} candidate card pools detected."),
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+            });
+
+            foreach (CandidatePoolInfo poolInfo in pools)
+            {
+                IModSettingsValueBinding<bool> binding = CreateCandidatePoolBinding(GetCardPoolKey(poolInfo.Pool));
+                CheckButton toggle = new()
+                {
+                    Text = GetCardPoolDisplayName(poolInfo),
+                    ButtonPressed = binding.Read(),
+                    SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+                };
+                toggle.Toggled += enabled =>
+                {
+                    try
+                    {
+                        binding.Write(enabled);
+                        host.MarkDirty(binding);
+                    }
+                    catch (Exception ex)
+                    {
+                        Entry.Logger.Warn($"[DrawAndGuessMod] Failed to update candidate pool {GetCardPoolKey(poolInfo.Pool)}: {ex.Message}");
+                    }
+                };
+                container.AddChild(toggle);
+            }
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to build candidate card-pool controls: {ex.Message}");
+            container.AddChild(new Label
+            {
+                Text = Localized(
+                    "候选卡池尚未准备完成，请稍后重新打开设置。",
+                    "Candidate card pools are not ready yet. Please reopen settings later."),
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+            });
+        }
+        finally
+        {
+            RefreshCandidatePoolLayout(container);
+        }
+    }
+
+    private static void RefreshCandidatePoolLayout(VBoxContainer container)
+    {
+        Callable.From(() =>
+        {
+            if (!GodotObject.IsInstanceValid(container))
+            {
+                return;
+            }
+
+            container.UpdateMinimumSize();
+            container.QueueSort();
+
+            Control? ancestor = container.GetParent() as Control;
+            while (ancestor != null)
+            {
+                ancestor.UpdateMinimumSize();
+                if (ancestor is Container parentContainer)
+                {
+                    parentContainer.QueueSort();
+                }
+
+                if (ancestor is ScrollContainer)
+                {
+                    break;
+                }
+
+                ancestor = ancestor.GetParent() as Control;
+            }
+        }).CallDeferred();
+    }
+
+    private static bool IsCardPoolEnabled(CardPoolModel pool)
+    {
+        SettingsData? settings = RitsuLibFramework
+            .GetDataStore(Entry.ModId)
+            .Get<SettingsData>(DataKey);
+        return settings?.DisabledCardPools?.Contains(GetCardPoolKey(pool), StringComparer.Ordinal) != true;
+    }
+
+    private static List<CandidatePoolInfo> GetCandidateCardPools()
+    {
+        List<CandidatePoolInfo> result = new();
+        foreach (CardPoolModel pool in ModelDb.All
+                     .OfType<CardPoolModel>()
+                     .Concat(ModelDb.AllCardPools)
+                     .GroupBy(GetCardPoolKey, StringComparer.Ordinal)
+                     .Select(group => group.First())
+                     .Where(pool => !IsMockModel(pool)))
+        {
+            try
+            {
+                int cardCount = pool.AllCards
+                    .Where(IsEligibleCandidateCard)
+                    .Select(card => card.Id)
+                    .Distinct()
+                    .Count();
+                result.Add(new CandidatePoolInfo(pool, cardCount));
+            }
+            catch (Exception ex)
+            {
+                Entry.Logger.Warn($"[DrawAndGuessMod] Failed to inspect candidate pool {GetCardPoolKey(pool)}: {ex.Message}");
+            }
+        }
+
+        return result
+            .OrderBy(poolInfo => GetCardPoolDisplayName(poolInfo), StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(poolInfo => GetCardPoolKey(poolInfo.Pool), StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static bool IsMockModel(AbstractModel model)
+    {
+        Type type = model.GetType();
+        string id = model.Id.ToString();
+        string entry = model.Id.Entry;
+        string name = type.Name;
+        string fullName = type.FullName ?? string.Empty;
+        return id.Contains("mock", StringComparison.OrdinalIgnoreCase)
+               || entry.Contains("mock", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("mock", StringComparison.OrdinalIgnoreCase)
+               || fullName.Contains(".Mocks.", StringComparison.OrdinalIgnoreCase)
+               || fullName.Contains(".Mock.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsEligibleCandidateCard(CardModel card)
+    {
+        return card is not Blank
+               && card.ShouldShowInCardLibrary
+               && card.Type != CardType.None;
+    }
+
+    private static string GetCardPoolKey(CardPoolModel pool)
+    {
+        return pool.Id.ToString();
+    }
+
+    private static int NormalizeDrawingTimeLimitPreset(int value)
+    {
+        return value is -1 or 0 or 15 or 30 or 60 or 120
+            ? value
+            : 0;
+    }
+
+    private static string GetCardPoolDisplayName(CandidatePoolInfo poolInfo)
+    {
+        string? characterName = ModelDb.All
+            .OfType<CharacterModel>()
+            .Concat(ModelDb.AllCharacters)
+            .GroupBy(character => character.Id)
+            .Select(group => group.First())
+            .FirstOrDefault(character => character.CardPool.Id == poolInfo.Pool.Id)
+            ?.Title
+            .GetFormattedText();
+        string poolName = string.IsNullOrWhiteSpace(characterName)
+            ? GetSharedOrModdedPoolName(poolInfo.Pool)
+            : characterName;
+        return $"{poolName} ({poolInfo.CardCount})";
+    }
+
+    private static string GetSharedOrModdedPoolName(CardPoolModel pool)
+    {
+        string rawName = string.IsNullOrWhiteSpace(pool.Title)
+            ? pool.Id.Entry
+            : pool.Title;
+        return pool.GetType().Name switch
+        {
+            "ColorlessCardPool" => Localized("无色", "Colorless"),
+            "CurseCardPool" => Localized("诅咒", "Curse"),
+            "DeprecatedCardPool" => Localized("已弃用", "Deprecated"),
+            "EventCardPool" => Localized("事件", "Event"),
+            "QuestCardPool" => Localized("任务", "Quest"),
+            "StatusCardPool" => Localized("状态", "Status"),
+            "TokenCardPool" => Localized("衍生", "Token"),
+            _ => rawName
+        };
     }
 
     private static void StartPretraining(IModSettingsUiActionHost host)
@@ -389,5 +788,10 @@ internal static class DrawAndGuessSettings
         public bool BlankGeneratedCardSkipsDeck { get; set; }
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;
+        public int DrawingTimeLimitPreset { get; set; }
+        public int CustomDrawingTimeLimitSeconds { get; set; } = 60;
+        public List<string> DisabledCardPools { get; set; } = new();
     }
+
+    private sealed record CandidatePoolInfo(CardPoolModel Pool, int CardCount);
 }

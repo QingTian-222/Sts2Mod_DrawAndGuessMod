@@ -365,9 +365,9 @@ internal static class DrawingNetSync
 
     private static void OnTimerReceived(DrawingTimerSyncMessage message, ulong senderId)
     {
-        if (senderId != message.OwnerId)
+        if (senderId != HostNetId)
         {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected drawing timer from {senderId}; expected owner {message.OwnerId}.");
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected drawing timer from {senderId}; expected host {HostNetId}.");
             return;
         }
 

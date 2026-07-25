@@ -236,6 +236,12 @@ internal static class CardArtClassifier
     private static IEnumerable<TrainingSample> FilterCandidates(Player owner)
     {
         IEnumerable<TrainingSample> candidates = _samples ?? Enumerable.Empty<TrainingSample>();
+        HashSet<ModelId> excludedCardIds = DrawAndGuessSettings.GetCardIdsExcludedByAdvancedPoolSettings();
+        if (excludedCardIds.Count > 0)
+        {
+            candidates = candidates.Where(sample => !excludedCardIds.Contains(sample.Card.Id));
+        }
+
         if (!DrawAndGuessSettings.IncludeMultiplayerCards)
         {
             candidates = candidates.Where(sample => sample.Card.MultiplayerConstraint != CardMultiplayerConstraint.MultiplayerOnly);
@@ -447,9 +453,13 @@ internal static class CardArtClassifier
 
     private static List<CardModel> GetEligibleCards()
     {
-        return ModelDb.AllCards
+        return ModelDb.All
+            .OfType<CardModel>()
+            .Concat(ModelDb.AllCards)
             .Where(card => card is not Blank && card.ShouldShowInCardLibrary && card.Type != CardType.None)
-            .OrderBy(card => card.Id.Entry, StringComparer.Ordinal)
+            .GroupBy(card => card.Id)
+            .Select(group => group.First())
+            .OrderBy(card => card.Id.ToString(), StringComparer.Ordinal)
             .ToList();
     }
 

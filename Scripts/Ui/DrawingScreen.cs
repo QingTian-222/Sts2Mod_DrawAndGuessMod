@@ -46,6 +46,7 @@ public partial class DrawingScreen : Control
     private uint _sessionId;
     private uint _historyEpoch;
     private bool _isChooser;
+    private bool _isTimerAuthority;
     private ulong _lastCommandFlushMsec;
     private ulong _lastTimerSyncMsec;
     private DrawingCanvas _canvas = null!;
@@ -79,10 +80,13 @@ public partial class DrawingScreen : Control
     private int _brushSize = DrawingCanvas.DefaultBrushSize;
     private int _stampSize = DrawingCanvas.DefaultStampSize;
     private double? _remainingSeconds;
+    private double? _timerDurationSeconds;
+    private CenterContainer? _timerCenter;
     private ProgressBar? _timerBar;
     private StyleBoxFlat? _timerFillStyle;
+    private bool _receivedAuthoritativeTimer;
 
-    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null)
+    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
@@ -94,14 +98,22 @@ public partial class DrawingScreen : Control
             return Task.FromResult<DrawingResult?>(null);
         }
 
+        bool isChooser = LocalContext.IsMe(owner);
+        bool isTimerAuthority = !DrawingNetSync.IsMultiplayer || DrawingNetSync.IsLocalHost;
+        double? requestedTimeLimit = options?.TimeLimitSeconds ?? defaultTimeLimitSeconds;
+        double? effectiveTimeLimit = isTimerAuthority
+            ? requestedTimeLimit
+            : null;
         DrawingScreen screen = new()
         {
             Name = "DrawAndGuessMod_DrawingScreen",
             _owner = owner,
             _sessionId = sessionId,
-            _isChooser = LocalContext.IsMe(owner),
+            _isChooser = isChooser,
+            _isTimerAuthority = isTimerAuthority,
             _options = options,
-            _remainingSeconds = options?.TimeLimitSeconds
+            _remainingSeconds = effectiveTimeLimit,
+            _timerDurationSeconds = effectiveTimeLimit
         };
         DrawingNetSync.BeginSession(owner.NetId, sessionId);
         _active = screen;
@@ -142,15 +154,16 @@ public partial class DrawingScreen : Control
             return;
         }
 
-        if (DrawingNetSync.IsMultiplayer && !_isChooser)
+        if (!_isTimerAuthority)
         {
             return;
         }
 
+        double previousRemaining = remaining;
         remaining = Math.Max(0d, remaining - delta);
         _remainingSeconds = remaining;
         UpdateTimerBar();
-        SendTimerSync(force: remaining <= 0d);
+        SendTimerSync(force: previousRemaining > 0d && remaining <= 0d);
         if (remaining <= 0d && _isChooser)
         {
             OnGuessPressed();
@@ -275,26 +288,14 @@ public partial class DrawingScreen : Control
         };
         column.AddChild(help);
 
+        _timerCenter = new CenterContainer
+        {
+            Visible = false
+        };
+        column.AddChild(_timerCenter);
         if (_remainingSeconds.HasValue)
         {
-            _timerFillStyle = CreateTimerBarStyle(new Color("58D68D"), Colors.Transparent, 0);
-            _timerBar = new ProgressBar
-            {
-                MinValue = 0d,
-                MaxValue = Math.Max(0.001d, _options?.TimeLimitSeconds ?? 1d),
-                Value = _remainingSeconds.Value,
-                ShowPercentage = false,
-                CustomMinimumSize = new Vector2(500f, 12f),
-                MouseFilter = MouseFilterEnum.Ignore
-            };
-            _timerBar.AddThemeStyleboxOverride(
-                "background",
-                CreateTimerBarStyle(new Color("111722"), new Color("526070"), 2));
-            _timerBar.AddThemeStyleboxOverride("fill", _timerFillStyle);
-            CenterContainer timerCenter = new();
-            timerCenter.AddChild(_timerBar);
-            column.AddChild(timerCenter);
-            UpdateTimerBar();
+            EnsureTimerBar(_timerDurationSeconds ?? _remainingSeconds.Value);
         }
 
         HBoxContainer canvasRow = new()
@@ -740,7 +741,7 @@ public partial class DrawingScreen : Control
             return;
         }
 
-        double duration = Math.Max(0.001d, _options?.TimeLimitSeconds ?? 1d);
+        double duration = Math.Max(0.001d, _timerDurationSeconds ?? 1d);
         float ratio = Mathf.Clamp((float)(_remainingSeconds.Value / duration), 0f, 1f);
         Color red = new("F05A55");
         Color yellow = new("F4C95D");
@@ -749,6 +750,36 @@ public partial class DrawingScreen : Control
         _timerFillStyle.BgColor = ratio < 0.5f
             ? red.Lerp(yellow, ratio * 2f)
             : yellow.Lerp(green, (ratio - 0.5f) * 2f);
+    }
+
+    private void EnsureTimerBar(double duration)
+    {
+        if (_timerCenter == null)
+        {
+            return;
+        }
+
+        _timerDurationSeconds = Math.Max(0.001d, duration);
+        if (_timerBar == null)
+        {
+            _timerFillStyle = CreateTimerBarStyle(new Color("58D68D"), Colors.Transparent, 0);
+            _timerBar = new ProgressBar
+            {
+                MinValue = 0d,
+                ShowPercentage = false,
+                CustomMinimumSize = new Vector2(500f, 12f),
+                MouseFilter = MouseFilterEnum.Ignore
+            };
+            _timerBar.AddThemeStyleboxOverride(
+                "background",
+                CreateTimerBarStyle(new Color("111722"), new Color("526070"), 2));
+            _timerBar.AddThemeStyleboxOverride("fill", _timerFillStyle);
+            _timerCenter.AddChild(_timerBar);
+        }
+
+        _timerBar.MaxValue = _timerDurationSeconds.Value;
+        _timerCenter.Visible = true;
+        UpdateTimerBar();
     }
 
     private static StyleBoxFlat CreateTimerBarStyle(Color fill, Color border, int borderWidth)
@@ -1420,14 +1451,28 @@ public partial class DrawingScreen : Control
 
     internal void ReceiveTimer(DrawingTimerSyncMessage message)
     {
-        if (_finishing || _isChooser || !_remainingSeconds.HasValue)
+        if (_finishing || _isTimerAuthority)
         {
             return;
         }
 
         double synchronizedRemaining = Math.Max(0d, message.RemainingMilliseconds / 1000d);
-        _remainingSeconds = Math.Min(_remainingSeconds.Value, synchronizedRemaining);
+        if (!_receivedAuthoritativeTimer)
+        {
+            _receivedAuthoritativeTimer = true;
+            _remainingSeconds = synchronizedRemaining;
+            EnsureTimerBar(synchronizedRemaining);
+        }
+        else if (_remainingSeconds.HasValue)
+        {
+            _remainingSeconds = Math.Min(_remainingSeconds.Value, synchronizedRemaining);
+        }
+
         UpdateTimerBar();
+        if (synchronizedRemaining <= 0d && _isChooser)
+        {
+            OnGuessPressed();
+        }
     }
 
     internal void ReceiveFinal(DrawingFinalMessage message)
@@ -1469,7 +1514,7 @@ public partial class DrawingScreen : Control
 
     private void SendTimerSync(bool force)
     {
-        if (!DrawingNetSync.IsMultiplayer || !_isChooser || !_remainingSeconds.HasValue)
+        if (!DrawingNetSync.IsMultiplayer || !_isTimerAuthority || !_remainingSeconds.HasValue)
         {
             return;
         }

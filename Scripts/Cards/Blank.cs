@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Ai;
+using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Combat;
@@ -33,7 +34,10 @@ public sealed class Blank : CardModel
         uint sessionId = choiceContext is GameActionPlayerChoiceContext actionContext
             ? actionContext.Action.Id ?? 0u
             : 0u;
-        DrawingResult? drawing = await DrawingScreen.ShowAsync(Owner, sessionId);
+        DrawingResult? drawing = await DrawingScreen.ShowAsync(
+            Owner,
+            sessionId,
+            defaultTimeLimitSeconds: DrawAndGuessSettings.DrawingTimeLimitSeconds);
         if (drawing == null)
         {
             return;
