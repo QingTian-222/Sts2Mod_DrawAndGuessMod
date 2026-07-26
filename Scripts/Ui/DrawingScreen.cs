@@ -37,6 +37,7 @@ public partial class DrawingScreen : Control
     private readonly List<DrawingCommand> _pendingCommands = new();
     private readonly List<RecordedDrawingCommand> _historyCommands = new();
     private readonly LinkedList<DrawingOperationKey> _undoableOperations = new();
+    private readonly Stack<DrawingOperationKey> _redoableOperations = new();
     private readonly HashSet<DrawingOperationKey> _completedOperations = new();
     private readonly HashSet<DrawingOperationKey> _undoneOperations = new();
     private readonly Dictionary<DrawingOperationKey, List<DrawingCommand>> _pendingMultiplayerOperations = new();
@@ -221,10 +222,31 @@ public partial class DrawingScreen : Control
             }
         }
 
-        if (@event is InputEventKey { Pressed: true, Echo: false, CtrlPressed: true, Keycode: Key.Z } &&
+        if (@event is InputEventKey
+            {
+                Pressed: true,
+                Echo: false,
+                CtrlPressed: true,
+                ShiftPressed: false,
+                Keycode: Key.Z
+            } &&
             !_colorPickerOverlay.Visible)
         {
             RequestUndo();
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        if (@event is InputEventKey
+            {
+                Pressed: true,
+                Echo: false,
+                CtrlPressed: true
+            } redoKey &&
+            (redoKey.Keycode == Key.Y || redoKey is { ShiftPressed: true, Keycode: Key.Z }) &&
+            !_colorPickerOverlay.Visible)
+        {
+            RequestRedo();
             GetViewport().SetInputAsHandled();
             return;
         }
@@ -552,11 +574,11 @@ public partial class DrawingScreen : Control
             new Color("79BCE8"));
         undo.TooltipText = DrawingNetSync.IsMultiplayer
             ? Localized(
-                $"撤回你自己的最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
-                $"Undo your most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained")
+                $"撤回你自己的最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
+                $"Undo your most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained")
             : Localized(
-                $"撤回最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
-                $"Undo the most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained");
+                $"撤回最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
+                $"Undo the most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained");
         undo.Pressed += RequestUndo;
         buttons.AddChild(undo);
 
@@ -1404,6 +1426,18 @@ public partial class DrawingScreen : Control
         return true;
     }
 
+    internal static bool TryReceiveRedoRequest(DrawingRedoRequestMessage message, ulong senderId)
+    {
+        if (_active == null || !GodotObject.IsInstanceValid(_active) || !_active._isChooser ||
+            _active._owner.NetId != message.OwnerId || _active._sessionId != message.SessionId)
+        {
+            return false;
+        }
+
+        _active.ApplyAuthoritativeRedo(senderId);
+        return true;
+    }
+
     internal static bool TryReceiveCanvasState(DrawingCanvasStateMessage message)
     {
         if (_active == null || !GodotObject.IsInstanceValid(_active) || _active._owner.NetId != message.OwnerId ||
@@ -1486,8 +1520,8 @@ public partial class DrawingScreen : Control
             _pendingCommands.Clear();
             _pendingMultiplayerOperations.Clear();
             _status.Text = Localized(
-                "已同步撤回后的画布。",
-                "The canvas has been synchronized after the undo.");
+                "已同步撤回或重做后的画布。",
+                "The canvas has been synchronized after the undo or redo.");
             return;
         }
 
@@ -1655,6 +1689,35 @@ public partial class DrawingScreen : Control
             "Asked the player who played the card to undo the most recent action.");
     }
 
+    private void RequestRedo()
+    {
+        if (_finishing)
+        {
+            return;
+        }
+
+        FlushCommands();
+        if (DrawingNetSync.IsMultiplayer)
+        {
+            if (_isChooser)
+            {
+                ApplyAuthoritativeRedo(RunManager.Instance.NetService.NetId);
+                return;
+            }
+
+            DrawingNetSync.SendRedoRequest(_owner.NetId, _sessionId);
+            _status.Text = Localized(
+                "已请求重做你自己的最近一次撤回操作。",
+                "Requested a redo of your most recently undone action.");
+            return;
+        }
+
+        if (_isChooser)
+        {
+            ApplyAuthoritativeRedo(_owner.NetId);
+        }
+    }
+
     private void ApplyAuthoritativeUndo(ulong requesterId)
     {
         if (_finishing || !_isChooser)
@@ -1681,6 +1744,7 @@ public partial class DrawingScreen : Control
         DrawingOperationKey operation = last.Value;
         _undoableOperations.RemoveLast();
         _undoneOperations.Add(operation);
+        _redoableOperations.Push(operation);
         foreach (DrawingOperationKey incompleteOperation in _historyCommands
                      .Select(entry => entry.Operation)
                      .Where(candidate => !_completedOperations.Contains(candidate))
@@ -1697,6 +1761,60 @@ public partial class DrawingScreen : Control
             $"已撤回最近一次操作（剩余 {_undoableOperations.Count} 步可撤回）。",
             $"Undid the most recent action ({_undoableOperations.Count} undoable actions remain).");
         Entry.Logger.Debug($"[DrawAndGuessMod] Undo requested by {requesterId}: sender={operation.SenderId}, operation={operation.OperationId}, epoch={_historyEpoch}.");
+        DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+        {
+            OwnerId = _owner.NetId,
+            SessionId = _sessionId,
+            Epoch = _historyEpoch,
+            StateSequence = ++_canvasStateSequence,
+            ResetPendingOperations = true,
+            PngBytes = _canvas.ExportPng()
+        });
+    }
+
+    private void ApplyAuthoritativeRedo(ulong requesterId)
+    {
+        if (_finishing || !_isChooser)
+        {
+            return;
+        }
+
+        FlushCommands();
+        if (DrawingNetSync.IsMultiplayer)
+        {
+            ApplyAuthoritativeMultiplayerRedo(requesterId);
+            return;
+        }
+
+        if (!_redoableOperations.TryPop(out DrawingOperationKey operation))
+        {
+            _status.Text = Localized(
+                "没有可以重做的操作。",
+                "There are no actions to redo.");
+            return;
+        }
+
+        _undoneOperations.Remove(operation);
+        _undoableOperations.AddLast(operation);
+        if (_undoableOperations.Count > MaxUndoSteps)
+        {
+            _undoableOperations.RemoveFirst();
+        }
+        _canvas.RebuildFromCommands(_historyCommands
+            .Where(entry => !_undoneOperations.Contains(entry.Operation))
+            .Select(entry => entry.Command));
+        _historyEpoch++;
+        if (_historyEpoch == 0u)
+        {
+            _historyEpoch = 1u;
+        }
+        _pendingCommands.Clear();
+        _status.Text = Localized(
+            $"已重做最近一次撤回操作（剩余 {_redoableOperations.Count} 步可重做）。",
+            $"Redid the most recently undone action ({_redoableOperations.Count} redoable actions remain).");
+        Entry.Logger.Debug(
+            $"[DrawAndGuessMod] Redo requested by {requesterId}: sender={operation.SenderId}, " +
+            $"operation={operation.OperationId}, epoch={_historyEpoch}.");
         DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
         {
             OwnerId = _owner.NetId,
@@ -1778,6 +1896,37 @@ public partial class DrawingScreen : Control
             "Undid your most recent action.");
         Entry.Logger.Debug(
             $"[DrawAndGuessMod] Authoritative multiplayer undo: requester={requesterId}, " +
+            $"operation={operation.Operation.OperationId}, sequence={operation.Sequence}, epoch={_historyEpoch}.");
+        SendAuthoritativeCanvasState(_canvas.ExportPng(), resetPendingOperations: true);
+    }
+
+    private void ApplyAuthoritativeMultiplayerRedo(ulong requesterId)
+    {
+        if (!_multiplayerHistory.TryRedoLatest(
+                requesterId,
+                out CollaborativeDrawingHistory<DrawingPixelPatch>.Entry operation))
+        {
+            _status.Text = Localized(
+                "你没有可以重做的操作。",
+                "You have no actions to redo.");
+            return;
+        }
+
+        _canvas.CancelActiveOperation();
+        _pendingCommands.Clear();
+        _pendingMultiplayerOperations.Clear();
+        RebuildAuthoritativeCanvas();
+        _historyEpoch++;
+        if (_historyEpoch == 0u)
+        {
+            _historyEpoch = 1u;
+        }
+        _canvasStateSequence++;
+        _status.Text = Localized(
+            "已重做你自己的最近一次撤回操作。",
+            "Redid your most recently undone action.");
+        Entry.Logger.Debug(
+            $"[DrawAndGuessMod] Authoritative multiplayer redo: requester={requesterId}, " +
             $"operation={operation.Operation.OperationId}, sequence={operation.Sequence}, epoch={_historyEpoch}.");
         SendAuthoritativeCanvasState(_canvas.ExportPng(), resetPendingOperations: true);
     }
@@ -1877,6 +2026,7 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        _redoableOperations.Clear();
         _undoableOperations.AddLast(operation);
         if (_undoableOperations.Count > MaxUndoSteps)
         {

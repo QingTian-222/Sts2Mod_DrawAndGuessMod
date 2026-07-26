@@ -1,4 +1,4 @@
-# Multiplayer Undo Manual Test Matrix
+# Multiplayer Undo/Redo Manual Test Matrix
 
 Run every scenario twice:
 
@@ -16,7 +16,17 @@ Run every scenario twice:
 
 - Player A draws a red stroke; Player B covers it with blue; Player B undoes. The red stroke is revealed.
 - Player A draws a red stroke; Player B covers it with blue; Player A undoes. The blue stroke remains.
+- Player A undoes and redoes a red stroke covered by Player B's later blue stroke. The blue stroke remains on top.
 - Both players draw crossing strokes at the same time, release in different orders, and compare both screens after each release.
+
+## Redo ownership and branching
+
+- Player A undoes twice, then presses Ctrl+Y twice. A's two operations return in undo-reverse order.
+- Repeat with Ctrl+Shift+Z. It behaves exactly like Ctrl+Y.
+- Player A undoes, then Player B draws. Player A can still redo.
+- Player A undoes, then Player A draws a new operation. Player A can no longer redo the old operation.
+- Player A has no redo history and presses Ctrl+Y. The canvas does not change.
+- Players A and B each undo, then alternate Ctrl+Y. Each request restores only that player's own operation.
 
 ## Stateful tools
 
@@ -29,6 +39,8 @@ Run every scenario twice:
 - Player A holds the mouse and keeps drawing while Player B requests Undo. The partial in-flight stroke is cancelled on every client.
 - A client requests Undo while command batches are still arriving. Old-epoch commands must not reappear after the authoritative canvas state.
 - Spam Ctrl+Z on two clients at the same time. Every accepted undo must advance the same canvas state on all clients.
+- Spam Ctrl+Y on two clients at the same time. Every accepted redo must advance the same canvas state on all clients.
+- Alternate Ctrl+Z and Ctrl+Y rapidly while the other player starts a stroke. In-flight strokes are cancelled and never reappear.
 - Draw immediately after receiving an undo state. The new stroke must use the new epoch and remain visible.
 
 ## Limits and lifecycle
@@ -45,5 +57,6 @@ For any failure, collect `godot.log` from every player and note:
 
 - Which player played Blank.
 - Which player requested Undo.
+- Whether Ctrl+Z, Ctrl+Y, or Ctrl+Shift+Z was used.
 - Operation order and tool types.
 - Whether the host or a client saw the incorrect canvas first.

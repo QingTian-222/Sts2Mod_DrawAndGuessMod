@@ -114,6 +114,38 @@ public sealed class DrawingUndoRequestMessage : INetMessage, IPacketSerializable
     }
 }
 
+public sealed class DrawingRedoRequestMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint SessionId { get; set; }
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => false;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(SessionId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        SessionId = reader.ReadUInt();
+        LocationValue = reader.Read<RunLocation>();
+    }
+
+    public override string ToString()
+    {
+        return $"DrawingRedoRequestMessage owner={OwnerId} session={SessionId}";
+    }
+}
+
 public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     private const int MaxPngBytes = 2 * 1024 * 1024;
@@ -174,7 +206,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         int pngLength = reader.ReadInt();
         if (pngLength < 0 || pngLength > MaxPngBytes)
         {
-            throw new InvalidDataException($"Invalid undo canvas PNG size: {pngLength}");
+            throw new InvalidDataException($"Invalid authoritative canvas PNG size: {pngLength}");
         }
         PngBytes = new byte[pngLength];
         reader.ReadBytes(PngBytes, pngLength);

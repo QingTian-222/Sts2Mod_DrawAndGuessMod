@@ -4,7 +4,11 @@ RunSelectiveUndoScenario();
 RunCoveredStrokeScenario();
 RunFixedFillPatchScenario();
 RunPerSenderHistoryLimitScenario();
-Console.WriteLine("All multiplayer undo history tests passed.");
+RunRedoOrderScenario();
+RunRedoBranchInvalidationScenario();
+RunOtherPlayerCommitPreservesRedoScenario();
+RunCoveredStrokeRedoScenario();
+Console.WriteLine("All multiplayer undo/redo history tests passed.");
 
 static void RunSelectiveUndoScenario()
 {
@@ -47,6 +51,11 @@ static void RunFixedFillPatchScenario()
     Dictionary<int, string> rendered = Render(history.GetActivePatches());
     Assert(rendered.Count == 2 && rendered[6] == "fill" && rendered[7] == "fill",
         "A committed fill must keep its original pixel mask after an earlier operation is undone.");
+    Assert(history.TryUndoLatest(2, out _), "Player B should be able to undo the fixed fill patch.");
+    Assert(history.TryRedoLatest(2, out _), "Player B should be able to redo the fixed fill patch.");
+    Dictionary<int, string> redone = Render(history.GetActivePatches());
+    Assert(redone.Count == 2 && redone[6] == "fill" && redone[7] == "fill",
+        "Redoing a fill must restore the original committed pixel mask without recalculating its region.");
 }
 
 static void RunPerSenderHistoryLimitScenario()
@@ -63,6 +72,66 @@ static void RunPerSenderHistoryLimitScenario()
     Assert(history.TryUndoLatest(1, out _), "Player A should undo A2.");
     Assert(!history.TryUndoLatest(1, out _), "A1 should be outside Player A's undo window.");
     Assert(history.TryUndoLatest(2, out _), "Player B should still be able to undo B1.");
+}
+
+static void RunRedoOrderScenario()
+{
+    CollaborativeDrawingHistory<string> history = new(20);
+    history.Commit(new DrawingOperationKey(1, 1), "A1");
+    history.Commit(new DrawingOperationKey(1, 2), "A2");
+    history.Commit(new DrawingOperationKey(1, 3), "A3");
+
+    Assert(history.TryUndoLatest(1, out _), "Player A should undo A3.");
+    Assert(history.TryUndoLatest(1, out _), "Player A should undo A2.");
+    Assert(history.GetRedoableCount(1) == 2, "Player A should have two redoable operations.");
+    Assert(history.TryRedoLatest(1, out CollaborativeDrawingHistory<string>.Entry firstRedo),
+        "Player A should redo A2 first.");
+    Assert(firstRedo.Operation == new DrawingOperationKey(1, 2), "Redo order must be the reverse of undo order.");
+    Assert(history.TryRedoLatest(1, out CollaborativeDrawingHistory<string>.Entry secondRedo),
+        "Player A should redo A3 second.");
+    Assert(secondRedo.Operation == new DrawingOperationKey(1, 3), "The newest operation should be restored last.");
+    Assert(history.GetActivePatches().SequenceEqual(["A1", "A2", "A3"]),
+        "Redo must restore operations in their original global sequence.");
+}
+
+static void RunRedoBranchInvalidationScenario()
+{
+    CollaborativeDrawingHistory<string> history = new(20);
+    history.Commit(new DrawingOperationKey(1, 1), "A1");
+    history.Commit(new DrawingOperationKey(1, 2), "A2");
+
+    Assert(history.TryUndoLatest(1, out _), "Player A should undo A2.");
+    history.Commit(new DrawingOperationKey(1, 3), "A3");
+    Assert(history.GetRedoableCount(1) == 0, "A new Player A operation must clear only Player A's redo branch.");
+    Assert(!history.TryRedoLatest(1, out _), "An invalidated redo branch must not be restorable.");
+    Assert(history.GetActivePatches().SequenceEqual(["A1", "A3"]), "The new branch should remain active.");
+}
+
+static void RunOtherPlayerCommitPreservesRedoScenario()
+{
+    CollaborativeDrawingHistory<string> history = new(20);
+    history.Commit(new DrawingOperationKey(1, 1), "A1");
+    history.Commit(new DrawingOperationKey(1, 2), "A2");
+
+    Assert(history.TryUndoLatest(1, out _), "Player A should undo A2.");
+    history.Commit(new DrawingOperationKey(2, 1), "B1");
+    Assert(history.GetRedoableCount(1) == 1, "Player B drawing must not clear Player A's redo branch.");
+    Assert(history.TryRedoLatest(1, out _), "Player A should still be able to redo A2.");
+    Assert(history.GetActivePatches().SequenceEqual(["A1", "A2", "B1"]),
+        "A redone operation must return to its original position below later operations.");
+}
+
+static void RunCoveredStrokeRedoScenario()
+{
+    CollaborativeDrawingHistory<TestPatch> history = new(20);
+    history.Commit(new DrawingOperationKey(1, 1), new TestPatch((1, "red"), (2, "red")));
+    history.Commit(new DrawingOperationKey(2, 1), new TestPatch((2, "blue"), (3, "blue")));
+
+    Assert(history.TryUndoLatest(1, out _), "Player A should undo the covered red stroke.");
+    Assert(history.TryRedoLatest(1, out _), "Player A should redo the covered red stroke.");
+    Dictionary<int, string> rendered = Render(history.GetActivePatches());
+    Assert(rendered[2] == "blue",
+        "Redoing an earlier covered stroke must not place it above Player B's later stroke.");
 }
 
 static Dictionary<int, string> Render(IEnumerable<TestPatch> patches)

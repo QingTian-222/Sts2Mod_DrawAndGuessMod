@@ -6,6 +6,7 @@ internal sealed class CollaborativeDrawingHistory<TPatch>
 {
     private readonly int _maxUndoStepsPerSender;
     private readonly List<Entry> _entries = new();
+    private readonly Dictionary<ulong, List<Entry>> _redoStacks = new();
     private uint _nextSequence = 1u;
 
     public CollaborativeDrawingHistory(int maxUndoStepsPerSender)
@@ -19,6 +20,7 @@ internal sealed class CollaborativeDrawingHistory<TPatch>
 
     public Entry Commit(DrawingOperationKey operation, TPatch patch)
     {
+        ClearRedoHistoryFor(operation.SenderId);
         Entry entry = new(operation, _nextSequence++, patch);
         if (_nextSequence == 0u)
         {
@@ -42,7 +44,46 @@ internal sealed class CollaborativeDrawingHistory<TPatch>
 
         entry.Active = false;
         entry.CanUndo = false;
+        entry.CanRedo = true;
+        if (!_redoStacks.TryGetValue(senderId, out List<Entry>? redoStack))
+        {
+            redoStack = new List<Entry>();
+            _redoStacks[senderId] = redoStack;
+        }
+        redoStack.Add(entry);
         return true;
+    }
+
+    public bool TryRedoLatest(ulong senderId, out Entry entry)
+    {
+        entry = null!;
+        if (!_redoStacks.TryGetValue(senderId, out List<Entry>? redoStack))
+        {
+            return false;
+        }
+
+        while (redoStack.Count > 0)
+        {
+            int lastIndex = redoStack.Count - 1;
+            Entry candidate = redoStack[lastIndex];
+            redoStack.RemoveAt(lastIndex);
+            if (!candidate.Active && candidate.CanRedo)
+            {
+                entry = candidate;
+                entry.Active = true;
+                entry.CanUndo = true;
+                entry.CanRedo = false;
+                LimitUndoHistoryFor(senderId);
+                if (redoStack.Count == 0)
+                {
+                    _redoStacks.Remove(senderId);
+                }
+                return true;
+            }
+        }
+
+        _redoStacks.Remove(senderId);
+        return false;
     }
 
     public IEnumerable<TPatch> GetActivePatches()
@@ -58,6 +99,26 @@ internal sealed class CollaborativeDrawingHistory<TPatch>
             entry.Active &&
             entry.CanUndo &&
             entry.Operation.SenderId == senderId);
+    }
+
+    public int GetRedoableCount(ulong senderId)
+    {
+        return _redoStacks.TryGetValue(senderId, out List<Entry>? redoStack)
+            ? redoStack.Count(entry => !entry.Active && entry.CanRedo)
+            : 0;
+    }
+
+    private void ClearRedoHistoryFor(ulong senderId)
+    {
+        if (!_redoStacks.Remove(senderId, out List<Entry>? redoStack))
+        {
+            return;
+        }
+
+        foreach (Entry entry in redoStack)
+        {
+            entry.CanRedo = false;
+        }
     }
 
     private void LimitUndoHistoryFor(ulong senderId)
@@ -81,6 +142,7 @@ internal sealed class CollaborativeDrawingHistory<TPatch>
         public TPatch Patch { get; }
         public bool Active { get; set; } = true;
         public bool CanUndo { get; set; } = true;
+        public bool CanRedo { get; set; }
 
         public Entry(DrawingOperationKey operation, uint sequence, TPatch patch)
         {
