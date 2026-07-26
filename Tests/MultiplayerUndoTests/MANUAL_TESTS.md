@@ -38,6 +38,10 @@ Run every scenario twice:
 
 ## Race boundaries
 
+- Hold the left mouse button, then press the right button without releasing left. The left-color stroke completes before the right-color stroke starts.
+- While both buttons are physically held after the previous step, release the old left button first. The active right-color stroke continues until the right button is released.
+- Repeat the previous two scenarios with right and left reversed. Both clients must show identical operation boundaries and colors.
+- After the newer button is released, keeping the older button physically held must not resume drawing until it is released and pressed again.
 - Player A holds the mouse and keeps drawing while Player B requests Undo. The partial in-flight stroke is cancelled on every client.
 - A client requests Undo while command batches are still arriving. Old-epoch commands must not reappear after the authoritative canvas state.
 - Spam Ctrl+Z on two clients at the same time. Every accepted undo must advance the same canvas state on all clients.

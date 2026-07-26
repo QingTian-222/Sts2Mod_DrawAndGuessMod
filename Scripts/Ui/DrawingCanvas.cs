@@ -37,6 +37,7 @@ public partial class DrawingCanvas : Control
     private byte _stampSize = DefaultStampSize;
     private uint _nextOperationId = 1u;
     private uint _activeStrokeOperationId;
+    private MouseButton? _activeStrokeButton;
     private readonly Dictionary<byte, Image> _stampImages = new();
     private readonly Dictionary<(byte StampIndex, byte StampSize), Image> _scaledStampImages = new();
     private bool _drawing;
@@ -78,7 +79,9 @@ public partial class DrawingCanvas : Control
 
     public override void _Process(double delta)
     {
-        if (_drawing && !Input.IsMouseButtonPressed(MouseButton.Left) && !Input.IsMouseButtonPressed(MouseButton.Right))
+        if (_drawing &&
+            _activeStrokeButton is MouseButton activeStrokeButton &&
+            !Input.IsMouseButtonPressed(activeStrokeButton))
         {
             FinishStroke();
         }
@@ -105,16 +108,24 @@ public partial class DrawingCanvas : Control
         {
             if (!button.Pressed)
             {
-                FinishStroke();
+                if (_activeStrokeButton == button.ButtonIndex)
+                {
+                    FinishStroke();
+                }
                 AcceptEvent();
                 return;
             }
 
+            if (_drawing)
+            {
+                FinishStroke();
+            }
             _lastPixel = ToPixel(button.Position);
             Color inputColor = button.ButtonIndex == MouseButton.Right ? _rightColor : _leftColor;
             if (_tool == DrawingTool.Brush)
             {
                 _activeStrokeOperationId = NextOperationId();
+                _activeStrokeButton = button.ButtonIndex;
                 _activeStrokeColor = inputColor;
                 _drawing = true;
                 PaintLineLocal(_lastPixel, _lastPixel);
@@ -308,6 +319,7 @@ public partial class DrawingCanvas : Control
     {
         _drawing = false;
         _activeStrokeOperationId = 0u;
+        _activeStrokeButton = null;
         if (HasPointerPreview())
         {
             QueueRedraw();
@@ -624,6 +636,7 @@ public partial class DrawingCanvas : Control
         }
         _drawing = false;
         _activeStrokeOperationId = 0u;
+        _activeStrokeButton = null;
         if (HasPointerPreview())
         {
             QueueRedraw();
