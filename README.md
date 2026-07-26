@@ -4,24 +4,17 @@
 
 《Slay the Spire 2》绘画猜卡模组。打出“空白”后，玩家可以绘制一张卡面，瓦库会从当前游戏卡池中给出三个候选；选择结果会加入手牌和牌组，并在本局游戏中使用玩家绘制的卡面。
 
-## v0.7.44 更新
-
-- 多人模式支持每名玩家独立撤销和重做自己的最近操作，由出牌者负责权威排序并向所有玩家同步最终画布。
-- 支持 `Ctrl+Y` 和 `Ctrl+Shift+Z` 重做；其他玩家的新操作不会清空你的重做记录，自己重新作画则会清空。
-- 修复左右键同时按下时可能产生未完成笔画并导致联机画面不一致的问题。
-- 修复无限画廊可能抽到内部测试卡牌，导致客机无法打开作画界面的问题。
-- 右键默认颜色改为与画布一致的米色；“卡牌识别缓存”移到设置页第一项。
 
 ## 功能
 
 - 作画工具包括画笔、填充、RGB 调色盘、左右键独立颜色、中键吸管和五名角色印花；鼠标滚轮可以调整画笔或印花大小。
-- 单人和多人模式均支持撤销最近 20 次完整操作；`Ctrl+Z` 撤销，`Ctrl+Y` 或 `Ctrl+Shift+Z` 重做。多人模式下每名玩家只能撤销或重做自己的操作。
+- 单人和多人模式均支持撤销；`Ctrl+Z` 撤销，`Ctrl+Y` 或 `Ctrl+Shift+Z` 重做。多人模式下每名玩家只能撤销或重做自己的操作。
 - 可以观察战局而不关闭作画界面；观察时会暂停绘图快捷键，避免与游戏操作冲突。
 - 支持全卡池或当前角色卡池识别范围，并可在高级选项中检测当前已加载卡池、单独关闭不希望参与识别的卡池。
 - 可选择是否包含多人专属卡牌，默认启用。
 - 可选择让“空白”生成的卡牌只进入手牌而不进入卡组，默认关闭。
 - 可选择在对局开始时获得一张“空白”，默认关闭。
-- 普通“空白”可以设置 15、30、60、120 秒或自定义作画时间；多人模式以房主设置为准。
+- 普通“空白”可以设置 自定义作画时间；多人模式以房主设置为准。
 - AI 猜测前三名；单人模式由自己选择，多人模式由“空白”指定的玩家三选一。
 - 可在“识别模型准确度”中选择瓦库（100%特征提取算法，准确率较低）或鸡煲（原算法与DINOv2各50%）。
 - 多人协作绘画；出牌者指定目标并确认画作，被指定的玩家选择卡牌，最终卡面同步给所有玩家。
@@ -104,13 +97,7 @@ launch-model-preview.cmd
 
 A drawing-based card guessing mod for *Slay the Spire 2*. After playing **Blank**, players can draw a card illustration and VAKUU will suggest three candidates from the card pools currently loaded in the game. The selected card is added to the Hand and Deck, and the player's drawing replaces that card's illustration for the rest of the run.
 
-## What's New in v0.7.44
 
-- Multiplayer now supports per-player undo and redo. The player who played **Blank** authoritatively orders operations and synchronizes the final canvas to every peer.
-- `Ctrl+Y` and `Ctrl+Shift+Z` redo are supported. Another player's new action does not clear your redo history, while drawing a new action yourself does.
-- Fixed an unfinished-stroke race that could desynchronize peers when the left and right mouse buttons overlapped.
-- Fixed Infinite Gallery selecting internal mock cards, which could prevent a client from opening the drawing screen.
-- The default right-click color now matches the beige canvas, and **Card Recognition Cache** is the first settings section.
 
 ## Features
 
