@@ -56,7 +56,7 @@ internal static class EventLocalization
             "瓦库指向一条望不到尽头的画廊。每一块空白画框，都在等待你为一张卡牌留下新的面貌。",
             "VAKUU gestures toward a gallery with no visible end. Every empty frame waits for you to give a card a new face.");
         values[$"{id}.pages.INITIAL.options.TIMED.title"] = ModText.Get(
-            "潦草就急",
+            "潦草急就",
             "Timed Drawing");
         values[$"{id}.pages.INITIAL.options.TIMED.description"] = ModText.Get(
             "限时60秒作画。每次成功获得[gold]60[/gold]金币。",
