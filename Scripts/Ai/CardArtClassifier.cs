@@ -456,7 +456,11 @@ internal static class CardArtClassifier
         return ModelDb.All
             .OfType<CardModel>()
             .Concat(ModelDb.AllCards)
-            .Where(card => card is not Blank && card.ShouldShowInCardLibrary && card.Type != CardType.None)
+            .Where(card =>
+                card is not Blank &&
+                !card.IsMock &&
+                card.ShouldShowInCardLibrary &&
+                card.Type != CardType.None)
             .GroupBy(card => card.Id)
             .Select(group => group.First())
             .OrderBy(card => card.Id.ToString(), StringComparer.Ordinal)
