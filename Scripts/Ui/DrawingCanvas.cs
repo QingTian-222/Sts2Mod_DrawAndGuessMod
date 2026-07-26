@@ -284,7 +284,7 @@ public partial class DrawingCanvas : Control
         }
     }
 
-    internal bool ImportPng(byte[] pngBytes)
+    internal bool ImportPng(byte[] pngBytes, bool cancelActiveOperation = true)
     {
         Image imported = new();
         if (imported.LoadPngFromBuffer(pngBytes) != Error.Ok)
@@ -294,12 +294,24 @@ public partial class DrawingCanvas : Control
 
         imported.Convert(Image.Format.Rgba8);
         imported.Resize(CanvasWidth, CanvasHeight, Image.Interpolation.Lanczos);
-        _drawing = false;
-        _activeStrokeOperationId = 0u;
+        if (cancelActiveOperation)
+        {
+            CancelActiveOperation();
+        }
         _image = imported;
         _texture.Update(_image);
         QueueRedraw();
         return true;
+    }
+
+    internal void CancelActiveOperation()
+    {
+        _drawing = false;
+        _activeStrokeOperationId = 0u;
+        if (HasPointerPreview())
+        {
+            QueueRedraw();
+        }
     }
 
     public Image Snapshot()
@@ -540,6 +552,41 @@ public partial class DrawingCanvas : Control
             foreach (DrawingCommand command in commands)
             {
                 ApplyRemote(command);
+            }
+        }
+        finally
+        {
+            _batchApplying = false;
+        }
+        RefreshTexture();
+    }
+
+    internal void ApplyCommands(IEnumerable<DrawingCommand> commands)
+    {
+        _batchApplying = true;
+        try
+        {
+            foreach (DrawingCommand command in commands)
+            {
+                ApplyRemote(command);
+            }
+        }
+        finally
+        {
+            _batchApplying = false;
+        }
+        RefreshTexture();
+    }
+
+    internal void RebuildFromPixelPatches(IEnumerable<DrawingPixelPatch> patches)
+    {
+        _batchApplying = true;
+        try
+        {
+            _image.Fill(_paperColor);
+            foreach (DrawingPixelPatch patch in patches)
+            {
+                patch.Apply(_image);
             }
         }
         finally

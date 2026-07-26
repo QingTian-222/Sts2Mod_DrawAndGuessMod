@@ -187,6 +187,22 @@ internal static class DrawingNetSync
         });
     }
 
+    public static void SendRedoRequest(ulong ownerId, uint sessionId)
+    {
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        EnsureRegistered();
+        RunManager.Instance.NetService.SendMessage(new DrawingRedoRequestMessage
+        {
+            OwnerId = ownerId,
+            SessionId = sessionId,
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
     public static void SendCanvasState(DrawingCanvasStateMessage message)
     {
         if (!IsMultiplayer)
@@ -268,6 +284,7 @@ internal static class DrawingNetSync
             _registeredBuffer.UnregisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingSyncMessage>(OnCommandsReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingUndoRequestMessage>(OnUndoRequestReceived);
+            _registeredBuffer.UnregisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
@@ -276,6 +293,7 @@ internal static class DrawingNetSync
         current.RegisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
         current.RegisterMessageHandler<DrawingSyncMessage>(OnCommandsReceived);
         current.RegisterMessageHandler<DrawingUndoRequestMessage>(OnUndoRequestReceived);
+        current.RegisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
         current.RegisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
         current.RegisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
         current.RegisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
@@ -343,11 +361,21 @@ internal static class DrawingNetSync
         DrawingScreen.TryReceiveUndoRequest(message, senderId);
     }
 
+    private static void OnRedoRequestReceived(DrawingRedoRequestMessage message, ulong senderId)
+    {
+        if (senderId == RunManager.Instance.NetService.NetId)
+        {
+            return;
+        }
+
+        DrawingScreen.TryReceiveRedoRequest(message, senderId);
+    }
+
     private static void OnCanvasStateReceived(DrawingCanvasStateMessage message, ulong senderId)
     {
         if (senderId != message.OwnerId)
         {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected undo canvas state from {senderId}; expected owner {message.OwnerId}.");
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected authoritative canvas state from {senderId}; expected owner {message.OwnerId}.");
             return;
         }
 
@@ -357,7 +385,9 @@ internal static class DrawingNetSync
         }
 
         (ulong OwnerId, uint SessionId) key = (message.OwnerId, message.SessionId);
-        if (!PendingCanvasStates.TryGetValue(key, out DrawingCanvasStateMessage? pending) || message.Epoch >= pending.Epoch)
+        if (!PendingCanvasStates.TryGetValue(key, out DrawingCanvasStateMessage? pending) ||
+            message.Epoch > pending.Epoch ||
+            message.Epoch == pending.Epoch && message.StateSequence >= pending.StateSequence)
         {
             PendingCanvasStates[key] = message;
         }
