@@ -1,5 +1,7 @@
 # Multiplayer Undo/Redo Manual Test Matrix
 
+[中文版](MANUAL_TESTS.zh-CN.md)
+
 Run every scenario twice:
 
 1. The host plays Blank.
