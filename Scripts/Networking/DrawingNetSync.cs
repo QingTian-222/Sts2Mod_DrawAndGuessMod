@@ -357,7 +357,9 @@ internal static class DrawingNetSync
         }
 
         (ulong OwnerId, uint SessionId) key = (message.OwnerId, message.SessionId);
-        if (!PendingCanvasStates.TryGetValue(key, out DrawingCanvasStateMessage? pending) || message.Epoch >= pending.Epoch)
+        if (!PendingCanvasStates.TryGetValue(key, out DrawingCanvasStateMessage? pending) ||
+            message.Epoch > pending.Epoch ||
+            message.Epoch == pending.Epoch && message.StateSequence >= pending.StateSequence)
         {
             PendingCanvasStates[key] = message;
         }

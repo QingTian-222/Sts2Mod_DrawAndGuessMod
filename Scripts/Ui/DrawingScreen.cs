@@ -39,12 +39,16 @@ public partial class DrawingScreen : Control
     private readonly LinkedList<DrawingOperationKey> _undoableOperations = new();
     private readonly HashSet<DrawingOperationKey> _completedOperations = new();
     private readonly HashSet<DrawingOperationKey> _undoneOperations = new();
+    private readonly Dictionary<DrawingOperationKey, List<DrawingCommand>> _pendingMultiplayerOperations = new();
+    private readonly CollaborativeDrawingHistory<DrawingPixelPatch> _multiplayerHistory = new(MaxUndoSteps);
+    private readonly Dictionary<ulong, uint> _settledOperationWatermarks = new();
     private readonly List<Color> _customColors = new();
     private readonly List<Button> _customColorButtons = new();
     private Player _owner = null!;
     private DrawingScreenOptions? _options;
     private uint _sessionId;
     private uint _historyEpoch;
+    private uint _canvasStateSequence;
     private bool _isChooser;
     private bool _isTimerAuthority;
     private ulong _lastCommandFlushMsec;
@@ -181,6 +185,11 @@ public partial class DrawingScreen : Control
 
     public override void _Input(InputEvent @event)
     {
+        if (_peeking)
+        {
+            return;
+        }
+
         if (@event is InputEventMouseButton { Pressed: true } wheel &&
             wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown &&
             !_finishing)
@@ -196,7 +205,7 @@ public partial class DrawingScreen : Control
 
         if (@event is InputEventKey { Echo: false, Keycode: Key.G } fillKey)
         {
-            if (fillKey.Pressed && !_gFillHeld && !_finishing && !_peeking && !_colorPickerOverlay.Visible)
+            if (fillKey.Pressed && !_gFillHeld && !_finishing && !_colorPickerOverlay.Visible)
             {
                 _gFillHeld = true;
                 ActivateFillTool();
@@ -213,7 +222,7 @@ public partial class DrawingScreen : Control
         }
 
         if (@event is InputEventKey { Pressed: true, Echo: false, CtrlPressed: true, Keycode: Key.Z } &&
-            !DrawingNetSync.IsMultiplayer && !_peeking && !_colorPickerOverlay.Visible)
+            !_colorPickerOverlay.Visible)
         {
             RequestUndo();
             GetViewport().SetInputAsHandled();
@@ -537,18 +546,19 @@ public partial class DrawingScreen : Control
         clear.Pressed += _canvas.ClearCanvas;
         buttons.AddChild(clear);
 
-        if (!DrawingNetSync.IsMultiplayer)
-        {
-            Button undo = CreateActionButton(
-                Localized("撤回", "Undo"),
-                new Color("253D58"),
-                new Color("79BCE8"));
-            undo.TooltipText = Localized(
+        Button undo = CreateActionButton(
+            Localized("撤回", "Undo"),
+            new Color("253D58"),
+            new Color("79BCE8"));
+        undo.TooltipText = DrawingNetSync.IsMultiplayer
+            ? Localized(
+                $"撤回你自己的最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
+                $"Undo your most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained")
+            : Localized(
                 $"撤回最近一次完整操作（Ctrl+Z），最多保留 {MaxUndoSteps} 步",
                 $"Undo the most recent complete action (Ctrl+Z); up to {MaxUndoSteps} actions are retained");
-            undo.Pressed += RequestUndo;
-            buttons.AddChild(undo);
-        }
+        undo.Pressed += RequestUndo;
+        buttons.AddChild(undo);
 
         _guessButton = CreateActionButton(
             Localized("确认", "Confirm"),
@@ -665,6 +675,12 @@ public partial class DrawingScreen : Control
         if (_peeking == peeking)
         {
             return;
+        }
+
+        if (peeking && _gFillHeld)
+        {
+            _gFillHeld = false;
+            ActivateBrushTool();
         }
 
         _peeking = peeking;
@@ -1421,7 +1437,23 @@ public partial class DrawingScreen : Control
 
         foreach (DrawingCommand command in message.Commands)
         {
-            if (!DrawingNetSync.IsMultiplayer && _isChooser)
+            if (DrawingNetSync.IsMultiplayer)
+            {
+                if (IsOperationSettled(senderId, command.OperationId))
+                {
+                    continue;
+                }
+
+                TrackPendingMultiplayerCommand(senderId, command);
+                _canvas.ApplyRemote(command);
+                if (_isChooser && command.CompletesOperation)
+                {
+                    CommitAuthoritativeOperation(new DrawingOperationKey(senderId, command.OperationId));
+                }
+                continue;
+            }
+
+            if (_isChooser)
             {
                 RecordHistoryCommand(senderId, command);
             }
@@ -1431,22 +1463,36 @@ public partial class DrawingScreen : Control
 
     internal void ReceiveCanvasState(DrawingCanvasStateMessage message)
     {
-        if (_finishing || message.Epoch < _historyEpoch)
+        if (_finishing ||
+            message.Epoch < _historyEpoch ||
+            message.Epoch == _historyEpoch && message.StateSequence <= _canvasStateSequence)
         {
             return;
         }
 
-        if (!_canvas.ImportPng(message.PngBytes))
+        bool resetPending = message.ResetPendingOperations || message.Epoch > _historyEpoch;
+        if (!_canvas.ImportPng(message.PngBytes, cancelActiveOperation: resetPending))
         {
-            Entry.Logger.Warn("[DrawAndGuessMod] Received an invalid undo canvas state.");
+            Entry.Logger.Warn("[DrawAndGuessMod] Received an invalid authoritative canvas state.");
             return;
         }
 
         _historyEpoch = message.Epoch;
-        _pendingCommands.Clear();
-        _status.Text = Localized(
-            "已同步撤回后的画布。",
-            "The canvas has been synchronized after the undo.");
+        _canvasStateSequence = message.StateSequence;
+        ApplyOperationWatermarks(message.Watermarks);
+        RemoveSettledLocalCommandQueue();
+        if (resetPending)
+        {
+            _pendingCommands.Clear();
+            _pendingMultiplayerOperations.Clear();
+            _status.Text = Localized(
+                "已同步撤回后的画布。",
+                "The canvas has been synchronized after the undo.");
+            return;
+        }
+
+        RemoveSettledPendingOperations();
+        ReapplyPendingMultiplayerPreviews();
     }
 
     internal void ReceiveTimer(DrawingTimerSyncMessage message)
@@ -1531,7 +1577,21 @@ public partial class DrawingScreen : Control
 
     private void OnLocalCommand(DrawingCommand command)
     {
-        if (!DrawingNetSync.IsMultiplayer && _isChooser)
+        if (DrawingNetSync.IsMultiplayer)
+        {
+            ulong senderId = RunManager.Instance.NetService.NetId;
+            TrackPendingMultiplayerCommand(senderId, command);
+            if (_isChooser && command.CompletesOperation)
+            {
+                CommitAuthoritativeOperation(new DrawingOperationKey(senderId, command.OperationId));
+            }
+            if (IsOperationSettled(senderId, command.OperationId))
+            {
+                _pendingCommands.RemoveAll(candidate => candidate.OperationId == command.OperationId);
+                return;
+            }
+        }
+        else if (_isChooser)
         {
             RecordHistoryCommand(_owner.NetId, command);
         }
@@ -1562,12 +1622,27 @@ public partial class DrawingScreen : Control
 
     private void RequestUndo()
     {
-        if (_finishing || DrawingNetSync.IsMultiplayer)
+        if (_finishing)
         {
             return;
         }
 
         FlushCommands();
+        if (DrawingNetSync.IsMultiplayer)
+        {
+            if (_isChooser)
+            {
+                ApplyAuthoritativeUndo(RunManager.Instance.NetService.NetId);
+                return;
+            }
+
+            DrawingNetSync.SendUndoRequest(_owner.NetId, _sessionId);
+            _status.Text = Localized(
+                "已请求撤回你自己的最近一次操作。",
+                "Requested an undo of your most recent action.");
+            return;
+        }
+
         if (_isChooser)
         {
             ApplyAuthoritativeUndo(_owner.NetId);
@@ -1582,12 +1657,18 @@ public partial class DrawingScreen : Control
 
     private void ApplyAuthoritativeUndo(ulong requesterId)
     {
-        if (_finishing || DrawingNetSync.IsMultiplayer || !_isChooser)
+        if (_finishing || !_isChooser)
         {
             return;
         }
 
         FlushCommands();
+        if (DrawingNetSync.IsMultiplayer)
+        {
+            ApplyAuthoritativeMultiplayerUndo(requesterId);
+            return;
+        }
+
         LinkedListNode<DrawingOperationKey>? last = _undoableOperations.Last;
         if (last == null)
         {
@@ -1621,8 +1702,165 @@ public partial class DrawingScreen : Control
             OwnerId = _owner.NetId,
             SessionId = _sessionId,
             Epoch = _historyEpoch,
+            StateSequence = ++_canvasStateSequence,
+            ResetPendingOperations = true,
             PngBytes = _canvas.ExportPng()
         });
+    }
+
+    private void TrackPendingMultiplayerCommand(ulong senderId, DrawingCommand command)
+    {
+        if (command.OperationId == 0u || IsOperationSettled(senderId, command.OperationId))
+        {
+            return;
+        }
+
+        DrawingOperationKey operation = new(senderId, command.OperationId);
+        if (!_pendingMultiplayerOperations.TryGetValue(operation, out List<DrawingCommand>? commands))
+        {
+            commands = new List<DrawingCommand>();
+            _pendingMultiplayerOperations[operation] = commands;
+        }
+        commands.Add(command);
+    }
+
+    private void CommitAuthoritativeOperation(DrawingOperationKey operation)
+    {
+        if (!_isChooser ||
+            !_pendingMultiplayerOperations.Remove(operation, out List<DrawingCommand>? commands) ||
+            commands.Count == 0 ||
+            !commands[^1].CompletesOperation)
+        {
+            return;
+        }
+
+        RebuildAuthoritativeCanvas();
+        Image before = _canvas.Snapshot();
+        _canvas.ApplyCommands(commands);
+        DrawingPixelPatch patch = DrawingPixelPatch.Between(before, _canvas.Snapshot());
+        CollaborativeDrawingHistory<DrawingPixelPatch>.Entry committed =
+            _multiplayerHistory.Commit(operation, patch);
+        AdvanceOperationWatermark(operation);
+
+        byte[] canonicalPng = _canvas.ExportPng();
+        _canvasStateSequence++;
+        ReapplyPendingMultiplayerPreviews();
+        SendAuthoritativeCanvasState(canonicalPng, resetPendingOperations: false);
+        Entry.Logger.Debug(
+            $"[DrawAndGuessMod] Committed drawing operation: sender={operation.SenderId}, " +
+            $"operation={operation.OperationId}, sequence={committed.Sequence}, epoch={_historyEpoch}.");
+    }
+
+    private void ApplyAuthoritativeMultiplayerUndo(ulong requesterId)
+    {
+        if (!_multiplayerHistory.TryUndoLatest(
+                requesterId,
+                out CollaborativeDrawingHistory<DrawingPixelPatch>.Entry operation))
+        {
+            _status.Text = Localized(
+                "你没有可以撤回的操作。",
+                "You have no actions to undo.");
+            return;
+        }
+
+        _canvas.CancelActiveOperation();
+        _pendingCommands.Clear();
+        _pendingMultiplayerOperations.Clear();
+        RebuildAuthoritativeCanvas();
+        _historyEpoch++;
+        if (_historyEpoch == 0u)
+        {
+            _historyEpoch = 1u;
+        }
+        _canvasStateSequence++;
+        _status.Text = Localized(
+            "已撤回你自己的最近一次操作。",
+            "Undid your most recent action.");
+        Entry.Logger.Debug(
+            $"[DrawAndGuessMod] Authoritative multiplayer undo: requester={requesterId}, " +
+            $"operation={operation.Operation.OperationId}, sequence={operation.Sequence}, epoch={_historyEpoch}.");
+        SendAuthoritativeCanvasState(_canvas.ExportPng(), resetPendingOperations: true);
+    }
+
+    private void RebuildAuthoritativeCanvas()
+    {
+        _canvas.RebuildFromPixelPatches(
+            _multiplayerHistory.GetActivePatches());
+    }
+
+    private void ReapplyPendingMultiplayerPreviews()
+    {
+        if (_pendingMultiplayerOperations.Count == 0)
+        {
+            return;
+        }
+
+        _canvas.ApplyCommands(_pendingMultiplayerOperations.Values.SelectMany(commands => commands));
+    }
+
+    private void SendAuthoritativeCanvasState(byte[] pngBytes, bool resetPendingOperations)
+    {
+        DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+        {
+            OwnerId = _owner.NetId,
+            SessionId = _sessionId,
+            Epoch = _historyEpoch,
+            StateSequence = _canvasStateSequence,
+            ResetPendingOperations = resetPendingOperations,
+            Watermarks = _settledOperationWatermarks
+                .Select(pair => new DrawingOperationWatermark
+                {
+                    SenderId = pair.Key,
+                    OperationId = pair.Value
+                })
+                .ToList(),
+            PngBytes = pngBytes
+        });
+    }
+
+    private void ApplyOperationWatermarks(IEnumerable<DrawingOperationWatermark> watermarks)
+    {
+        foreach (DrawingOperationWatermark watermark in watermarks)
+        {
+            if (!_settledOperationWatermarks.TryGetValue(watermark.SenderId, out uint current) ||
+                watermark.OperationId > current)
+            {
+                _settledOperationWatermarks[watermark.SenderId] = watermark.OperationId;
+            }
+        }
+    }
+
+    private void AdvanceOperationWatermark(DrawingOperationKey operation)
+    {
+        if (!_settledOperationWatermarks.TryGetValue(operation.SenderId, out uint current) ||
+            operation.OperationId > current)
+        {
+            _settledOperationWatermarks[operation.SenderId] = operation.OperationId;
+        }
+    }
+
+    private bool IsOperationSettled(ulong senderId, uint operationId)
+    {
+        return operationId != 0u &&
+               _settledOperationWatermarks.TryGetValue(senderId, out uint watermark) &&
+               operationId <= watermark;
+    }
+
+    private void RemoveSettledPendingOperations()
+    {
+        foreach (DrawingOperationKey operation in _pendingMultiplayerOperations.Keys
+                     .Where(operation => IsOperationSettled(operation.SenderId, operation.OperationId))
+                     .ToList())
+        {
+            _pendingMultiplayerOperations.Remove(operation);
+        }
+    }
+
+    private void RemoveSettledLocalCommandQueue()
+    {
+        ulong localSenderId = RunManager.Instance.NetService.NetId;
+        _pendingCommands.RemoveAll(command =>
+            IsOperationSettled(localSenderId, command.OperationId));
     }
 
     private void RecordHistoryCommand(ulong senderId, DrawingCommand command)
@@ -1646,7 +1884,6 @@ public partial class DrawingScreen : Control
         }
     }
 
-    private readonly record struct DrawingOperationKey(ulong SenderId, uint OperationId);
     private sealed record RecordedDrawingCommand(DrawingOperationKey Operation, DrawingCommand Command);
 
     private void Complete(DrawingResult? result)
