@@ -232,6 +232,26 @@ internal static class DrawAndGuessSettings
                 ModSettingsHostSurface.MainMenu |
                 ModSettingsHostSurface.RunPause |
                 ModSettingsHostSurface.CombatPause)
+            .AddSection("model_training", section => section
+                .WithTitle(LocalizedText("卡牌识别缓存", "Card Recognition Cache"))
+                .AddCustom(
+                    "pretraining_progress",
+                    LocalizedText("卡牌扫描进度", "Card Scan Progress"),
+                    BuildPretrainingProgressControl,
+                    LocalizedText(
+                        "显示当前卡牌图片的分析进度。",
+                        "Shows progress while card images are being analyzed."),
+                    () => _pretraining)
+                .AddButton(
+                    "pretrain_current_cards",
+                    LocalizedText("识别缓存", "Recognition Cache"),
+                    DynamicText(() => _pretraining
+                        ? Localized("正在分析卡牌图片……", "Analyzing card images...")
+                        : Localized("扫描卡牌并建立识别缓存", "Scan Cards and Build Cache")),
+                    StartPretraining,
+                    ModSettingsButtonTone.Accent,
+                    DynamicText(() => PretrainingStatus))
+                .WithEntryEnabledWhen("pretrain_current_cards", () => !_pretraining))
             .AddSection("guess_pool", section => section
                 .WithTitle(LocalizedText("AI 候选牌池", "AI Candidate Pool"))
                 .AddChoice(
@@ -319,26 +339,6 @@ internal static class DrawAndGuessSettings
                         "瓦库：手工视觉特征。鸡煲：手工特征与 DINOv2 各占 50%。",
                         "VAKUU: handcrafted visual features. Defect: a 50/50 fusion of handcrafted features and DINOv2."),
                     ModSettingsChoicePresentation.Dropdown))
-            .AddSection("model_training", section => section
-                .WithTitle(LocalizedText("卡牌识别缓存", "Card Recognition Cache"))
-                .AddCustom(
-                    "pretraining_progress",
-                    LocalizedText("卡牌扫描进度", "Card Scan Progress"),
-                    BuildPretrainingProgressControl,
-                    LocalizedText(
-                        "显示当前卡牌图片的分析进度。",
-                        "Shows progress while card images are being analyzed."),
-                    () => _pretraining)
-                .AddButton(
-                    "pretrain_current_cards",
-                    LocalizedText("识别缓存", "Recognition Cache"),
-                    DynamicText(() => _pretraining
-                        ? Localized("正在分析卡牌图片……", "Analyzing card images...")
-                        : Localized("扫描卡牌并建立识别缓存", "Scan Cards and Build Cache")),
-                    StartPretraining,
-                    ModSettingsButtonTone.Accent,
-                    DynamicText(() => PretrainingStatus))
-                .WithEntryEnabledWhen("pretrain_current_cards", () => !_pretraining))
             .AddSection("advanced_candidate_pools", section => section
                 .WithTitle(LocalizedText("高级选项", "Advanced Options"))
                 .WithDescription(LocalizedText(

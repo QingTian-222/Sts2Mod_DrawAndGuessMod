@@ -75,7 +75,7 @@ public partial class DrawingScreen : Control
     private SpinBox _blueInput = null!;
     private Tween? _peekTween;
     private Color _leftColor = new("1B1A18");
-    private Color _rightColor = Colors.White;
+    private Color _rightColor = DrawingCanvas.PaperColor;
     private bool _syncingColorInputs;
     private bool _peeking;
     private bool _finishing;

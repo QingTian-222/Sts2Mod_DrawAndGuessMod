@@ -14,6 +14,7 @@ public partial class DrawingCanvas : Control
     public const int MinStampSize = 40;
     public const int MaxStampSize = 192;
     public const int DefaultStampSize = 96;
+    internal static readonly Color PaperColor = new("F4EEDC");
     private static readonly Color StampPreviewModulate = new(1f, 1f, 1f, 0.45f);
 
     private enum DrawingTool
@@ -23,11 +24,10 @@ public partial class DrawingCanvas : Control
         Stamp
     }
 
-    private readonly Color _paperColor = new("F4EEDC");
     private Image _image = null!;
     private ImageTexture _texture = null!;
     private Color _leftColor = new("1B1A18");
-    private Color _rightColor = Colors.White;
+    private Color _rightColor = PaperColor;
     private Color _activeStrokeColor = new("1B1A18");
     private DrawingTool _tool = DrawingTool.Brush;
     private Image? _stampImage;
@@ -55,7 +55,7 @@ public partial class DrawingCanvas : Control
         MouseDefaultCursorShape = CursorShape.Cross;
         MouseFilter = MouseFilterEnum.Stop;
         _image = Image.CreateEmpty(CanvasWidth, CanvasHeight, false, Image.Format.Rgba8);
-        _image.Fill(_paperColor);
+        _image.Fill(PaperColor);
         _texture = ImageTexture.CreateFromImage(_image);
         MouseEntered += OnMouseEnteredCanvas;
         MouseExited += OnMouseExitedCanvas;
@@ -360,7 +360,7 @@ public partial class DrawingCanvas : Control
     private void PaintBrush(int centerX, int centerY, Color brushColor, bool erasing, byte brushSize)
     {
         int radius = Mathf.Clamp(brushSize, MinBrushSize, MaxBrushSize) / 2;
-        Color color = erasing ? _paperColor : brushColor;
+        Color color = erasing ? PaperColor : brushColor;
         int radiusSquared = radius * radius;
         for (int y = -radius; y <= radius; y++)
         {
@@ -539,7 +539,7 @@ public partial class DrawingCanvas : Control
 
     private void ApplyClear()
     {
-        _image.Fill(_paperColor);
+        _image.Fill(PaperColor);
         RefreshTexture();
     }
 
@@ -548,7 +548,7 @@ public partial class DrawingCanvas : Control
         _batchApplying = true;
         try
         {
-            _image.Fill(_paperColor);
+            _image.Fill(PaperColor);
             foreach (DrawingCommand command in commands)
             {
                 ApplyRemote(command);
@@ -583,7 +583,7 @@ public partial class DrawingCanvas : Control
         _batchApplying = true;
         try
         {
-            _image.Fill(_paperColor);
+            _image.Fill(PaperColor);
             foreach (DrawingPixelPatch patch in patches)
             {
                 patch.Apply(_image);
