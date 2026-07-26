@@ -11,7 +11,6 @@
 - 修复左右键同时按下时可能产生未完成笔画并导致联机画面不一致的问题。
 - 修复无限画廊可能抽到内部测试卡牌，导致客机无法打开作画界面的问题。
 - 右键默认颜色改为与画布一致的米色；“卡牌识别缓存”移到设置页第一项。
-- 新增中英文多人撤销/重做手动测试清单。
 
 ## 功能
 
@@ -112,7 +111,6 @@ A drawing-based card guessing mod for *Slay the Spire 2*. After playing **Blank*
 - Fixed an unfinished-stroke race that could desynchronize peers when the left and right mouse buttons overlapped.
 - Fixed Infinite Gallery selecting internal mock cards, which could prevent a client from opening the drawing screen.
 - The default right-click color now matches the beige canvas, and **Card Recognition Cache** is the first settings section.
-- Added Chinese and English manual test matrices for multiplayer undo and redo.
 
 ## Features
 
