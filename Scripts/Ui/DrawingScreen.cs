@@ -90,6 +90,7 @@ public partial class DrawingScreen : Control
     private ProgressBar? _timerBar;
     private StyleBoxFlat? _timerFillStyle;
     private bool _receivedAuthoritativeTimer;
+    private bool _soloMode;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null)
     {
@@ -121,6 +122,35 @@ public partial class DrawingScreen : Control
             _timerDurationSeconds = effectiveTimeLimit
         };
         DrawingNetSync.BeginSession(owner.NetId, sessionId);
+        _active = screen;
+        tree.Root.AddChild(screen);
+        return screen._completion.Task;
+    }
+
+    /// <summary>
+    /// “你画我猜”模式的绘画入口：只在本机打开画布，不注册网络会话、
+    /// 不广播笔画，确认后直接回传画作 PNG（通过 DrawingResult 携带）。
+    /// </summary>
+    public static Task<DrawingResult?> ShowSoloAsync(Player owner, uint sessionId)
+    {
+        if (_active != null && GodotObject.IsInstanceValid(_active))
+        {
+            return _active._completion.Task;
+        }
+
+        if (Engine.GetMainLoop() is not SceneTree tree)
+        {
+            return Task.FromResult<DrawingResult?>(null);
+        }
+
+        DrawingScreen screen = new()
+        {
+            Name = "DrawAndGuessMod_SoloDrawingScreen",
+            _owner = owner,
+            _sessionId = sessionId,
+            _isChooser = true,
+            _soloMode = true
+        };
         _active = screen;
         tree.Root.AddChild(screen);
         return screen._completion.Task;
@@ -307,13 +337,17 @@ public partial class DrawingScreen : Control
 
         Label help = new()
         {
-            Text = _options?.Help ?? (DrawingNetSync.IsMultiplayer
+            Text = _options?.Help ?? (_soloMode
                 ? Localized(
-                    "所有玩家都可以共同作画；出牌者负责确认，被指定的玩家进行三选一。",
-                    "Everyone can draw together. The player who played the card confirms the drawing, and the targeted player chooses from three cards.")
-                : Localized(
-                    "绘制卡面后，让瓦库给出三个候选。",
-                    "Draw a card illustration and let VAKUU suggest three candidates.")),
+                    "绘制卡面后提交，其他玩家将猜测你画的是哪张卡牌。",
+                    "Submit your drawing, and the other players will guess which card you drew.")
+                : DrawingNetSync.IsMultiplayer
+                    ? Localized(
+                        "所有玩家都可以共同作画；出牌者负责确认，被指定的玩家进行三选一。",
+                        "Everyone can draw together. The player who played the card confirms the drawing, and the targeted player chooses from three cards.")
+                    : Localized(
+                        "绘制卡面后，让瓦库给出三个候选。",
+                        "Draw a card illustration and let VAKUU suggest three candidates.")),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
@@ -583,7 +617,7 @@ public partial class DrawingScreen : Control
         buttons.AddChild(undo);
 
         _guessButton = CreateActionButton(
-            Localized("确认", "Confirm"),
+            _soloMode ? Localized("提交画作", "Submit Drawing") : Localized("确认", "Confirm"),
             new Color("176B72"),
             new Color("75F0E6"),
             primary: true);
@@ -745,6 +779,13 @@ public partial class DrawingScreen : Control
         try
         {
             byte[] png = _canvas.ExportPng();
+            if (_soloMode)
+            {
+                // 你画我猜模式：剥离 AI 识别，直接回传画作 PNG，由调用方广播。
+                Complete(new DrawingResult(png, null!, false));
+                return;
+            }
+
             CardGuess guess = CardArtClassifier.Guess(_canvas.Snapshot(), _owner);
             bool skipAddingToDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck;
             _status.Text = "";
@@ -1611,7 +1652,7 @@ public partial class DrawingScreen : Control
 
     private void OnLocalCommand(DrawingCommand command)
     {
-        if (DrawingNetSync.IsMultiplayer)
+        if (DrawingNetSync.IsMultiplayer && !_soloMode)
         {
             ulong senderId = RunManager.Instance.NetService.NetId;
             TrackPendingMultiplayerCommand(senderId, command);
@@ -1625,12 +1666,12 @@ public partial class DrawingScreen : Control
                 return;
             }
         }
-        else if (_isChooser)
+        else if (_soloMode || _isChooser)
         {
             RecordHistoryCommand(_owner.NetId, command);
         }
 
-        if (!DrawingNetSync.IsMultiplayer || _finishing)
+        if (_soloMode || !DrawingNetSync.IsMultiplayer || _finishing)
         {
             return;
         }

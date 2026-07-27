@@ -611,7 +611,7 @@ internal static class DrawAndGuessSettings
 
     private static bool IsEligibleCandidateCard(CardModel card)
     {
-        return card is not Blank
+        return card is not Blank and not DrawGuessBlank
                && card.ShouldShowInCardLibrary
                && card.Type != CardType.None;
     }

@@ -14,3 +14,6 @@ Scripts/Preview/.clip-cache/
 Scripts/Preview/.semantic-cache/
 card_features.local.bin
 dist/
+.env
+deploy.sh
+.DS_Store

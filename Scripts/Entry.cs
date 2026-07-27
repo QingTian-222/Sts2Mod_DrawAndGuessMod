@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -6,6 +7,7 @@ using System.Runtime.Loader;
 using DrawAndGuessMod.Scripts.Ai;
 using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Config;
+using DrawAndGuessMod.Scripts.Guess;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
 using DrawAndGuessMod.Scripts.State;
@@ -91,16 +93,56 @@ public static class Entry
             return nint.Zero;
         }
 
-        string fileName = libraryName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? libraryName
-            : libraryName + ".dll";
-        string candidate = Path.Combine(_assemblyDirectory, fileName);
-        return File.Exists(candidate) ? NativeLibrary.Load(candidate) : nint.Zero;
+        foreach (string candidate in GetNativeCandidates(libraryName))
+        {
+            if (File.Exists(candidate))
+            {
+                return NativeLibrary.Load(candidate);
+            }
+        }
+
+        return nint.Zero;
+    }
+
+    /// <summary>按平台拼出原生库候选文件名（Windows: onnxruntime.dll；macOS: libonnxruntime.dylib；Linux: libonnxruntime.so）。</summary>
+    private static IEnumerable<string> GetNativeCandidates(string libraryName)
+    {
+        string baseName = libraryName;
+        if (baseName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            baseName = baseName[..^4];
+        }
+
+        if (baseName.StartsWith("lib", StringComparison.OrdinalIgnoreCase) && !OperatingSystem.IsWindows())
+        {
+            baseName = baseName[3..];
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            yield return Path.Combine(_assemblyDirectory!, baseName + ".dll");
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            yield return Path.Combine(_assemblyDirectory!, "lib" + baseName + ".dylib");
+            yield return Path.Combine(_assemblyDirectory!, baseName + ".dylib");
+        }
+        else
+        {
+            yield return Path.Combine(_assemblyDirectory!, "lib" + baseName + ".so");
+            yield return Path.Combine(_assemblyDirectory!, baseName + ".so");
+        }
+
+        // 兜底：原始名称原样尝试（调用方可能已给出完整文件名）。
+        yield return Path.Combine(_assemblyDirectory!, libraryName);
     }
 
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
         DrawingNetSync.Reset();
+        GuessPhaseCoordinator.Reset();
+        DrawGuessSession.Reset();
     }
+
 }

@@ -15,7 +15,7 @@ internal static class CardPortraitPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(CardModel __instance, ref Texture2D __result)
     {
-        if (__instance is Blank)
+        if (__instance is Blank or DrawGuessBlank)
         {
             __result = GetBlankTexture();
             return;

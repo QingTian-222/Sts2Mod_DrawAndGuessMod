@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using DrawAndGuessMod.Scripts.Guess;
 using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
+using MegaCrit.Sts2.Core.Multiplayer;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -244,6 +246,44 @@ internal static class DrawingNetSync
         });
     }
 
+    /// <summary>绘画者广播开始猜测。</summary>
+    public static void SendStartGuessing(StartGuessingPacket packet)
+    {
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        EnsureRegistered();
+        packet.LocationValue = _registeredBuffer!.CurrentLocation;
+        RunManager.Instance.NetService.SendMessage(packet);
+    }
+
+    /// <summary>猜测端回传猜测结果（广播，由绘画者按 OwnerId 认领）。</summary>
+    public static void SendGuessCard(GuessCardPacket packet)
+    {
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        EnsureRegistered();
+        packet.LocationValue = _registeredBuffer!.CurrentLocation;
+        RunManager.Instance.NetService.SendMessage(packet);
+    }
+
+    /// <summary>绘画者广播最终裁定。</summary>
+    public static void SendDrawGuessResult(DrawGuessResultMessage message)
+    {
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        EnsureRegistered();
+        message.LocationValue = _registeredBuffer!.CurrentLocation;
+        RunManager.Instance.NetService.SendMessage(message);
+    }
     public static void DeliverPending(DrawingScreen screen, ulong ownerId, uint sessionId)
     {
         (ulong OwnerId, uint SessionId) key = (ownerId, sessionId);
@@ -288,6 +328,9 @@ internal static class DrawingNetSync
             _registeredBuffer.UnregisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
+            _registeredBuffer.UnregisterMessageHandler<StartGuessingPacket>(OnStartGuessingReceived);
+            _registeredBuffer.UnregisterMessageHandler<GuessCardPacket>(OnGuessCardReceived);
+            _registeredBuffer.UnregisterMessageHandler<DrawGuessResultMessage>(OnDrawGuessResultReceived);
         }
 
         current.RegisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
@@ -297,6 +340,9 @@ internal static class DrawingNetSync
         current.RegisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
         current.RegisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
         current.RegisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
+        current.RegisterMessageHandler<StartGuessingPacket>(OnStartGuessingReceived);
+        current.RegisterMessageHandler<GuessCardPacket>(OnGuessCardReceived);
+        current.RegisterMessageHandler<DrawGuessResultMessage>(OnDrawGuessResultReceived);
         _registeredBuffer = current;
     }
 
@@ -328,6 +374,48 @@ internal static class DrawingNetSync
         {
             waiter.TrySetResult(selectedCardId);
         }
+    }
+
+    private static void OnStartGuessingReceived(StartGuessingPacket packet, ulong senderId)
+    {
+        if (senderId == RunManager.Instance.NetService.NetId)
+        {
+            return;
+        }
+
+        if (senderId != packet.OwnerId)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected start-guessing from {senderId}; expected owner {packet.OwnerId}.");
+            return;
+        }
+
+        GuessPhaseCoordinator.OnStartGuessing(packet);
+    }
+
+    private static void OnGuessCardReceived(GuessCardPacket packet, ulong senderId)
+    {
+        if (senderId == RunManager.Instance.NetService.NetId)
+        {
+            return;
+        }
+
+        GuessPhaseCoordinator.OnGuessCard(packet, senderId);
+    }
+
+    private static void OnDrawGuessResultReceived(DrawGuessResultMessage message, ulong senderId)
+    {
+        if (senderId == RunManager.Instance.NetService.NetId)
+        {
+            return;
+        }
+
+        if (senderId != message.OwnerId)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected draw-guess result from {senderId}; expected owner {message.OwnerId}.");
+            return;
+        }
+
+        GuessPhaseCoordinator.OnDrawGuessResult(message);
     }
 
     private static void OnCommandsReceived(DrawingSyncMessage message, ulong senderId)

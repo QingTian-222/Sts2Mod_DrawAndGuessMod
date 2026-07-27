@@ -457,7 +457,7 @@ internal static class CardArtClassifier
             .OfType<CardModel>()
             .Concat(ModelDb.AllCards)
             .Where(card =>
-                card is not Blank &&
+                card is not Blank and not DrawGuessBlank &&
                 !card.IsMock &&
                 card.ShouldShowInCardLibrary &&
                 card.Type != CardType.None)
