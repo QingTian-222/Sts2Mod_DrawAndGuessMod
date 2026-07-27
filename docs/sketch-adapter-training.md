@@ -27,6 +27,21 @@ holdout. These measurements are not estimates of real-player accuracy.
 Only the 1.5 MB adapter is new. DINOv2 ViT-S/14 remains frozen and uses the
 existing `Models/dinov2_vits14.onnx` file.
 
+## Reproduction notebook
+
+The complete executable workflow is in
+[`Scripts/Training/sketch-adapter-training.ipynb`](../Scripts/Training/sketch-adapter-training.ipynb).
+It covers card discovery, deterministic identity splits, all five synthetic
+style transforms, DINOv2 embedding caches, adapter training, the full method
+comparison, and ONNX export with parity checks. The committed notebook also
+contains pre-rendered pipeline, synthetic-style example, and evaluation figures
+so it remains readable without downloading dependencies or supplying data.
+
+The notebook contains no game asset or training sample. To reproduce it, point
+`CARD_ROOT` at locally extracted card portraits, set `RUN_FULL_PIPELINE = True`,
+and run all cells. Generated caches, checkpoints, plots, and exports are written
+to the git-ignored `Scripts/Training/.sketch-adapter-artifacts/` directory.
+
 ## Data source
 
 The source set contained 605 non-beta card-portrait entries extracted from a

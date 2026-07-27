@@ -68,7 +68,10 @@ internal static class CardArtClassifier
             Entry.Logger.Info($"[DrawAndGuessMod] Preloaded {_pretrainedDinoFeatures.Count} DINOv2 card-art embeddings.");
         }
         DinoArtEmbedder.Preload();
-        SketchEmbeddingAdapter.Preload();
+        if (DrawAndGuessSettings.RecognitionModelAccuracy == RecognitionModelAccuracy.SketchAdapter)
+        {
+            SketchEmbeddingAdapter.Preload();
+        }
     }
 
     public static async Task<CardPretrainingResult> PretrainCurrentCardsAsync(Action<CardPretrainingProgress>? reportProgress = null)

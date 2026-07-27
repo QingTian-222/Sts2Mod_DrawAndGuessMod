@@ -61,12 +61,15 @@ dotnet build DrawAndGuessMod.csproj -c Release -p:Sts2Dir="G:\SteamLibrary\steam
 3. “瓦库”模式只按轻量分支排序；“鸡煲”模式将两个分支分别在当前候选卡池内做 z-score 标准化，再按 `50% + 50%` 融合排序。
 4. 实验性的“自训练适配器”先用一个 394,880 参数的残差 MLP 将画作 DINOv2 特征映射到卡图特征空间，再按 `30%` 特征提取和 `70%` 适配后 DINOv2 融合。三种模式都给出前三名。
 
-原版 611 张卡牌的两套识别数据已随模组发布。启动时直接加载识别缓存并预热 ONNX 模型；猜测时只需对当前画作运行一次 DINOv2。未包含在发布包中的其他模组卡牌会在运行时分析，也可以提前通过设置页的“扫描卡牌并建立识别缓存”统一生成本地缓存。
+原版 611 张卡牌的两套识别数据已随模组发布。启动时直接加载识别缓存并预热 DINOv2；实验性适配器只在选中对应模式时预热，否则在首次使用时按需加载。猜测时只需对当前画作运行一次 DINOv2。未包含在发布包中的其他模组卡牌会在运行时分析，也可以提前通过设置页的“扫描卡牌并建立识别缓存”统一生成本地缓存。
 
 C# 融合检索位于 `Scripts/Ai/CardArtClassifier.cs`，DINOv2 推理位于 `Scripts/Ai/DinoArtEmbedder.cs`。Python 生成脚本位于 `Scripts/Training/`。修改算法时必须保证 Python 与 C# 的输入预处理、维数和模型版本一致。
 
 自训练适配器的数据来源、按卡牌身份划分的验证/测试集、Top-1/Top-3
 结果和限制见 [`docs/sketch-adapter-training.md`](docs/sketch-adapter-training.md)。
+可执行的完整复现流程见
+[`Scripts/Training/sketch-adapter-training.ipynb`](Scripts/Training/sketch-adapter-training.ipynb)；
+Notebook 自带流程图、无游戏素材的五种合成风格图例和完整测试集对比图。
 
 重新生成模型：
 
@@ -159,13 +162,17 @@ The in-game recognizer performs nearest-neighbor retrieval using two 384-dimensi
 3. VAKUU mode ranks candidates using only the lightweight branch. Defect mode applies z-score normalization to both branches within the current candidate pool and combines them at a `50% + 50%` weight.
 4. The experimental trained-adapter mode maps the drawing's DINOv2 feature into card-feature space with a 394,880-parameter residual MLP, then fuses `30%` handcrafted and `70%` adapted-DINOv2 scores. All three modes return the top three candidates.
 
-Both recognition datasets for all 611 base-game cards are distributed with the mod. At startup, the mod loads the recognition caches and warms up the ONNX model. Guessing then requires only one DINOv2 inference pass for the current drawing. Cards from other mods that are not included in the release package are analyzed at runtime. They can also be processed in advance with **Scan Cards and Build Cache** on the settings page.
+Both recognition datasets for all 611 base-game cards are distributed with the mod. At startup, the mod loads the recognition caches and warms up DINOv2. The experimental adapter is preloaded only when that mode is selected; otherwise it is loaded on demand on first use. Guessing then requires only one DINOv2 inference pass for the current drawing. Cards from other mods that are not included in the release package are analyzed at runtime. They can also be processed in advance with **Scan Cards and Build Cache** on the settings page.
 
 The C# fusion retrieval implementation is located in `Scripts/Ai/CardArtClassifier.cs`, and DINOv2 inference is implemented in `Scripts/Ai/DinoArtEmbedder.cs`. The Python generation scripts are located in `Scripts/Training/`. When modifying the algorithm, keep the Python and C# input preprocessing, dimensions, and model versions consistent.
 
 See [`docs/sketch-adapter-training.md`](docs/sketch-adapter-training.md) for
 the adapter's data source, card-identity validation/test split, Top-1/Top-3
 results, and limitations.
+The executable end-to-end reproduction workflow is in
+[`Scripts/Training/sketch-adapter-training.ipynb`](Scripts/Training/sketch-adapter-training.ipynb).
+It includes pre-rendered pipeline, asset-free synthetic-style examples, and
+full test-set comparison figures.
 
 To regenerate the models:
 
