@@ -23,7 +23,8 @@ public enum GuessCardPoolScope
 public enum RecognitionModelAccuracy
 {
     Waku = 0,
-    Jibao = 1
+    Jibao = 1,
+    SketchAdapter = 2
 }
 
 internal static class DrawAndGuessSettings
@@ -74,7 +75,7 @@ internal static class DrawAndGuessSettings
             Entry.ModId,
             DataKey,
             data => data.RecognitionModelAccuracy,
-            (data, value) => data.RecognitionModelAccuracy = Math.Clamp(value, 0, 1));
+            (data, value) => data.RecognitionModelAccuracy = Math.Clamp(value, 0, 2));
 
     private static readonly IModSettingsValueBinding<int> DrawingTimeLimitPresetBinding =
         ModSettingsBindings.Global<SettingsData, int>(
@@ -156,7 +157,7 @@ internal static class DrawAndGuessSettings
         {
             try
             {
-                return (RecognitionModelAccuracy)Math.Clamp(RecognitionModelAccuracyBinding.Read(), 0, 1);
+                return (RecognitionModelAccuracy)Math.Clamp(RecognitionModelAccuracyBinding.Read(), 0, 2);
             }
             catch
             {
@@ -333,11 +334,14 @@ internal static class DrawAndGuessSettings
                     new[]
                     {
                         new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Waku, LocalizedText("瓦库", "VAKUU")),
-                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Jibao, LocalizedText("鸡煲", "Defect"))
+                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Jibao, LocalizedText("鸡煲", "Defect")),
+                        new ModSettingsChoiceOption<int>(
+                            (int)RecognitionModelAccuracy.SketchAdapter,
+                            LocalizedText("自训练适配器（实验性）", "Trained Adapter (Experimental)"))
                     },
                     LocalizedText(
-                        "瓦库：手工视觉特征。鸡煲：手工特征与 DINOv2 各占 50%。",
-                        "VAKUU: handcrafted visual features. Defect: a 50/50 fusion of handcrafted features and DINOv2."),
+                        "瓦库：手工视觉特征。鸡煲：手工特征与 DINOv2 各占 50%。自训练适配器：用合成手绘数据训练的 DINOv2 残差适配器，手工特征占 30%，适配后 DINOv2 占 70%。",
+                        "VAKUU: handcrafted features. Defect: a 50/50 handcrafted/DINOv2 fusion. Trained Adapter: a residual DINOv2 adapter trained on synthetic sketches, fused at 30% handcrafted and 70% adapted DINOv2."),
                     ModSettingsChoicePresentation.Dropdown))
             .AddSection("advanced_candidate_pools", section => section
                 .WithTitle(LocalizedText("高级选项", "Advanced Options"))

@@ -42,8 +42,10 @@ internal static class CardArtClassifier
     private const int FeatureCount = EdgeFeatureCount + FineEdgeFeatureCount + ColorFeatureCount;
     private const int ModelVersion = 6;
     private const int DinoModelVersion = 2;
-    private const double HandcraftedWeight = 0.5d;
-    private const double DinoWeight = 0.5d;
+    private const double HybridHandcraftedWeight = 0.5d;
+    private const double HybridDinoWeight = 0.5d;
+    private const double AdapterHandcraftedWeight = 0.3d;
+    private const double AdapterDinoWeight = 0.7d;
     private static List<TrainingSample>? _samples;
     private static Dictionary<string, double[]>? _pretrainedFeatures;
     private static Dictionary<string, float[]>? _pretrainedDinoFeatures;
@@ -66,6 +68,7 @@ internal static class CardArtClassifier
             Entry.Logger.Info($"[DrawAndGuessMod] Preloaded {_pretrainedDinoFeatures.Count} DINOv2 card-art embeddings.");
         }
         DinoArtEmbedder.Preload();
+        SketchEmbeddingAdapter.Preload();
     }
 
     public static async Task<CardPretrainingResult> PretrainCurrentCardsAsync(Action<CardPretrainingProgress>? reportProgress = null)
@@ -185,9 +188,19 @@ internal static class CardArtClassifier
         double[] currentScores = currentDistances.Select(distance => -distance).ToArray();
         double[] standardizedCurrentScores = Standardize(currentScores);
 
-        bool useHybridModel = DrawAndGuessSettings.RecognitionModelAccuracy == RecognitionModelAccuracy.Jibao;
+        RecognitionModelAccuracy recognitionModel = DrawAndGuessSettings.RecognitionModelAccuracy;
+        bool useHybridModel = recognitionModel != RecognitionModelAccuracy.Waku;
+        bool useSketchAdapter = recognitionModel == RecognitionModelAccuracy.SketchAdapter;
+        bool adaptedDrawing = false;
         float[] drawingDinoFeatures = [];
         bool hasDinoDrawing = useHybridModel && DinoArtEmbedder.TryExtract(drawing, out drawingDinoFeatures);
+        if (hasDinoDrawing &&
+            useSketchAdapter &&
+            SketchEmbeddingAdapter.TryAdapt(drawingDinoFeatures, out float[] adaptedFeatures))
+        {
+            drawingDinoFeatures = adaptedFeatures;
+            adaptedDrawing = true;
+        }
         double[] dinoSimilarities = new double[candidates.Count];
         bool[] hasDinoCandidate = new bool[candidates.Count];
         if (hasDinoDrawing)
@@ -207,6 +220,12 @@ internal static class CardArtClassifier
         double[] standardizedDinoScores = useDino
             ? StandardizeAvailable(dinoSimilarities, hasDinoCandidate)
             : new double[candidates.Count];
+        double handcraftedWeight = adaptedDrawing
+            ? AdapterHandcraftedWeight
+            : HybridHandcraftedWeight;
+        double dinoWeight = adaptedDrawing
+            ? AdapterDinoWeight
+            : HybridDinoWeight;
 
         List<RankedCandidate> ranked = candidates
             .Select((sample, index) => new RankedCandidate(
@@ -217,7 +236,7 @@ internal static class CardArtClassifier
                 standardizedDinoScores[index],
                 hasDinoCandidate[index],
                 useDino
-                    ? HandcraftedWeight * standardizedCurrentScores[index] + DinoWeight * standardizedDinoScores[index]
+                    ? handcraftedWeight * standardizedCurrentScores[index] + dinoWeight * standardizedDinoScores[index]
                     : standardizedCurrentScores[index]))
             .OrderByDescending(item => item.FusedScore)
             .ThenBy(item => item.Sample.Card.Id.Entry, StringComparer.Ordinal)
@@ -229,7 +248,10 @@ internal static class CardArtClassifier
         IReadOnlyList<CardModel> nearest = ranked.Take(nearestCount).Select(item => item.Sample.Card).ToList();
         string diagnostics = string.Join(", ", ranked.Take(6).Select(item =>
             $"{item.Sample.Card.Id.Entry}:score={item.FusedScore:F3}, handDist={item.CurrentDistance:F3}, dino={(item.HasDino ? item.DinoSimilarity.ToString("F3") : "n/a")}"));
-        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, model={DrawAndGuessSettings.RecognitionModelAccuracy}, dino={useDino}): {diagnostics}");
+        string dinoMode = useDino
+            ? adaptedDrawing ? "adapted" : "raw"
+            : "unavailable";
+        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, model={recognitionModel}, dino={dinoMode}): {diagnostics}");
         return new CardGuess(selected.Sample.Card, selectedRank, selected.CurrentDistance, nearest);
     }
 
