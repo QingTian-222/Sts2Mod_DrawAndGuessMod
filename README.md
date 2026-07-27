@@ -69,8 +69,8 @@ C# 融合检索位于 `Scripts/Ai/CardArtClassifier.cs`，DINOv2 推理位于 `S
 结果和限制见 [`docs/sketch-adapter-training.md`](docs/sketch-adapter-training.md)。
 可执行的完整复现流程见
 [`Scripts/Training/sketch-adapter-training.ipynb`](Scripts/Training/sketch-adapter-training.ipynb)；
-Notebook 自带流程图、由实际游戏卡图生成的低分辨率五种合成风格图例，以及完整测试集对比图；
-原始卡图与训练数据集不会打包进仓库。
+Notebook 自带流程图、覆盖六张实际游戏卡图的低分辨率五种合成风格图例，以及完整测试集对比图；
+原始卡图文件与训练数据集不会打包进仓库。
 
 重新生成模型：
 
@@ -172,9 +172,9 @@ the adapter's data source, card-identity validation/test split, Top-1/Top-3
 results, and limitations.
 The executable end-to-end reproduction workflow is in
 [`Scripts/Training/sketch-adapter-training.ipynb`](Scripts/Training/sketch-adapter-training.ipynb).
-It includes a pre-rendered pipeline, a low-resolution five-style example
-generated from an actual game portrait, and full test-set comparison figures.
-The source portrait and training dataset are not bundled.
+It includes a pre-rendered pipeline, low-resolution five-style examples
+generated from six actual game portraits, and full test-set comparison figures.
+The source portrait files and training dataset are not bundled.
 
 To regenerate the models:
 

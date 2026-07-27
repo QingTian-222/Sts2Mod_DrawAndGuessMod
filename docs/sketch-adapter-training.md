@@ -34,17 +34,17 @@ The complete executable workflow is in
 It covers card discovery, deterministic identity splits, all five synthetic
 style transforms, DINOv2 embedding caches, adapter training, the full method
 comparison, and ONNX export with parity checks. The committed notebook also
-contains a pre-rendered pipeline, a low-resolution five-style example generated
-from an actual game portrait, and evaluation figures so it remains readable
+contains a pre-rendered pipeline, low-resolution five-style examples generated
+from six actual game portraits, and evaluation figures so it remains readable
 without downloading dependencies or supplying data.
 The stored cache, training, and ONNX-parity outputs were produced by a complete
 605-portrait / 6,050-sketch execution on 2026-07-27, rather than placeholder
 values.
 
-The source portrait and training dataset are not included. To reproduce it, set
-`STS2_CARD_ROOT` (or edit `CARD_ROOT`) to point at locally extracted card
-portraits, set `RUN_FULL_PIPELINE = True`, and run all cells. Generated caches,
-checkpoints, plots, and exports are written to the git-ignored
+The source portrait files and training dataset are not included. To reproduce
+it, set `STS2_CARD_ROOT` (or edit `CARD_ROOT`) to point at locally extracted
+card portraits, set `RUN_FULL_PIPELINE = True`, and run all cells. Generated
+caches, checkpoints, plots, and exports are written to the git-ignored
 `Scripts/Training/.sketch-adapter-artifacts/` directory.
 
 ## Data source
