@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Game;
 using MegaCrit.Sts2.Core.Multiplayer.Serialization;
@@ -155,6 +156,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
     public uint SessionId { get; set; }
     public uint Epoch { get; set; }
     public uint StateSequence { get; set; }
+    public DrawingCanvasMode CanvasMode { get; set; }
     public bool ResetPendingOperations { get; set; }
     public List<DrawingOperationWatermark> Watermarks { get; set; } = new();
     public byte[] PngBytes { get; set; } = [];
@@ -172,6 +174,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         writer.WriteUInt(SessionId);
         writer.WriteUInt(Epoch);
         writer.WriteUInt(StateSequence);
+        writer.WriteByte((byte)CanvasMode, 1);
         writer.WriteBool(ResetPendingOperations);
         int watermarkCount = Math.Min(Watermarks.Count, MaxWatermarks);
         writer.WriteByte((byte)watermarkCount, 5);
@@ -190,6 +193,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         SessionId = reader.ReadUInt();
         Epoch = reader.ReadUInt();
         StateSequence = reader.ReadUInt();
+        CanvasMode = (DrawingCanvasMode)reader.ReadByte(1);
         ResetPendingOperations = reader.ReadBool();
         int watermarkCount = reader.ReadByte(5);
         if (watermarkCount > MaxWatermarks)
@@ -215,7 +219,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
 
     public override string ToString()
     {
-        return $"DrawingCanvasStateMessage owner={OwnerId} session={SessionId} epoch={Epoch} sequence={StateSequence} reset={ResetPendingOperations} png={PngBytes.Length}";
+        return $"DrawingCanvasStateMessage owner={OwnerId} session={SessionId} epoch={Epoch} sequence={StateSequence} mode={CanvasMode} reset={ResetPendingOperations} png={PngBytes.Length}";
     }
 }
 
@@ -280,6 +284,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
     public uint SessionId { get; set; }
     public bool Cancelled { get; set; }
     public bool SkipAddingToDeck { get; set; }
+    public DrawingCanvasMode CanvasMode { get; set; }
     public List<string> CardIds { get; set; } = new();
     public byte[] PngBytes { get; set; } = [];
     public RunLocation LocationValue { get; set; }
@@ -295,6 +300,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         writer.WriteULong(OwnerId);
         writer.WriteUInt(SessionId);
         writer.WriteBool(Cancelled);
+        writer.WriteByte((byte)CanvasMode, 1);
         writer.WriteByte((byte)CardIds.Count, 3);
         for (int index = 0; index < CardIds.Count; index++)
         {
@@ -312,6 +318,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         OwnerId = reader.ReadULong();
         SessionId = reader.ReadUInt();
         Cancelled = reader.ReadBool();
+        CanvasMode = (DrawingCanvasMode)reader.ReadByte(1);
         int cardCount = reader.ReadByte(3);
         CardIds = new List<string>(cardCount);
         for (int i = 0; i < cardCount; i++)
@@ -336,6 +343,6 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
 
     public override string ToString()
     {
-        return $"DrawingFinalMessage owner={OwnerId} session={SessionId} cancelled={Cancelled} skipDeck={SkipAddingToDeck} cards={CardIds.Count} png={PngBytes.Length}";
+        return $"DrawingFinalMessage owner={OwnerId} session={SessionId} cancelled={Cancelled} skipDeck={SkipAddingToDeck} mode={CanvasMode} cards={CardIds.Count} png={PngBytes.Length}";
     }
 }

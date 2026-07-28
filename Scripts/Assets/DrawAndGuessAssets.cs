@@ -5,7 +5,7 @@ namespace DrawAndGuessMod.Scripts.Assets;
 internal static class DrawAndGuessAssets
 {
     public const string GalleryPortraitPath =
-        "res://images/events/draw_and_guess_mod_event_vakuus_infinite_gallery.webp";
+        "res://images/events/draw_and_guess_mod_event_vakuus_infinite_gallery.png";
 
     public static void Install()
     {

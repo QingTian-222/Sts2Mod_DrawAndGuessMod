@@ -8,6 +8,7 @@ using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
+using DrawAndGuessMod.Scripts.RestSite;
 using DrawAndGuessMod.Scripts.State;
 using Godot;
 using HarmonyLib;
@@ -41,9 +42,12 @@ public static class Entry
             DrawAndGuessAssets.Install();
             DrawAndGuessSettings.Register();
             ArtworkStore.Register();
+            DrawingPaletteStore.Register();
+            ErasedCardStore.Register();
             GalleryChallengeStore.Register();
             CardLocalization.Install();
             EventLocalization.Install();
+            RelicLocalization.Install();
             CardArtClassifier.Preload();
 
             _harmony = new Harmony("sts2.qingtian.drawandguessmod");
@@ -101,6 +105,7 @@ public static class Entry
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
+        DeathNoteRestSiteOption.ResetSessions();
         DrawingNetSync.Reset();
     }
 }
