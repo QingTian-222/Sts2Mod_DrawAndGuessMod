@@ -86,7 +86,7 @@ internal static class RelicLocalization
     {
         values[id + ".title"] = ModText.Get("死亡绘本", "Death Sketchbook");
         values[id + ".description"] = ModText.Get(
-            "你可以在火堆[gold]绘画[/gold]。[gold]绘画[/gold]的卡牌会从本局游戏中[red]彻底消失[/red]。获得一张随机[red]诅咒[/red]。",
+            "你可以在火堆[gold]绘画[/gold]，[gold]绘画[/gold]的卡牌会从本局游戏中[jitter][red]彻底消失[/red][/jitter]。\n拾起时，获得一张随机[red]诅咒[/red]。",
             "You can [gold]Draw[/gold] at Rest Sites. Cards you draw disappear completely from this run. Upon pickup, obtain a random [red]Curse[/red].");
         values[id + ".flavor"] = ModText.Get(
             "听说在另一个世界，也有一本类似的笔记本。",

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cdq4ef0w1yvq7"
-path="res://.godot/imported/death_note_relic.png-9211e221f82b2036417a905eccba77cc.ctex"
+uid="uid://c8p43vmlp2cy2"
+path="res://.godot/imported/death_note_relic_big.png-414ae1d618da03b253857010e261421a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/death_note_relic.png"
-dest_files=["res://.godot/imported/death_note_relic.png-9211e221f82b2036417a905eccba77cc.ctex"]
+source_file="res://images/death_note_relic_big.png"
+dest_files=["res://.godot/imported/death_note_relic_big.png-414ae1d618da03b253857010e261421a.ctex"]
 
 [params]
 
@@ -36,5 +36,5 @@ process/premult_alpha=false
 process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
-process/size_limit=128
+process/size_limit=0
 detect_3d/compress_to=1

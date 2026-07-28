@@ -6,6 +6,8 @@ using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Localization;
+using MegaCrit.Sts2.Core.Localization.Fonts;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Screens.InspectScreens;
 
@@ -42,7 +44,8 @@ internal static class DeathNoteInspectPatch
                     GalleryChallengeStore.GetMemorialCardIds(memorialSketchbook.Owner).Count > 0,
                 _ => false
             };
-            viewButton.Text = ModText.Get("\u67e5\u770b", "View");
+            viewButton.Text = ModText.Get("\u7ffb\u9605", "Browse");
+            ApplyLocalizedButtonFont(viewButton);
             viewButton.Visible = relic != null;
             viewButton.Disabled = !hasCards;
             viewButton.MouseDefaultCursorShape = hasCards
@@ -136,17 +139,12 @@ internal static class DeathNoteInspectPatch
     private static void ApplyButtonStyle(Button button)
     {
         Texture2D? texture = ResourceLoader.Load<Texture2D>(ViewButtonTexturePath);
-        Font? font = ResourceLoader.Load<Font>(ViewButtonFontPath);
         if (texture == null)
         {
             throw new InvalidOperationException($"Unable to load vanilla button texture: {ViewButtonTexturePath}");
         }
 
-        if (font != null)
-        {
-            button.AddThemeFontOverride("font", font);
-        }
-
+        ApplyLocalizedButtonFont(button);
         button.AddThemeFontSizeOverride("font_size", 30);
         button.AddThemeColorOverride("font_color", new Color("FDF4E3"));
         button.AddThemeColorOverride("font_hover_color", Colors.White);
@@ -160,6 +158,18 @@ internal static class DeathNoteInspectPatch
         button.AddThemeStyleboxOverride("pressed", CreateButtonStyle(texture, new Color("96BCC4")));
         button.AddThemeStyleboxOverride("focus", CreateButtonStyle(texture, new Color("C8F4FF")));
         button.AddThemeStyleboxOverride("disabled", CreateButtonStyle(texture, new Color("777777")));
+    }
+
+    private static void ApplyLocalizedButtonFont(Button button)
+    {
+        Font? font = LocManager.Instance == null
+            ? null
+            : FontManager.GetSubstituteFont(LocManager.Instance.Language, FontType.Bold);
+        font ??= ResourceLoader.Load<Font>(ViewButtonFontPath);
+        if (font != null)
+        {
+            button.AddThemeFontOverride("font", font);
+        }
     }
 
     private static StyleBoxTexture CreateButtonStyle(Texture2D texture, Color tint)

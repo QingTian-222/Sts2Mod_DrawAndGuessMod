@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using DrawAndGuessMod.Scripts.Relics;
 using DrawAndGuessMod.Scripts.State;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
@@ -29,7 +30,8 @@ internal static class ErasedCardShouldAddToDeckPatch
         }
 
         __result = false;
-        preventer = card;
+        preventer = DeathNote.FindForRun(runState);
+        preventer ??= card;
     }
 }
 
@@ -47,7 +49,9 @@ internal static class ErasedGeneratedCardPatch
             return true;
         }
 
+        var runState = card.Owner.RunState;
         card.RemoveFromState();
+        DeathNote.TryFlashForRun(runState);
         __result = Task.FromResult(new CardPileAddResult
         {
             success = false,
@@ -80,10 +84,12 @@ internal static class ErasedGeneratedCardsPatch
             return true;
         }
 
+        var runState = erased[0].Owner.RunState;
         foreach (CardModel card in erased)
         {
             card.RemoveFromState();
         }
+        DeathNote.TryFlashForRun(runState);
 
         List<CardModel> allowed = materialized.Except(erased).ToList();
         Entry.Logger.Info(
@@ -164,6 +170,7 @@ internal static class ErasedCardPilePatch
             return changed ? results : originalResults;
         }
 
+        var runState = cardsToRemove[0].Owner.RunState;
         List<CardModel> deckCards = cardsToRemove
             .Where(card => card.Pile?.Type == PileType.Deck)
             .ToList();
@@ -183,6 +190,7 @@ internal static class ErasedCardPilePatch
         Entry.Logger.Info(
             $"[DrawAndGuessMod] Prevented {cardsToRemove.Count} erased card(s) from entering a pile: " +
             string.Join(", ", cardsToRemove.Select(card => card.Id.Entry).Distinct(StringComparer.Ordinal)));
+        DeathNote.TryFlashForRun(runState);
         return results;
     }
 }

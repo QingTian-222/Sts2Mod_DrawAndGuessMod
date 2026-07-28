@@ -89,7 +89,7 @@ public sealed class DeathNoteRestSiteOption : ModRestSiteOptionTemplate
         }
 
         ModelId selectedId = selected.Id;
-        ArtworkStore.Set(runState, selectedId.Entry, drawing.PngBytes);
+        ArtworkStore.Set(runState, selected, drawing.PngBytes);
         bool newlyErased = ErasedCardStore.Erase(runState, selectedId);
         RemoveChoiceModels(choices);
         if (!newlyErased)
@@ -99,10 +99,13 @@ public sealed class DeathNoteRestSiteOption : ModRestSiteOptionTemplate
             return false;
         }
 
+        int removedMemorialEntries =
+            GalleryChallengeStore.RemoveMemorialCard(runState, selectedId);
         Owner.Relics.OfType<DeathNote>().FirstOrDefault()?.Flash();
         await ErasedCardStore.RemoveExistingCardsAsync(runState, selectedId);
         Entry.Logger.Info(
-            $"[DrawAndGuessMod] Death Sketchbook erased {selectedId.Entry} from run at floor {runState.TotalFloor}.");
+            $"[DrawAndGuessMod] Death Sketchbook erased {selectedId.Entry} from run at floor " +
+            $"{runState.TotalFloor} and removed {removedMemorialEntries} memorial entry/entries.");
         return true;
     }
 

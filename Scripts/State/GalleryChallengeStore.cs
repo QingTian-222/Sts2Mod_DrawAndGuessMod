@@ -143,6 +143,28 @@ internal static class GalleryChallengeStore
         }
         return result;
     }
+
+    public static int RemoveMemorialCard(RunState runState, ModelId cardId)
+    {
+        if (_savedData == null)
+        {
+            return 0;
+        }
+
+        string cardKey = cardId.ToString();
+        int removed = 0;
+        _savedData.Modify(runState, data =>
+        {
+            data.Players ??= new List<GalleryChallengePlayerState>();
+            foreach (GalleryChallengePlayerState playerState in data.Players)
+            {
+                playerState.MemorialCardIds ??= new List<string>();
+                removed += playerState.MemorialCardIds.RemoveAll(
+                    savedId => string.Equals(savedId, cardKey, StringComparison.Ordinal));
+            }
+        });
+        return removed;
+    }
 }
 
 public sealed class GalleryChallengeRunState

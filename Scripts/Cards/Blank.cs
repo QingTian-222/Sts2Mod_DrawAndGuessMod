@@ -76,7 +76,7 @@ public sealed class Blank : CardModel
             return;
         }
 
-        ArtworkStore.Set(Owner.RunState, selectedCard.Id.Entry, drawing.PngBytes);
+        ArtworkStore.Set(Owner.RunState, selectedCard, drawing.PngBytes);
 
         if (drawing.SkipAddingToDeck)
         {

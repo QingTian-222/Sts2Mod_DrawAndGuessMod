@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using DrawAndGuessMod.Scripts.Relics;
 using DrawAndGuessMod.Scripts.State;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
@@ -39,6 +40,7 @@ internal static class ErasedCardTransformPatch
             return results;
         }
 
+        var runState = erasedCards[0].Owner.RunState;
         List<CardModel> deckCards = erasedCards
             .Where(card => card.Pile?.Type == PileType.Deck)
             .ToList();
@@ -55,6 +57,7 @@ internal static class ErasedCardTransformPatch
             await CardPileCmd.RemoveFromCombat(combatCards);
         }
 
+        DeathNote.TryFlashForRun(runState);
         for (int index = 0; index < results.Count; index++)
         {
             CardPileAddResult result = results[index];

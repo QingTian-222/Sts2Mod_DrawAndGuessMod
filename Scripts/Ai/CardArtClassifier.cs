@@ -8,7 +8,6 @@ using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.State;
-using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;

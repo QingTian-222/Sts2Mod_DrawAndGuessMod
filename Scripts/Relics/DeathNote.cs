@@ -21,6 +21,7 @@ namespace DrawAndGuessMod.Scripts.Relics;
 public sealed class DeathNote : ModRelicTemplate
 {
     private const string RelicIconPath = "res://images/death_note_relic.png";
+    private const string RelicBigIconPath = "res://images/death_note_relic_big.png";
 
     public override RelicRarity Rarity => RelicRarity.Ancient;
     public override bool HasUponPickupEffect => true;
@@ -28,7 +29,25 @@ public sealed class DeathNote : ModRelicTemplate
     public override RelicAssetProfile AssetProfile => new(
         RelicIconPath,
         RelicIconPath,
-        RelicIconPath);
+        RelicBigIconPath);
+
+    public override bool ShouldAddToDeck(CardModel card)
+    {
+        return !ErasedCardStore.IsErased(Owner.RunState, card.Id);
+    }
+
+    public override Task AfterAddToDeckPrevented(CardModel card)
+    {
+        if (ErasedCardStore.IsErased(Owner.RunState, card.Id))
+        {
+            TryFlashForRun(Owner.RunState);
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Death Sketchbook prevented erased card {card.Id.Entry} " +
+                $"from entering {card.Owner.NetId}'s deck.");
+        }
+
+        return Task.CompletedTask;
+    }
 
     public override async Task AfterObtained()
     {
@@ -95,4 +114,40 @@ public sealed class DeathNote : ModRelicTemplate
         return removed > 0;
     }
 
+    public override IEnumerable<CardModel> ModifyMerchantCardPool(
+        Player player,
+        IEnumerable<CardModel> options)
+    {
+        return options.Where(card =>
+            !ErasedCardStore.IsErased(player.RunState, card.Id));
+    }
+
+    internal static DeathNote? FindForRun(IRunState runState)
+    {
+        return runState.Players
+            .SelectMany(player => player.Relics)
+            .OfType<DeathNote>()
+            .FirstOrDefault();
+    }
+
+    internal static bool TryFlashForRun(IRunState runState)
+    {
+        DeathNote? relic = FindForRun(runState);
+        if (relic == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            relic.Flash();
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Death Sketchbook flash failed without blocking card removal: {ex.Message}");
+            return false;
+        }
+    }
 }
