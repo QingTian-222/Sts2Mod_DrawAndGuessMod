@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.Localization;
+using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
@@ -29,6 +30,12 @@ public sealed record CardPretrainingResult(
     int SkippedCards,
     string ModelPath);
 public sealed record CardPretrainingProgress(int ProcessedCards, int TotalCards, string CurrentCardId);
+public enum GuessCandidateScope
+{
+    Default = 0,
+    CurrentCharacterAndShared = 1,
+    PartyCharactersAndShared = 2
+}
 
 internal static class CardArtClassifier
 {
@@ -167,10 +174,10 @@ internal static class CardArtClassifier
         }
     }
 
-    public static CardGuess Guess(Image drawing, Player owner)
+    public static CardGuess Guess(Image drawing, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default)
     {
         EnsureTrained();
-        List<TrainingSample> candidates = FilterCandidates(owner).ToList();
+        List<TrainingSample> candidates = FilterCandidates(owner, candidateScope).ToList();
         if (candidates.Count == 0)
         {
             throw new InvalidOperationException(ModText.Get(
@@ -233,9 +240,10 @@ internal static class CardArtClassifier
         return new CardGuess(selected.Sample.Card, selectedRank, selected.CurrentDistance, nearest);
     }
 
-    private static IEnumerable<TrainingSample> FilterCandidates(Player owner)
+    private static IEnumerable<TrainingSample> FilterCandidates(Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default)
     {
         IEnumerable<TrainingSample> candidates = _samples ?? Enumerable.Empty<TrainingSample>();
+        candidates = candidates.Where(sample => !ErasedCardStore.IsErased(owner.RunState, sample.Card.Id));
         HashSet<ModelId> excludedCardIds = DrawAndGuessSettings.GetCardIdsExcludedByAdvancedPoolSettings();
         if (excludedCardIds.Count > 0)
         {
@@ -247,7 +255,27 @@ internal static class CardArtClassifier
             candidates = candidates.Where(sample => sample.Card.MultiplayerConstraint != CardMultiplayerConstraint.MultiplayerOnly);
         }
 
-        if (DrawAndGuessSettings.CardPoolScope == GuessCardPoolScope.CurrentCharacter)
+        if (candidateScope == GuessCandidateScope.CurrentCharacterAndShared)
+        {
+            HashSet<ModelId> allowedCardIds = owner.Character.CardPool.AllCardIds.ToHashSet();
+            foreach (CardPoolModel sharedPool in ModelDb.AllSharedCardPools)
+            {
+                allowedCardIds.UnionWith(sharedPool.AllCardIds);
+            }
+            candidates = candidates.Where(sample => allowedCardIds.Contains(sample.Card.Id));
+        }
+        else if (candidateScope == GuessCandidateScope.PartyCharactersAndShared)
+        {
+            HashSet<ModelId> allowedCardIds = owner.RunState.Players
+                .SelectMany(player => player.Character.CardPool.AllCardIds)
+                .ToHashSet();
+            foreach (CardPoolModel sharedPool in ModelDb.AllSharedCardPools)
+            {
+                allowedCardIds.UnionWith(sharedPool.AllCardIds);
+            }
+            candidates = candidates.Where(sample => allowedCardIds.Contains(sample.Card.Id));
+        }
+        else if (DrawAndGuessSettings.CardPoolScope == GuessCardPoolScope.CurrentCharacter)
         {
             HashSet<ModelId> characterCardIds = owner.Character.CardPool.AllCardIds.ToHashSet();
             candidates = candidates.Where(sample => characterCardIds.Contains(sample.Card.Id));

@@ -7,9 +7,9 @@ using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
+using DrawAndGuessMod.Scripts.Relics;
 using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
-using MegaCrit.Sts2.Core.CardSelection;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -17,7 +17,6 @@ using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Localization.DynamicVars;
 using MegaCrit.Sts2.Core.Models;
-using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Random;
 using STS2RitsuLib.Interop.AutoRegistration;
 using STS2RitsuLib.Scaffolding.Content;
@@ -93,8 +92,8 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         {
             Entry.Logger.Info(
                 $"[DrawAndGuessMod] Gallery exhausted for {EventOwner.NetId} after {_challengeNumber} challenges.");
-            await ClaimTimedGalleryRewardIfEligible();
-            SetEventFinished(PageDescription("EXHAUSTED"));
+            bool tookRelic = await ClaimTimedGalleryRewardIfEligible();
+            SetEventFinished(PageDescription(tookRelic ? "EXHAUSTED_REWARD" : "EXHAUSTED"));
             return;
         }
 
@@ -312,8 +311,8 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
 
     private async Task Leave()
     {
-        bool tookCard = await ClaimTimedGalleryRewardIfEligible();
-        SetEventFinished(PageDescription(tookCard ? "TAKE_REWARD" : "LEAVE"));
+        bool tookRelic = await ClaimTimedGalleryRewardIfEligible();
+        SetEventFinished(PageDescription(tookRelic ? "TAKE_REWARD" : "LEAVE"));
     }
 
     private bool CanClaimTimedGalleryReward =>
@@ -330,36 +329,23 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         }
 
         _timedGalleryRewardClaimed = true;
-        List<CardModel> choices = _timedSuccessfulCards
-            .Select(card => EventOwner.RunState.CreateCard(card, EventOwner))
-            .ToList();
-        CardSelectorPrefs prefs = new(
-            L10NLookup($"{Id.Entry}.selectionScreenPrompt"),
-            1);
-        CardModel? selected = (await CardSelectCmd.FromSimpleGrid(
-                new BlockingPlayerChoiceContext(),
-                choices,
-                EventOwner,
-                prefs))
-            .FirstOrDefault();
-        if (selected == null)
+        GalleryChallengeStore.SetMemorialCards(
+            EventOwner,
+            _timedSuccessfulCards.Select(card => card.Id));
+
+        if (EventOwner.Relics.Any(relic => relic is MemorialSketchbook))
         {
-            Entry.Logger.Warn(
-                $"[DrawAndGuessMod] Gallery reward selection returned no card for {EventOwner.NetId}.");
-            return false;
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Memorial Sketchbook cards refreshed for {EventOwner.NetId} " +
+                $"from {_timedSuccessfulCards.Count} successful cards.");
+            return true;
         }
 
-        CardPileAddResult result = await CardPileCmd.Add(selected, PileType.Deck);
-        if (!result.success)
-        {
-            Entry.Logger.Warn(
-                $"[DrawAndGuessMod] Failed to add gallery reward {selected.Id.Entry} to {EventOwner.NetId}'s deck.");
-            return false;
-        }
-
-        CardCmd.PreviewCardPileAdd(result, 2f, CardPreviewStyle.EventLayout);
+        await RelicCmd.Obtain(
+            ModelDb.Relic<MemorialSketchbook>().ToMutable(),
+            EventOwner);
         Entry.Logger.Info(
-            $"[DrawAndGuessMod] Gallery reward {selected.Id.Entry} claimed by {EventOwner.NetId} " +
+            $"[DrawAndGuessMod] Memorial Sketchbook obtained by {EventOwner.NetId} " +
             $"from {_timedSuccessfulCards.Count} successful cards.");
         return true;
     }

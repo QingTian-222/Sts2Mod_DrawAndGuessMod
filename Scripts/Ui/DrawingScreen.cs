@@ -11,6 +11,7 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Characters;
+using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Ui;
@@ -20,7 +21,9 @@ public sealed record DrawingScreenOptions(
     string Title,
     string Help,
     double? TimeLimitSeconds = null,
-    string? PeekTooltip = null);
+    string? PeekTooltip = null,
+    bool CloseWhenRestSiteEnds = false,
+    GuessCandidateScope CandidateScope = GuessCandidateScope.Default);
 
 public partial class DrawingScreen : Control
 {
@@ -95,7 +98,15 @@ public partial class DrawingScreen : Control
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
-            return _active._completion.Task;
+            if (_active._owner.NetId == owner.NetId && _active._sessionId == sessionId)
+            {
+                return _active._completion.Task;
+            }
+
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected drawing session {owner.NetId}/{sessionId} because " +
+                $"session {_active._owner.NetId}/{_active._sessionId} is still active.");
+            return Task.FromResult<DrawingResult?>(null);
         }
 
         if (Engine.GetMainLoop() is not SceneTree tree)
@@ -181,7 +192,9 @@ public partial class DrawingScreen : Control
         return runManager.IsAbandoned ||
                runManager.IsCleaningUp ||
                !runManager.IsInProgress ||
-               !ReferenceEquals(runManager.DebugOnlyGetState(), _owner.RunState);
+               !ReferenceEquals(runManager.DebugOnlyGetState(), _owner.RunState) ||
+               (_options?.CloseWhenRestSiteEnds == true &&
+                _owner.RunState.CurrentRoom is not RestSiteRoom);
     }
 
     public override void _Input(InputEvent @event)
@@ -745,7 +758,10 @@ public partial class DrawingScreen : Control
         try
         {
             byte[] png = _canvas.ExportPng();
-            CardGuess guess = CardArtClassifier.Guess(_canvas.Snapshot(), _owner);
+            CardGuess guess = CardArtClassifier.Guess(
+                _canvas.Snapshot(),
+                _owner,
+                _options?.CandidateScope ?? GuessCandidateScope.Default);
             bool skipAddingToDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck;
             _status.Text = "";
             FlushCommands();

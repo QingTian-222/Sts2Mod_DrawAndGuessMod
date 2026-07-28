@@ -67,5 +67,6 @@ internal static class LocManagerInitializePatch
     {
         CardLocalization.Install();
         EventLocalization.Install();
+        RelicLocalization.Install();
     }
 }

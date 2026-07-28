@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Runs;
 using STS2RitsuLib;
 using STS2RitsuLib.RunData;
@@ -83,6 +84,65 @@ internal static class GalleryChallengeStore
             playerState.LastTargetId = targetId;
         });
     }
+
+    public static void SetMemorialCards(Player player, IEnumerable<ModelId> cardIds)
+    {
+        if (player.RunState is not RunState state || _savedData == null)
+        {
+            return;
+        }
+
+        int slot = state.GetPlayerSlotIndex(player);
+        List<string> serializedIds = cardIds
+            .Select(cardId => cardId.ToString())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        _savedData.Modify(state, data =>
+        {
+            data.Players ??= new List<GalleryChallengePlayerState>();
+            GalleryChallengePlayerState? playerState =
+                data.Players.FirstOrDefault(item => item.PlayerSlot == slot);
+            if (playerState == null)
+            {
+                playerState = new GalleryChallengePlayerState { PlayerSlot = slot };
+                data.Players.Add(playerState);
+            }
+
+            playerState.MemorialCardIds = serializedIds;
+        });
+    }
+
+    public static IReadOnlyList<ModelId> GetMemorialCardIds(Player player)
+    {
+        if (player.RunState is not RunState state || _savedData == null)
+        {
+            return [];
+        }
+
+        int slot = state.GetPlayerSlotIndex(player);
+        GalleryChallengeRunState data = _savedData.Get(state);
+        GalleryChallengePlayerState? playerState =
+            data.Players?.FirstOrDefault(item => item.PlayerSlot == slot);
+        if (playerState?.MemorialCardIds == null)
+        {
+            return [];
+        }
+
+        List<ModelId> result = new(playerState.MemorialCardIds.Count);
+        foreach (string cardKey in playerState.MemorialCardIds)
+        {
+            try
+            {
+                result.Add(ModelId.Deserialize(cardKey));
+            }
+            catch (Exception ex)
+            {
+                Entry.Logger.Warn(
+                    $"[DrawAndGuessMod] Ignored invalid memorial card id '{cardKey}': {ex.Message}");
+            }
+        }
+        return result;
+    }
 }
 
 public sealed class GalleryChallengeRunState
@@ -96,4 +156,5 @@ public sealed class GalleryChallengePlayerState
     public int RollsReserved { get; set; }
     public string? LastTargetId { get; set; }
     public List<string> UsedTargetIds { get; set; } = new();
+    public List<string> MemorialCardIds { get; set; } = new();
 }
