@@ -10,6 +10,8 @@ public partial class DrawingCanvas : Control
     public const int StandardCanvasHeight = 380;
     public const int AncientCanvasWidth = 300;
     public const int AncientCanvasHeight = 422;
+    private const int AncientCanvasDisplayWidth = 360;
+    private const int AncientCanvasDisplayHeight = 506;
     public const int MinBrushSize = 4;
     public const int MaxBrushSize = 48;
     public const int DefaultBrushSize = 14;
@@ -57,7 +59,7 @@ public partial class DrawingCanvas : Control
 
     public override void _Ready()
     {
-        CustomMinimumSize = new Vector2(_canvasWidth, _canvasHeight);
+        CustomMinimumSize = GetCanvasDisplaySize(CanvasMode);
         ClipContents = true;
         MouseDefaultCursorShape = CursorShape.Cross;
         MouseFilter = MouseFilterEnum.Stop;
@@ -185,7 +187,7 @@ public partial class DrawingCanvas : Control
         (_canvasWidth, _canvasHeight) = mode == DrawingCanvasMode.Ancient
             ? (AncientCanvasWidth, AncientCanvasHeight)
             : (StandardCanvasWidth, StandardCanvasHeight);
-        CustomMinimumSize = new Vector2(_canvasWidth, _canvasHeight);
+        CustomMinimumSize = GetCanvasDisplaySize(mode);
         CancelActiveOperation();
         if (_image == null)
         {
@@ -196,6 +198,13 @@ public partial class DrawingCanvas : Control
         _image.Fill(PaperColor);
         _texture.SetImage(_image);
         QueueRedraw();
+    }
+
+    private static Vector2 GetCanvasDisplaySize(DrawingCanvasMode mode)
+    {
+        return mode == DrawingCanvasMode.Ancient
+            ? new Vector2(AncientCanvasDisplayWidth, AncientCanvasDisplayHeight)
+            : new Vector2(StandardCanvasWidth, StandardCanvasHeight);
     }
 
     public void SetMouseColors(Color leftColor, Color rightColor)
