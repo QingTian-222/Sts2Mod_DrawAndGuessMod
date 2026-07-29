@@ -130,14 +130,14 @@ internal static class EventLocalization
     {
         values[$"{id}.title"] = ModText.Get("遗物拍卖会", "Relic Auction");
         values[$"{id}.pages.INITIAL.description"] = ModText.Get(
-            "展台上没有一件真正的遗物，只有等待落笔的透明画布。\n\n每位参与者会得到一个各不相同的遗物题目。每完成一笔，鉴定器都会公开当前的猜测；只有猜测与题目完全一致，作品才能提交。\n\n提交前，你可以为作品任意命名。拍卖阶段只展示[gold]作品名、作者与画作[/gold]，不会透露真正的遗物——也就是说，你完全可以伪装你的遗物。\n\n所有作品会像多人宝箱中的遗物一样被共同争夺，最终每位参与者都会带走一件，但未必是自己画的那件。",
-            "No actual relics sit on the stands—only transparent canvases waiting for a mark.\n\nEach participant receives a different relic as their target. After every completed action, the appraiser reveals its current guess; a work can be submitted only when that guess exactly matches the target.\n\nBefore submission, you may give the work any title you like. During the auction, only the [gold]title, artist, and artwork[/gold] are shown. The actual relic remains hidden—so you are free to disguise your relic.\n\nThe works are contested like relics in a multiplayer treasure chest. Every participant will ultimately leave with one, though not necessarily the one they drew.");
+            "白手套的侍者推来一排空展台。主持人将写有遗物名的题签分别塞进你们手中，又铺开几张透明画布。\n\n“请照着题签留下它的模样，再替作品取个好名字。”\n\n槌声响起前，展台只认[gold]画作、作品名与署名[/gold]。帷幕后藏着什么，谁也不能明说。\n\n最后，每个人都能抱走一件作品。至于是不是自己心里那一件，就看落槌前的选择了。",
+            "White-gloved attendants wheel out a row of empty stands. The auctioneer slips each of you a sealed note bearing a relic's name, then unfurls several transparent canvases.\n\n\"Give the relic on your note a fitting likeness—and give the work a fine name.\"\n\nUntil the hammer falls, the stands acknowledge only the [gold]artwork, its title, and its signature[/gold]. Whatever waits behind the curtain must remain unspoken.\n\nIn the end, everyone leaves with one work. Whether it is the one you hoped for depends on where you place your claim.");
         values[$"{id}.pages.INITIAL.options.ENTER.title"] = ModText.Get(
-            "免费参加",
-            "Enter for Free");
+            "入席",
+            "Take a Seat");
         values[$"{id}.pages.INITIAL.options.ENTER.description"] = ModText.Get(
-            "每人绘制并提交一幅遗物作品，然后参加盲拍。",
-            "Each player draws and submits one relic work, then joins the blind auction.");
+            "接过题签，完成一件送拍作品。",
+            "Take a sealed commission and prepare a work for auction.");
         values[$"{id}.pages.INITIAL.options.INSUFFICIENT.title"] = ModText.Get(
             "金币不足（还差 [gold]{Remaining}[/gold]）",
             "Not enough Gold ([gold]{Remaining}[/gold] more required)");
@@ -145,8 +145,8 @@ internal static class EventLocalization
             "入场费必须由所有参与者支付。",
             "Every participant must be able to pay the entry fee.");
         values[$"{id}.pages.DONE.description"] = ModText.Get(
-            "槌声落下，遮住说明的布幕终于掀开。\n\n你获得了[gold]{Awarded}[/gold]。",
-            "The hammer falls, and the cloth hiding the relic's identity is finally lifted.\n\nYou obtained [gold]{Awarded}[/gold].");
+            "槌声落下，帷幕依次掀开。有人欢呼，也有人盯着手里的作品沉默不语。\n\n你抱走了[gold]{Awarded}[/gold]——至少，现在它叫这个名字。",
+            "The hammer falls and the curtains lift one by one. Someone cheers; someone else studies the work in their hands in silence.\n\nYou leave carrying [gold]{Awarded}[/gold]—at least, that is what it is called now.");
         values[$"{id}.work.title"] = "{Title}";
     }
 }

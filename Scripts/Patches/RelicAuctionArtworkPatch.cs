@@ -275,8 +275,8 @@ internal static class RelicAuctionRelicHoverPatch
             RunManager.Instance.NetService.Platform,
             presentation.ArtistId);
         string description = ModText.Get(
-            $"作者：{artist}\n真正的遗物将在拍卖结束后揭晓。",
-            $"Artist: {artist}\nThe actual relic will be revealed after the auction.");
+            $"署名：{artist}\n帷幕后藏着什么，要等槌声落下才知道。",
+            $"Signed by: {artist}\nWhatever waits behind the curtain will be known when the hammer falls.");
         HoverTip hoverTip = new(
             RelicAuctionRelicNamePatch.CreateWorkTitle(
                 presentation.WorkTitle),

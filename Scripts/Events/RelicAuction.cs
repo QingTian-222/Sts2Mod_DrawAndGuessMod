@@ -76,7 +76,8 @@ public sealed class RelicAuction : ModEventTemplate
 
     public override bool IsAllowed(MegaCrit.Sts2.Core.Runs.IRunState runState)
     {
-        if (runState.CurrentActIndex == 0)
+        if (runState.Players.Count <= 1 ||
+            runState.CurrentActIndex == 0)
         {
             return false;
         }
@@ -110,11 +111,11 @@ public sealed class RelicAuction : ModEventTemplate
         {
             DrawingScreenOptions options = new(
                 ModText.Get(
-                    $"题目：{target.Title.GetFormattedText()}",
-                    $"Target: {target.Title.GetFormattedText()}"),
+                    $"题签：{target.Title.GetFormattedText()}",
+                    $"Commission: {target.Title.GetFormattedText()}"),
                 ModText.Get(
-                    "每完成一笔都会显示当前识别结果。只有识别结果与题目完全一致时才能提交。遗物图片背景为透明；右键默认绘制透明色。",
-                    "The current guess updates after every completed action. You may submit only when it exactly matches the target. Relic artwork uses a transparent background; the right mouse button draws transparency by default."),
+                    "让瓦库认出题签上的遗物，便可署名送拍。画布是透明的，右键会抹去颜色。",
+                    "Once VAKUU recognizes the relic on your slip, you may sign it and send it to auction. The canvas is transparent; RMB clears color."),
                 PeekTooltip: ModText.Get("查看事件", "View event"),
                 InitialCanvasMode: DrawingCanvasMode.Relic,
                 AllowCanvasModeSwitch: false);
