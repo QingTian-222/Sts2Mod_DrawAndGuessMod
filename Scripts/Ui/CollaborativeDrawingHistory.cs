@@ -108,6 +108,13 @@ internal sealed class CollaborativeDrawingHistory<TPatch>
             : 0;
     }
 
+    public void Reset()
+    {
+        _entries.Clear();
+        _redoStacks.Clear();
+        _nextSequence = 1u;
+    }
+
     private void ClearRedoHistoryFor(ulong senderId)
     {
         if (!_redoStacks.Remove(senderId, out List<Entry>? redoStack))
