@@ -27,7 +27,7 @@ namespace DrawAndGuessMod.Scripts.Events;
 [RegisterSharedEvent]
 public sealed class RelicAuction : ModEventTemplate
 {
-    private const int EntryCost = 100;
+    private static readonly int EntryCost = 0;
     private uint _auctionId;
 
     public override bool IsShared => true;
@@ -95,7 +95,10 @@ public sealed class RelicAuction : ModEventTemplate
 
     private async Task EnterAuction()
     {
-        await PlayerCmd.LoseGold(EntryCost, EventOwner, GoldLossType.Spent);
+        if (EntryCost > 0)
+        {
+            await PlayerCmd.LoseGold(EntryCost, EventOwner, GoldLossType.Spent);
+        }
         string targetRelicId = await DrawingNetSync.WaitForAuctionTargetAsync(
             _auctionId,
             EventOwner.NetId);
