@@ -624,7 +624,7 @@ internal static class CardArtClassifier
         return true;
     }
 
-    private static double[] ExtractFeatures(Image source, bool treatAsSketch)
+    internal static double[] ExtractFeatures(Image source, bool treatAsSketch)
     {
         Image image = Image.CreateFromData(source.GetWidth(), source.GetHeight(), source.HasMipmaps(), source.GetFormat(), source.GetData());
         if (image.IsCompressed())
@@ -827,7 +827,7 @@ internal static class CardArtClassifier
         }
     }
 
-    private static double Distance(double[] left, double[] right)
+    internal static double Distance(double[] left, double[] right)
     {
         double sum = 0d;
         for (int i = 0; i < left.Length; i++)

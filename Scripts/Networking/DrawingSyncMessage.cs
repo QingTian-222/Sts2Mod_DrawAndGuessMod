@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Game;
@@ -174,7 +175,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         writer.WriteUInt(SessionId);
         writer.WriteUInt(Epoch);
         writer.WriteUInt(StateSequence);
-        writer.WriteByte((byte)CanvasMode, 1);
+        writer.WriteByte((byte)CanvasMode, 2);
         writer.WriteBool(ResetPendingOperations);
         int watermarkCount = Math.Min(Watermarks.Count, MaxWatermarks);
         writer.WriteByte((byte)watermarkCount, 5);
@@ -193,7 +194,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         SessionId = reader.ReadUInt();
         Epoch = reader.ReadUInt();
         StateSequence = reader.ReadUInt();
-        CanvasMode = (DrawingCanvasMode)reader.ReadByte(1);
+        CanvasMode = (DrawingCanvasMode)reader.ReadByte(2);
         ResetPendingOperations = reader.ReadBool();
         int watermarkCount = reader.ReadByte(5);
         if (watermarkCount > MaxWatermarks)
@@ -335,7 +336,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         writer.WriteULong(OwnerId);
         writer.WriteUInt(SessionId);
         writer.WriteBool(Cancelled);
-        writer.WriteByte((byte)CanvasMode, 1);
+        writer.WriteByte((byte)CanvasMode, 2);
         writer.WriteByte((byte)CardIds.Count, 3);
         for (int index = 0; index < CardIds.Count; index++)
         {
@@ -353,7 +354,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         OwnerId = reader.ReadULong();
         SessionId = reader.ReadUInt();
         Cancelled = reader.ReadBool();
-        CanvasMode = (DrawingCanvasMode)reader.ReadByte(1);
+        CanvasMode = (DrawingCanvasMode)reader.ReadByte(2);
         int cardCount = reader.ReadByte(3);
         CardIds = new List<string>(cardCount);
         for (int i = 0; i < cardCount; i++)
@@ -379,5 +380,146 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
     public override string ToString()
     {
         return $"DrawingFinalMessage owner={OwnerId} session={SessionId} cancelled={Cancelled} skipDeck={SkipAddingToDeck} mode={CanvasMode} cards={CardIds.Count} png={PngBytes.Length}";
+    }
+}
+
+public sealed class RelicAuctionTargetMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint AuctionId { get; set; }
+    public string TargetRelicId { get; set; } = "";
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(AuctionId);
+        writer.WriteString(TargetRelicId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        AuctionId = reader.ReadUInt();
+        TargetRelicId = reader.ReadString();
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
+public sealed class RelicAuctionSubmissionMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    private const int MaxPngBytes = 2 * 1024 * 1024;
+    public ulong OwnerId { get; set; }
+    public uint AuctionId { get; set; }
+    public string TargetRelicId { get; set; } = "";
+    public string WorkTitle { get; set; } = "";
+    public byte[] PngBytes { get; set; } = [];
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(AuctionId);
+        writer.WriteString(TargetRelicId);
+        writer.WriteString(WorkTitle);
+        writer.WriteInt(PngBytes.Length);
+        writer.WriteBytes(PngBytes, PngBytes.Length);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        AuctionId = reader.ReadUInt();
+        TargetRelicId = reader.ReadString();
+        WorkTitle = reader.ReadString();
+        int pngLength = reader.ReadInt();
+        if (pngLength < 0 || pngLength > MaxPngBytes)
+        {
+            throw new InvalidDataException($"Invalid relic auction PNG size: {pngLength}");
+        }
+        PngBytes = new byte[pngLength];
+        reader.ReadBytes(PngBytes, pngLength);
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
+public sealed class RelicAuctionVoteMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong VoterId { get; set; }
+    public ulong WorkOwnerId { get; set; }
+    public uint AuctionId { get; set; }
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(VoterId);
+        writer.WriteULong(WorkOwnerId);
+        writer.WriteUInt(AuctionId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        VoterId = reader.ReadULong();
+        WorkOwnerId = reader.ReadULong();
+        AuctionId = reader.ReadUInt();
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
+public sealed class RelicAuctionResultMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public uint AuctionId { get; set; }
+    public Dictionary<ulong, string> AwardedRelicIds { get; set; } = new();
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteUInt(AuctionId);
+        writer.WriteByte((byte)AwardedRelicIds.Count, 5);
+        foreach ((ulong playerId, string relicId) in AwardedRelicIds.OrderBy(pair => pair.Key))
+        {
+            writer.WriteULong(playerId);
+            writer.WriteString(relicId);
+        }
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        AuctionId = reader.ReadUInt();
+        int count = reader.ReadByte(5);
+        AwardedRelicIds = new Dictionary<ulong, string>(count);
+        for (int index = 0; index < count; index++)
+        {
+            AwardedRelicIds[reader.ReadULong()] = reader.ReadString();
+        }
+        LocationValue = reader.Read<RunLocation>();
     }
 }

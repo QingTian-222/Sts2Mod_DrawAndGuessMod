@@ -18,6 +18,7 @@ using MegaCrit.Sts2.Core.Runs;
 namespace DrawAndGuessMod.Scripts.Ui;
 
 public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess, bool SkipAddingToDeck);
+public sealed record RelicDrawingResult(byte[] PngBytes, RelicModel Relic);
 public sealed record DrawingScreenOptions(
     string Title,
     string Help,
@@ -40,6 +41,7 @@ public partial class DrawingScreen : Control
         "res://images/atlases/relic_atlas.sprites/ink_bottle.tres";
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
+    private readonly TaskCompletionSource<RelicDrawingResult?> _relicCompletion = new();
     private readonly List<DrawingCommand> _pendingCommands = new();
     private readonly List<RecordedDrawingCommand> _historyCommands = new();
     private readonly LinkedList<DrawingOperationKey> _undoableOperations = new();
@@ -85,6 +87,7 @@ public partial class DrawingScreen : Control
     private SpinBox _redInput = null!;
     private SpinBox _greenInput = null!;
     private SpinBox _blueInput = null!;
+    private SpinBox _alphaInput = null!;
     private Tween? _peekTween;
     private Color _leftColor = new("1B1A18");
     private Color _rightColor = DrawingCanvas.PaperColor;
@@ -104,6 +107,9 @@ public partial class DrawingScreen : Control
     private ProgressBar? _timerBar;
     private StyleBoxFlat? _timerFillStyle;
     private bool _receivedAuthoritativeTimer;
+    private bool _privateDrawing;
+    private RelicModel? _relicTarget;
+    private RelicArtGuess? _currentRelicGuess;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
@@ -149,6 +155,9 @@ public partial class DrawingScreen : Control
             _receivedAuthoritativeBlankSettings = hasAuthoritativeBlankSettings,
             _options = options,
             _canvasMode = options?.InitialCanvasMode ?? DrawingCanvasMode.Standard,
+            _rightColor = options?.InitialCanvasMode == DrawingCanvasMode.Relic
+                ? Colors.Transparent
+                : DrawingCanvas.PaperColor,
             _remainingSeconds = effectiveTimeLimit,
             _timerDurationSeconds = effectiveTimeLimit
         };
@@ -159,6 +168,46 @@ public partial class DrawingScreen : Control
         return screen._completion.Task;
     }
 
+    public static Task<RelicDrawingResult?> ShowRelicAsync(Player owner, uint sessionId, RelicModel target, DrawingScreenOptions options)
+    {
+        if (_active != null && GodotObject.IsInstanceValid(_active))
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected private relic drawing session {owner.NetId}/{sessionId} because another drawing is active.");
+            return Task.FromResult<RelicDrawingResult?>(null);
+        }
+
+        if (Engine.GetMainLoop() is not SceneTree tree)
+        {
+            return Task.FromResult<RelicDrawingResult?>(null);
+        }
+
+        Player paletteOwner = LocalContext.GetMe(owner.RunState) ?? owner;
+        DrawingScreen screen = new()
+        {
+            Name = "DrawAndGuessMod_RelicDrawingScreen",
+            _owner = owner,
+            _paletteOwner = paletteOwner,
+            _sessionId = sessionId,
+            _isChooser = true,
+            _isTimerAuthority = true,
+            _receivedAuthoritativeBlankSettings = true,
+            _options = options with
+            {
+                InitialCanvasMode = DrawingCanvasMode.Relic,
+                AllowCanvasModeSwitch = false
+            },
+            _canvasMode = DrawingCanvasMode.Relic,
+            _rightColor = Colors.Transparent,
+            _privateDrawing = true,
+            _relicTarget = target
+        };
+        screen._customColors.AddRange(DrawingPaletteStore.GetColors(paletteOwner));
+        _active = screen;
+        tree.Root.AddChild(screen);
+        return screen._relicCompletion.Task;
+    }
+
     public override void _Ready()
     {
         ProcessMode = ProcessModeEnum.Always;
@@ -166,9 +215,12 @@ public partial class DrawingScreen : Control
         ZIndex = 4000;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         BuildUi();
-        DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
-        SendBlankSettings();
-        SendTimerSync(force: true);
+        if (!_privateDrawing)
+        {
+            DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
+            SendBlankSettings();
+            SendTimerSync(force: true);
+        }
     }
 
     public override void _Process(double delta)
@@ -294,6 +346,10 @@ public partial class DrawingScreen : Control
         if (!_completion.Task.IsCompleted)
         {
             _completion.TrySetResult(null);
+        }
+        if (!_relicCompletion.Task.IsCompleted)
+        {
+            _relicCompletion.TrySetResult(null);
         }
         if (ReferenceEquals(_active, this))
         {
@@ -431,8 +487,8 @@ public partial class DrawingScreen : Control
         {
             Text = "🎨",
             TooltipText = Localized(
-                "调色盘：从色图选择或输入 RGB",
-                "Color palette: choose from the color field or enter RGB values"),
+                "调色盘：从色图选择或输入 RGBA",
+                "Color palette: choose from the color field or enter RGBA values"),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             ClipText = true,
             FocusMode = FocusModeEnum.None
@@ -581,12 +637,14 @@ public partial class DrawingScreen : Control
 
         _status = new Label
         {
-            Text = _isChooser
+            Text = _relicTarget != null
+                ? Localized("当前识别：尚未作画", "Current guess: no drawing yet")
+                : _isChooser
                 ? Localized("完成后由你确认。", "Confirm the drawing when everyone is finished.")
                 : Localized(
                     "正在共同绘制，等待出牌者确认。",
                     "Drawing together. Waiting for the player who played the card to confirm."),
-            Visible = false,
+            Visible = _relicTarget != null,
             MouseFilter = MouseFilterEnum.Ignore
         };
         column.AddChild(_status);
@@ -624,7 +682,9 @@ public partial class DrawingScreen : Control
             new Color("176B72"),
             new Color("75F0E6"),
             primary: true);
-        _guessButton.Disabled = !_isChooser || !_receivedAuthoritativeBlankSettings;
+        _guessButton.Disabled = !_isChooser ||
+                                !_receivedAuthoritativeBlankSettings ||
+                                _relicTarget != null;
         _guessButton.Pressed += OnGuessPressed;
         buttons.AddChild(_guessButton);
 
@@ -857,6 +917,24 @@ public partial class DrawingScreen : Control
 
         try
         {
+            if (_relicTarget != null)
+            {
+                RelicArtGuess? finalGuess = RelicArtClassifier.GuessTopOne(_canvas.Snapshot());
+                if (finalGuess?.Relic.Id != _relicTarget.Id)
+                {
+                    _currentRelicGuess = finalGuess;
+                    UpdateRelicGuessStatus();
+                    _finishing = false;
+                    RefreshCanvasModeButton();
+                    return;
+                }
+
+                byte[] relicPng = _canvas.ExportPng();
+                await ToSignal(GetTree().CreateTimer(0.15d, processAlways: true), SceneTreeTimer.SignalName.Timeout);
+                CompleteRelic(new RelicDrawingResult(relicPng, _relicTarget));
+                return;
+            }
+
             byte[] png = _canvas.ExportPng();
             IReadOnlySet<ModelId>? excludedCardIds =
                 _isRegularBlank && _excludePreviouslySelectedBlankCards
@@ -1122,7 +1200,7 @@ public partial class DrawingScreen : Control
                 button.Disabled = false;
                 button.TooltipText =
                     Localized("自定义 #", "Custom #") +
-                    color.ToHtml(false).ToUpperInvariant() +
+                    color.ToHtml(true).ToUpperInvariant() +
                     Localized(
                         "\n右键：设为右键颜色",
                         "\nRight-click: set as the right mouse button color");
@@ -1196,7 +1274,7 @@ public partial class DrawingScreen : Control
 
         _colorPicker = new ColorPicker
         {
-            EditAlpha = false,
+            EditAlpha = true,
             EditIntensity = false,
             PickerShape = ColorPicker.PickerShapeType.HsvRectangle,
             CanAddSwatches = false,
@@ -1222,7 +1300,7 @@ public partial class DrawingScreen : Control
         pickerBody.AddChild(rgbColumn);
         Label rgbTitle = new()
         {
-            Text = "RGB",
+            Text = "RGBA",
             HorizontalAlignment = HorizontalAlignment.Center
         };
         rgbTitle.AddThemeFontSizeOverride("font_size", 20);
@@ -1230,9 +1308,11 @@ public partial class DrawingScreen : Control
         _redInput = AddRgbInput(rgbColumn, "R");
         _greenInput = AddRgbInput(rgbColumn, "G");
         _blueInput = AddRgbInput(rgbColumn, "B");
+        _alphaInput = AddRgbInput(rgbColumn, "A");
         _redInput.ValueChanged += OnRgbInputChanged;
         _greenInput.ValueChanged += OnRgbInputChanged;
         _blueInput.ValueChanged += OnRgbInputChanged;
+        _alphaInput.ValueChanged += OnRgbInputChanged;
 
         Control spacer = new()
         {
@@ -1349,7 +1429,8 @@ public partial class DrawingScreen : Control
         Color color = new(
             (float)(_redInput.Value / 255d),
             (float)(_greenInput.Value / 255d),
-            (float)(_blueInput.Value / 255d));
+            (float)(_blueInput.Value / 255d),
+            (float)(_alphaInput.Value / 255d));
         _colorPicker.Color = color;
         UpdateConfirmColorButton(color);
         _syncingColorInputs = false;
@@ -1363,6 +1444,7 @@ public partial class DrawingScreen : Control
         _redInput.Value = Mathf.RoundToInt(normalized.R * 255f);
         _greenInput.Value = Mathf.RoundToInt(normalized.G * 255f);
         _blueInput.Value = Mathf.RoundToInt(normalized.B * 255f);
+        _alphaInput.Value = Mathf.RoundToInt(normalized.A * 255f);
         UpdateConfirmColorButton(normalized);
         _syncingColorInputs = false;
     }
@@ -1376,8 +1458,8 @@ public partial class DrawingScreen : Control
         Color hoverFill = lightColor ? normalized.Darkened(0.08f) : normalized.Lightened(0.10f);
         Color pressedFill = lightColor ? normalized.Darkened(0.16f) : normalized.Lightened(0.18f);
         _confirmColorButton.TooltipText = Localized(
-            $"添加颜色 #{normalized.ToHtml(false).ToUpperInvariant()}",
-            $"Add color #{normalized.ToHtml(false).ToUpperInvariant()}");
+            $"添加颜色 #{normalized.ToHtml(true).ToUpperInvariant()}",
+            $"Add color #{normalized.ToHtml(true).ToUpperInvariant()}");
         _confirmColorButton.AddThemeFontSizeOverride("font_size", 19);
         _confirmColorButton.AddThemeColorOverride("font_color", foreground);
         _confirmColorButton.AddThemeColorOverride("font_hover_color", foreground);
@@ -1807,7 +1889,12 @@ public partial class DrawingScreen : Control
     private void OnLocalCommand(DrawingCommand command)
     {
         UpdateCanvasModeLock(command);
-        if (DrawingNetSync.IsMultiplayer)
+        if (_privateDrawing && command.CompletesOperation)
+        {
+            UpdateRelicGuess();
+        }
+
+        if (UsesCollaborativeNetworking)
         {
             ulong senderId = RunManager.Instance.NetService.NetId;
             TrackPendingMultiplayerCommand(senderId, command);
@@ -1826,7 +1913,7 @@ public partial class DrawingScreen : Control
             RecordHistoryCommand(_owner.NetId, command);
         }
 
-        if (!DrawingNetSync.IsMultiplayer || _finishing)
+        if (!UsesCollaborativeNetworking || _finishing)
         {
             return;
         }
@@ -1845,6 +1932,12 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        if (_privateDrawing)
+        {
+            _pendingCommands.Clear();
+            return;
+        }
+
         DrawingNetSync.SendCommands(_owner.NetId, _sessionId, _historyEpoch, _pendingCommands);
         _pendingCommands.Clear();
         _lastCommandFlushMsec = Time.GetTicksMsec();
@@ -1858,7 +1951,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             if (_isChooser)
             {
@@ -1893,7 +1986,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             if (_isChooser)
             {
@@ -1922,7 +2015,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             ApplyAuthoritativeMultiplayerUndo(requesterId);
             return;
@@ -1959,16 +2052,20 @@ public partial class DrawingScreen : Control
             $"已撤回最近一次操作（剩余 {_undoableOperations.Count} 步可撤回）。",
             $"Undid the most recent action ({_undoableOperations.Count} undoable actions remain).");
         Entry.Logger.Debug($"[DrawAndGuessMod] Undo requested by {requesterId}: sender={operation.SenderId}, operation={operation.OperationId}, epoch={_historyEpoch}.");
-        DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+        if (UsesCollaborativeNetworking)
         {
-            OwnerId = _owner.NetId,
-            SessionId = _sessionId,
-            Epoch = _historyEpoch,
-            StateSequence = ++_canvasStateSequence,
-            CanvasMode = _canvasMode,
-            ResetPendingOperations = true,
-            PngBytes = _canvas.ExportPng()
-        });
+            DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+            {
+                OwnerId = _owner.NetId,
+                SessionId = _sessionId,
+                Epoch = _historyEpoch,
+                StateSequence = ++_canvasStateSequence,
+                CanvasMode = _canvasMode,
+                ResetPendingOperations = true,
+                PngBytes = _canvas.ExportPng()
+            });
+        }
+        UpdateRelicGuess();
     }
 
     private void ApplyAuthoritativeRedo(ulong requesterId)
@@ -1979,7 +2076,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             ApplyAuthoritativeMultiplayerRedo(requesterId);
             return;
@@ -2016,16 +2113,20 @@ public partial class DrawingScreen : Control
         Entry.Logger.Debug(
             $"[DrawAndGuessMod] Redo requested by {requesterId}: sender={operation.SenderId}, " +
             $"operation={operation.OperationId}, epoch={_historyEpoch}.");
-        DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+        if (UsesCollaborativeNetworking)
         {
-            OwnerId = _owner.NetId,
-            SessionId = _sessionId,
-            Epoch = _historyEpoch,
-            StateSequence = ++_canvasStateSequence,
-            CanvasMode = _canvasMode,
-            ResetPendingOperations = true,
-            PngBytes = _canvas.ExportPng()
-        });
+            DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+            {
+                OwnerId = _owner.NetId,
+                SessionId = _sessionId,
+                Epoch = _historyEpoch,
+                StateSequence = ++_canvasStateSequence,
+                CanvasMode = _canvasMode,
+                ResetPendingOperations = true,
+                PngBytes = _canvas.ExportPng()
+            });
+        }
+        UpdateRelicGuess();
     }
 
     private void TrackPendingMultiplayerCommand(ulong senderId, DrawingCommand command)
@@ -2290,6 +2391,47 @@ public partial class DrawingScreen : Control
         {
             QueueFree();
         }
+    }
+
+    private void CompleteRelic(RelicDrawingResult? result)
+    {
+        if (_relicCompletion.TrySetResult(result))
+        {
+            QueueFree();
+        }
+    }
+
+    private bool UsesCollaborativeNetworking => DrawingNetSync.IsMultiplayer && !_privateDrawing;
+
+    private void UpdateRelicGuess()
+    {
+        if (_relicTarget == null || _finishing)
+        {
+            return;
+        }
+
+        _currentRelicGuess = _canvas.IsBlank()
+            ? null
+            : RelicArtClassifier.GuessTopOne(_canvas.Snapshot());
+        UpdateRelicGuessStatus();
+    }
+
+    private void UpdateRelicGuessStatus()
+    {
+        if (_relicTarget == null)
+        {
+            return;
+        }
+
+        string guessName = _currentRelicGuess?.Relic.Title.GetFormattedText() ??
+                           Localized("尚未识别", "No guess");
+        bool matches = _currentRelicGuess?.Relic.Id == _relicTarget.Id;
+        _status.Text = Localized(
+            $"当前识别：{guessName}" +
+            (matches ? "\n识别正确，可以提交作品。" : "\n必须与题目完全一致才能提交。"),
+            $"Current guess: {guessName}" +
+            (matches ? "\nExact match. You may submit the work." : "\nThe guess must exactly match the target before submission."));
+        _guessButton.Disabled = !matches;
     }
 
     private static string Localized(string simplifiedChinese, string english)
