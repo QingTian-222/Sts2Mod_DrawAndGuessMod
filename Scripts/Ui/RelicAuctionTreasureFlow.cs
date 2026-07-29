@@ -102,7 +102,7 @@ internal static class RelicAuctionTreasureFlow
             {
                 Name = "DrawAndGuessMod_RelicAuctionTreasureOverlay",
                 MouseFilter = Control.MouseFilterEnum.Stop,
-                ZIndex = 3900
+                ZIndex = 0
             };
             overlay.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
 
@@ -135,8 +135,8 @@ internal static class RelicAuctionTreasureFlow
             parent.AddChild(overlay);
 
             collection.Initialize(runState);
-            collection.InitializeRelics();
             RelicAuctionArtworkStore.SetPickingActive(true);
+            collection.InitializeRelics();
             collection.AnimIn(dummyChest);
             collection.DefaultFocusedControl?.GrabFocus();
 

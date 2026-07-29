@@ -1,5 +1,6 @@
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.State;
+using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Localization;
@@ -42,6 +43,37 @@ internal static class RelicAuctionRelicIconPatch
     }
 }
 
+[HarmonyPatch(
+    typeof(NTreasureRoomRelicHolder),
+    nameof(NTreasureRoomRelicHolder.Initialize))]
+internal static class RelicAuctionRelicGlowPatch
+{
+    private static void Postfix(NTreasureRoomRelicHolder __instance)
+    {
+        if (!RelicAuctionArtworkStore.IsPickingActive ||
+            !RelicAuctionArtworkStore.TryGet(
+                __instance.Relic.Model,
+                out _))
+        {
+            return;
+        }
+
+        HideGlow(__instance.GetNodeOrNull<GpuParticles2D>("%UncommonGlow"));
+        HideGlow(__instance.GetNodeOrNull<GpuParticles2D>("%RareGlow"));
+    }
+
+    private static void HideGlow(GpuParticles2D? glow)
+    {
+        if (glow == null)
+        {
+            return;
+        }
+
+        glow.Emitting = false;
+        glow.Visible = false;
+    }
+}
+
 [HarmonyPatch(typeof(NTreasureRoomRelicHolder), "OnFocus")]
 internal static class RelicAuctionRelicHoverPatch
 {
@@ -67,7 +99,16 @@ internal static class RelicAuctionRelicHoverPatch
             $"Artist: {artist}\nThe actual relic will be revealed after the auction.");
         HoverTip hoverTip = new(title, description, presentation.Artwork);
         NHoverTipSet.Remove(__instance);
-        NHoverTipSet.CreateAndShow(__instance, hoverTip)
-            ?.SetAlignmentForRelic(__instance.Relic);
+        NHoverTipSet? tipSet = NHoverTipSet.CreateAndShow(
+            __instance,
+            hoverTip);
+        if (tipSet == null)
+        {
+            return;
+        }
+
+        tipSet.ZAsRelative = false;
+        tipSet.ZIndex = 100;
+        tipSet.SetAlignmentForRelic(__instance.Relic);
     }
 }

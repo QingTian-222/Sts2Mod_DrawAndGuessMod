@@ -444,7 +444,7 @@ public partial class DrawingScreen : Control
 
         HBoxContainer canvasRow = new()
         {
-            Alignment = BoxContainer.AlignmentMode.Begin,
+            Alignment = BoxContainer.AlignmentMode.Center,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
@@ -458,13 +458,13 @@ public partial class DrawingScreen : Control
         _canvas.SetMouseColors(_leftColor, _rightColor);
         if (_relicTarget != null)
         {
-            _canvas.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-            canvasRow.AddChild(_canvas);
             canvasRow.AddChild(new Control
             {
-                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                CustomMinimumSize = new Vector2(230f, 0f),
                 MouseFilter = MouseFilterEnum.Ignore
             });
+            _canvas.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+            canvasRow.AddChild(_canvas);
             BuildRelicReferencePanel(canvasRow);
         }
         else
