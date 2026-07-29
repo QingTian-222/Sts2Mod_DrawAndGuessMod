@@ -133,11 +133,11 @@ internal static class EventLocalization
             "白手套的侍者推来一排空展台。主持人将写有遗物名的题签分别塞进你们手中，又铺开几张透明画布。\n\n“请照着题签留下它的模样，再替作品取个好名字。”\n\n槌声响起前，展台只认[gold]画作、作品名与署名[/gold]。帷幕后藏着什么，谁也不能明说。\n\n最后，每个人都能抱走一件作品。至于是不是自己心里那一件，就看落槌前的选择了。",
             "White-gloved attendants wheel out a row of empty stands. The auctioneer slips each of you a sealed note bearing a relic's name, then unfurls several transparent canvases.\n\n\"Give the relic on your note a fitting likeness—and give the work a fine name.\"\n\nUntil the hammer falls, the stands acknowledge only the [gold]artwork, its title, and its signature[/gold]. Whatever waits behind the curtain must remain unspoken.\n\nIn the end, everyone leaves with one work. Whether it is the one you hoped for depends on where you place your claim.");
         values[$"{id}.pages.INITIAL.options.ENTER.title"] = ModText.Get(
-            "入席",
-            "Take a Seat");
+            "支付[gold]{Cost}[/gold]金币：入席",
+            "Pay [gold]{Cost}[/gold] Gold: Take a Seat");
         values[$"{id}.pages.INITIAL.options.ENTER.description"] = ModText.Get(
-            "接过题签，完成一件送拍作品。",
-            "Take a sealed commission and prepare a work for auction.");
+            "每位参与者支付入场费，接过题签，完成一件送拍作品。",
+            "Each participant pays the entry fee, takes a sealed commission, and prepares a work for auction.");
         values[$"{id}.pages.INITIAL.options.INSUFFICIENT.title"] = ModText.Get(
             "金币不足（还差 [gold]{Remaining}[/gold]）",
             "Not enough Gold ([gold]{Remaining}[/gold] more required)");

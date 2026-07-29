@@ -28,7 +28,7 @@ namespace DrawAndGuessMod.Scripts.Events;
 [RegisterSharedEvent]
 public sealed class RelicAuction : ModEventTemplate
 {
-    private static readonly int EntryCost = 0;
+    private static readonly int EntryCost = 100;
     private uint _auctionId;
 
     public override bool IsShared => true;
@@ -78,6 +78,11 @@ public sealed class RelicAuction : ModEventTemplate
     {
         if (runState.Players.Count <= 1 ||
             runState.CurrentActIndex == 0)
+        {
+            return false;
+        }
+
+        if (!runState.Players.All(player => player.Gold >= EntryCost))
         {
             return false;
         }
