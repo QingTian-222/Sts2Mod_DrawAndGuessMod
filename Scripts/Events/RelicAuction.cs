@@ -28,8 +28,12 @@ namespace DrawAndGuessMod.Scripts.Events;
 [RegisterSharedEvent]
 public sealed class RelicAuction : ModEventTemplate
 {
-    private static readonly int EntryCost = 100;
+    private const int EntryCost = 100;
+    private const int CostIncreasePerRound = 50;
+    private const int MaxRounds = 3;
     private uint _auctionId;
+    private int _roundNumber = 1;
+    private HashSet<ModelId> _usedTargetIds = new();
 
     public override bool IsShared => true;
     public override EventAssetProfile AssetProfile =>
@@ -48,9 +52,10 @@ public sealed class RelicAuction : ModEventTemplate
 
     protected override Task BeforeEventStarted(bool isPreFinished)
     {
-        _auctionId = CreateAuctionId();
-        int minimumGold = EventOwner.RunState.Players.Min(player => player.Gold);
-        DynamicVars["Remaining"].BaseValue = Math.Max(0, EntryCost - minimumGold);
+        _roundNumber = 1;
+        _usedTargetIds = new HashSet<ModelId>();
+        _auctionId = CreateAuctionId(_roundNumber);
+        UpdateCostVars(EntryCost);
 
         if (!isPreFinished &&
             DrawingNetSync.IsLocalHost &&
@@ -100,11 +105,16 @@ public sealed class RelicAuction : ModEventTemplate
                runState.Players.Count;
     }
 
-    private async Task EnterAuction()
+    private Task EnterAuction()
     {
-        if (EntryCost > 0)
+        return RunAuctionRound(EntryCost);
+    }
+
+    private async Task RunAuctionRound(int cost)
+    {
+        if (cost > 0)
         {
-            await PlayerCmd.LoseGold(EntryCost, EventOwner, GoldLossType.Spent);
+            await PlayerCmd.LoseGold(cost, EventOwner, GoldLossType.Spent);
         }
         string targetRelicId = await DrawingNetSync.WaitForAuctionTargetAsync(
             _auctionId,
@@ -153,6 +163,8 @@ public sealed class RelicAuction : ModEventTemplate
         foreach (RelicAuctionSubmission candidate in allSubmissions)
         {
             ValidateSubmission(candidate);
+            _usedTargetIds.Add(
+                new ModelId("RELIC", candidate.TargetRelicId));
         }
 
         IReadOnlyDictionary<ulong, string> results =
@@ -176,7 +188,10 @@ public sealed class RelicAuction : ModEventTemplate
                 ModText.Get("无", "None");
         }
 
-        SetEventFinished(PageDescription("DONE"));
+        PrepareNextRoundTargets();
+        SetEventState(
+            PageDescription("DONE"),
+            GenerateRoundResultOptions());
     }
 
     private void PublishUniqueTargets()
@@ -186,7 +201,9 @@ public sealed class RelicAuction : ModEventTemplate
             .Select(relic => relic.Id)
             .ToHashSet();
         List<RelicModel> available = RelicArtClassifier.GetEligibleRelics()
-            .Where(relic => !owned.Contains(relic.Id))
+            .Where(relic =>
+                !owned.Contains(relic.Id) &&
+                !_usedTargetIds.Contains(relic.Id))
             .OrderBy(relic => relic.Id.Entry, StringComparer.Ordinal)
             .ToList();
         Shuffle(available);
@@ -201,6 +218,121 @@ public sealed class RelicAuction : ModEventTemplate
                 players[index].NetId,
                 available[index].Id.Entry);
         }
+    }
+
+    private void PrepareNextRoundTargets()
+    {
+        if (_roundNumber >= MaxRounds)
+        {
+            return;
+        }
+
+        int nextCost = GetRoundCost(_roundNumber + 1);
+        UpdateCostVars(nextCost);
+        if (!CanAffordRound(nextCost) ||
+            CountAvailableTargets() < EventOwner.RunState.Players.Count ||
+            !DrawingNetSync.IsLocalHost ||
+            EventOwner.NetId != HostPlayer.NetId)
+        {
+            return;
+        }
+
+        uint previousAuctionId = _auctionId;
+        _auctionId = CreateAuctionId(_roundNumber + 1);
+        DrawingNetSync.BeginRelicAuction();
+        PublishUniqueTargets();
+        _auctionId = previousAuctionId;
+    }
+
+    private IReadOnlyList<EventOption> GenerateRoundResultOptions()
+    {
+        List<EventOption> options = new(2);
+        if (_roundNumber < MaxRounds)
+        {
+            int nextCost = GetRoundCost(_roundNumber + 1);
+            UpdateCostVars(nextCost);
+            if (CountAvailableTargets() < EventOwner.RunState.Players.Count)
+            {
+                options.Add(new EventOption(
+                    this,
+                    null,
+                    OptionKey("DONE", "SOLD_OUT")));
+            }
+            else if (CanAffordRound(nextCost))
+            {
+                options.Add(new EventOption(
+                    this,
+                    ContinueAuction,
+                    OptionKey("DONE", "CONTINUE")));
+            }
+            else
+            {
+                options.Add(new EventOption(
+                    this,
+                    null,
+                    OptionKey("DONE", "INSUFFICIENT")));
+            }
+        }
+
+        options.Add(new EventOption(
+            this,
+            LeaveAuction,
+            OptionKey("DONE", "LEAVE")));
+        return options;
+    }
+
+    private async Task ContinueAuction()
+    {
+        if (_roundNumber >= MaxRounds)
+        {
+            await LeaveAuction();
+            return;
+        }
+
+        int nextRound = _roundNumber + 1;
+        int cost = GetRoundCost(nextRound);
+        _roundNumber = nextRound;
+        _auctionId = CreateAuctionId(_roundNumber);
+        UpdateCostVars(cost);
+        await RunAuctionRound(cost);
+    }
+
+    private Task LeaveAuction()
+    {
+        SetEventFinished(PageDescription("LEAVE"));
+        return Task.CompletedTask;
+    }
+
+    private int CountAvailableTargets()
+    {
+        HashSet<ModelId> owned = EventOwner.RunState.Players
+            .SelectMany(player => player.Relics)
+            .Select(relic => relic.Id)
+            .ToHashSet();
+        return RelicArtClassifier.GetEligibleRelics().Count(relic =>
+            !owned.Contains(relic.Id) &&
+            !_usedTargetIds.Contains(relic.Id));
+    }
+
+    private bool CanAffordRound(int cost)
+    {
+        return EventOwner.RunState.Players.All(
+            player => player.Gold >= cost);
+    }
+
+    private void UpdateCostVars(int cost)
+    {
+        DynamicVars["Cost"].BaseValue = cost;
+        int minimumGold = EventOwner.RunState.Players.Min(
+            player => player.Gold);
+        DynamicVars["Remaining"].BaseValue =
+            Math.Max(0, cost - minimumGold);
+    }
+
+    private static int GetRoundCost(int roundNumber)
+    {
+        return EntryCost +
+               Math.Max(0, roundNumber - 1) * CostIncreasePerRound;
     }
 
     private async Task<IReadOnlyList<RelicAuctionSubmission>> WaitForAllSubmissions()
@@ -252,13 +384,14 @@ public sealed class RelicAuction : ModEventTemplate
                    $"The relic auction references missing relic '{relicId}'.");
     }
 
-    private uint CreateAuctionId()
+    private uint CreateAuctionId(int roundNumber)
     {
         ulong hostId = DrawingNetSync.HostNetId;
         uint hostHash = (uint)(hostId ^ hostId >> 32);
         return 0xA8000000u ^
                hostHash ^
-               unchecked((uint)EventOwner.RunState.TotalFloor * 0x9E3779B9u);
+               unchecked((uint)EventOwner.RunState.TotalFloor * 0x9E3779B9u) ^
+               unchecked((uint)roundNumber * 0x85EBCA6Bu);
     }
 
     private void Shuffle<T>(IList<T> items)

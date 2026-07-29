@@ -130,8 +130,8 @@ internal static class EventLocalization
     {
         values[$"{id}.title"] = ModText.Get("遗物拍卖会", "Relic Auction");
         values[$"{id}.pages.INITIAL.description"] = ModText.Get(
-            "白手套的侍者推来一排空展台。主持人将写有遗物名的题签分别塞进你们手中，又铺开几张透明画布。\n\n“请照着题签留下它的模样，再替作品取个好名字。”\n\n槌声响起前，展台只认[gold]画作、作品名与署名[/gold]。帷幕后藏着什么，谁也不能明说。\n\n最后，每个人都能抱走一件作品。至于是不是自己心里那一件，就看落槌前的选择了。",
-            "White-gloved attendants wheel out a row of empty stands. The auctioneer slips each of you a sealed note bearing a relic's name, then unfurls several transparent canvases.\n\n\"Give the relic on your note a fitting likeness—and give the work a fine name.\"\n\nUntil the hammer falls, the stands acknowledge only the [gold]artwork, its title, and its signature[/gold]. Whatever waits behind the curtain must remain unspoken.\n\nIn the end, everyone leaves with one work. Whether it is the one you hoped for depends on where you place your claim.");
+            "白手套的侍者推来一排空展台。主持人将写有遗物名的题签分别塞进你们手中，又铺开几张透明画布。\n\n“请照着题签留下它的模样，再替作品取个好名字。”\n\n槌声响起前，展台只认[gold]画作、作品名与署名[/gold]。帷幕后藏着什么，谁也不能明说。\n\n最后，每个人都能抱走一件作品。至于是不是自己心里那一件，就看落槌前的选择了。\n\n若一轮未尽兴，主持人也乐意再次递来题签——只是下一次入席，价码会更高。今夜的槌声，最多只会为你们响三轮。",
+            "White-gloved attendants wheel out a row of empty stands. The auctioneer slips each of you a sealed note bearing a relic's name, then unfurls several transparent canvases.\n\n\"Give the relic on your note a fitting likeness—and give the work a fine name.\"\n\nUntil the hammer falls, the stands acknowledge only the [gold]artwork, its title, and its signature[/gold]. Whatever waits behind the curtain must remain unspoken.\n\nIn the end, everyone leaves with one work. Whether it is the one you hoped for depends on where you place your claim.\n\nShould one round leave you wanting more, the auctioneer will gladly offer fresh commissions—though the next seat always costs a little more. Tonight, the hammer will fall for no more than three rounds.");
         values[$"{id}.pages.INITIAL.options.ENTER.title"] = ModText.Get(
             "支付[gold]{Cost}[/gold]金币：入席",
             "Pay [gold]{Cost}[/gold] Gold: Take a Seat");
@@ -147,6 +147,33 @@ internal static class EventLocalization
         values[$"{id}.pages.DONE.description"] = ModText.Get(
             "槌声落下，帷幕依次掀开。有人欢呼，也有人盯着手里的作品沉默不语。\n\n你抱走了[gold]{Awarded}[/gold]——至少，现在它叫这个名字。",
             "The hammer falls and the curtains lift one by one. Someone cheers; someone else studies the work in their hands in silence.\n\nYou leave carrying [gold]{Awarded}[/gold]—at least, that is what it is called now.");
+        values[$"{id}.pages.DONE.options.CONTINUE.title"] = ModText.Get(
+            "支付[gold]{Cost}[/gold]金币：再来一轮",
+            "Pay [gold]{Cost}[/gold] Gold: Another Round");
+        values[$"{id}.pages.DONE.options.CONTINUE.description"] = ModText.Get(
+            "展台重新清空，每位参与者领取一张新的题签。",
+            "The stands are cleared, and each participant receives a fresh commission.");
+        values[$"{id}.pages.DONE.options.INSUFFICIENT.title"] = ModText.Get(
+            "金币不足（还差[gold]{Remaining}[/gold]）",
+            "Not enough Gold ([gold]{Remaining}[/gold] more required)");
+        values[$"{id}.pages.DONE.options.INSUFFICIENT.description"] = ModText.Get(
+            "所有参与者都付得起下一轮入场费时，拍卖才会继续。",
+            "The auction continues only if every participant can pay the next entry fee.");
+        values[$"{id}.pages.DONE.options.SOLD_OUT.title"] = ModText.Get(
+            "展台已经空了",
+            "The Stands Are Empty");
+        values[$"{id}.pages.DONE.options.SOLD_OUT.description"] = ModText.Get(
+            "主持人已经拿不出足够的新题签。",
+            "The auctioneer has no more commissions to offer everyone.");
+        values[$"{id}.pages.DONE.options.LEAVE.title"] = ModText.Get(
+            "离席",
+            "Leave the Auction");
+        values[$"{id}.pages.DONE.options.LEAVE.description"] = ModText.Get(
+            "带着拍得的作品离开。",
+            "Leave with the works you won.");
+        values[$"{id}.pages.LEAVE.description"] = ModText.Get(
+            "身后的槌声渐渐安静。主持人收起最后一张题签，向你们欠身致意。",
+            "The hammering fades behind you. The auctioneer gathers the final commission and bows as you depart.");
         values[$"{id}.work.title"] = "{Title}";
     }
 }
