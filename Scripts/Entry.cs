@@ -10,6 +10,7 @@ using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
 using DrawAndGuessMod.Scripts.RestSite;
 using DrawAndGuessMod.Scripts.State;
+using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Modding;
@@ -106,6 +107,8 @@ public static class Entry
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
+        RelicAuctionArtworkStore.Reset();
+        RelicAuctionTreasureFlow.Reset();
         DeathNoteRestSiteOption.ResetSessions();
         DrawingNetSync.Reset();
     }

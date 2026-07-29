@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Multiplayer.Messages.Game;
@@ -453,73 +452,6 @@ public sealed class RelicAuctionSubmissionMessage : INetMessage, IPacketSerializ
         }
         PngBytes = new byte[pngLength];
         reader.ReadBytes(PngBytes, pngLength);
-        LocationValue = reader.Read<RunLocation>();
-    }
-}
-
-public sealed class RelicAuctionVoteMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
-{
-    public ulong VoterId { get; set; }
-    public ulong WorkOwnerId { get; set; }
-    public uint AuctionId { get; set; }
-    public RunLocation LocationValue { get; set; }
-
-    public bool ShouldBroadcast => true;
-    public NetTransferMode Mode => NetTransferMode.Reliable;
-    public LogLevel LogLevel => LogLevel.Debug;
-    public bool ShouldBuffer => true;
-    public RunLocation Location => LocationValue;
-
-    public void Serialize(PacketWriter writer)
-    {
-        writer.WriteULong(VoterId);
-        writer.WriteULong(WorkOwnerId);
-        writer.WriteUInt(AuctionId);
-        writer.Write(LocationValue);
-    }
-
-    public void Deserialize(PacketReader reader)
-    {
-        VoterId = reader.ReadULong();
-        WorkOwnerId = reader.ReadULong();
-        AuctionId = reader.ReadUInt();
-        LocationValue = reader.Read<RunLocation>();
-    }
-}
-
-public sealed class RelicAuctionResultMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
-{
-    public uint AuctionId { get; set; }
-    public Dictionary<ulong, string> AwardedRelicIds { get; set; } = new();
-    public RunLocation LocationValue { get; set; }
-
-    public bool ShouldBroadcast => true;
-    public NetTransferMode Mode => NetTransferMode.Reliable;
-    public LogLevel LogLevel => LogLevel.Debug;
-    public bool ShouldBuffer => true;
-    public RunLocation Location => LocationValue;
-
-    public void Serialize(PacketWriter writer)
-    {
-        writer.WriteUInt(AuctionId);
-        writer.WriteByte((byte)AwardedRelicIds.Count, 5);
-        foreach ((ulong playerId, string relicId) in AwardedRelicIds.OrderBy(pair => pair.Key))
-        {
-            writer.WriteULong(playerId);
-            writer.WriteString(relicId);
-        }
-        writer.Write(LocationValue);
-    }
-
-    public void Deserialize(PacketReader reader)
-    {
-        AuctionId = reader.ReadUInt();
-        int count = reader.ReadByte(5);
-        AwardedRelicIds = new Dictionary<ulong, string>(count);
-        for (int index = 0; index < count; index++)
-        {
-            AwardedRelicIds[reader.ReadULong()] = reader.ReadString();
-        }
         LocationValue = reader.Read<RunLocation>();
     }
 }

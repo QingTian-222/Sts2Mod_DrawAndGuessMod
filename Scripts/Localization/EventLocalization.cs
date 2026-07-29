@@ -147,5 +147,6 @@ internal static class EventLocalization
         values[$"{id}.pages.DONE.description"] = ModText.Get(
             "槌声落下，遮住说明的布幕终于掀开。\n\n你获得了[gold]{Awarded}[/gold]。",
             "The hammer falls, and the cloth hiding the relic's identity is finally lifted.\n\nYou obtained [gold]{Awarded}[/gold].");
+        values[$"{id}.work.title"] = "{Title}";
     }
 }

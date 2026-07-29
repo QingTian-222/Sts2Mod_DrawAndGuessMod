@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
@@ -32,10 +31,6 @@ internal static class DrawingNetSync
     private static readonly Dictionary<(uint AuctionId, ulong OwnerId), TaskCompletionSource<string>> AuctionTargetWaiters = new();
     private static readonly Dictionary<(uint AuctionId, ulong OwnerId), RelicAuctionSubmission> AuctionSubmissions = new();
     private static readonly Dictionary<(uint AuctionId, ulong OwnerId), TaskCompletionSource<RelicAuctionSubmission>> AuctionSubmissionWaiters = new();
-    private static readonly Dictionary<(uint AuctionId, ulong VoterId), ulong> AuctionVotes = new();
-    private static readonly Dictionary<(uint AuctionId, ulong VoterId), TaskCompletionSource<ulong>> AuctionVoteWaiters = new();
-    private static readonly Dictionary<uint, IReadOnlyDictionary<ulong, string>> AuctionResults = new();
-    private static readonly Dictionary<uint, TaskCompletionSource<IReadOnlyDictionary<ulong, string>>> AuctionResultWaiters = new();
 
     public static bool IsMultiplayer
     {
@@ -124,23 +119,10 @@ internal static class DrawingNetSync
         {
             waiter.TrySetCanceled();
         }
-        foreach (TaskCompletionSource<ulong> waiter in AuctionVoteWaiters.Values)
-        {
-            waiter.TrySetCanceled();
-        }
-        foreach (TaskCompletionSource<IReadOnlyDictionary<ulong, string>> waiter in AuctionResultWaiters.Values)
-        {
-            waiter.TrySetCanceled();
-        }
-
         AuctionTargets.Clear();
         AuctionTargetWaiters.Clear();
         AuctionSubmissions.Clear();
         AuctionSubmissionWaiters.Clear();
-        AuctionVotes.Clear();
-        AuctionVoteWaiters.Clear();
-        AuctionResults.Clear();
-        AuctionResultWaiters.Clear();
     }
 
     public static void PublishAuctionTarget(uint auctionId, ulong ownerId, string targetRelicId)
@@ -211,77 +193,6 @@ internal static class DrawingNetSync
         {
             waiter = new TaskCompletionSource<RelicAuctionSubmission>(TaskCreationOptions.RunContinuationsAsynchronously);
             AuctionSubmissionWaiters[key] = waiter;
-        }
-        return waiter.Task;
-    }
-
-    public static void PublishAuctionVote(uint auctionId, ulong voterId, ulong workOwnerId)
-    {
-        EnsureRegistered();
-        AcceptAuctionVote(auctionId, voterId, workOwnerId);
-        if (!IsMultiplayer)
-        {
-            return;
-        }
-
-        RunManager.Instance.NetService.SendMessage(new RelicAuctionVoteMessage
-        {
-            AuctionId = auctionId,
-            VoterId = voterId,
-            WorkOwnerId = workOwnerId,
-            LocationValue = _registeredBuffer!.CurrentLocation
-        });
-    }
-
-    public static Task<ulong> WaitForAuctionVoteAsync(uint auctionId, ulong voterId)
-    {
-        EnsureRegistered();
-        (uint AuctionId, ulong VoterId) key = (auctionId, voterId);
-        if (AuctionVotes.TryGetValue(key, out ulong workOwnerId))
-        {
-            return Task.FromResult(workOwnerId);
-        }
-
-        if (!AuctionVoteWaiters.TryGetValue(key, out TaskCompletionSource<ulong>? waiter))
-        {
-            waiter = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
-            AuctionVoteWaiters[key] = waiter;
-        }
-        return waiter.Task;
-    }
-
-    public static void PublishAuctionResults(uint auctionId, IReadOnlyDictionary<ulong, string> awardedRelicIds)
-    {
-        EnsureRegistered();
-        AcceptAuctionResults(auctionId, awardedRelicIds);
-        if (!IsMultiplayer)
-        {
-            return;
-        }
-
-        RunManager.Instance.NetService.SendMessage(new RelicAuctionResultMessage
-        {
-            AuctionId = auctionId,
-            AwardedRelicIds = new Dictionary<ulong, string>(awardedRelicIds),
-            LocationValue = _registeredBuffer!.CurrentLocation
-        });
-    }
-
-    public static Task<IReadOnlyDictionary<ulong, string>> WaitForAuctionResultsAsync(uint auctionId)
-    {
-        EnsureRegistered();
-        if (AuctionResults.TryGetValue(auctionId, out IReadOnlyDictionary<ulong, string>? results))
-        {
-            return Task.FromResult(results);
-        }
-
-        if (!AuctionResultWaiters.TryGetValue(
-                auctionId,
-                out TaskCompletionSource<IReadOnlyDictionary<ulong, string>>? waiter))
-        {
-            waiter = new TaskCompletionSource<IReadOnlyDictionary<ulong, string>>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            AuctionResultWaiters[auctionId] = waiter;
         }
         return waiter.Task;
     }
@@ -509,8 +420,6 @@ internal static class DrawingNetSync
             _registeredBuffer.UnregisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
             _registeredBuffer.UnregisterMessageHandler<RelicAuctionTargetMessage>(OnAuctionTargetReceived);
             _registeredBuffer.UnregisterMessageHandler<RelicAuctionSubmissionMessage>(OnAuctionSubmissionReceived);
-            _registeredBuffer.UnregisterMessageHandler<RelicAuctionVoteMessage>(OnAuctionVoteReceived);
-            _registeredBuffer.UnregisterMessageHandler<RelicAuctionResultMessage>(OnAuctionResultReceived);
         }
 
         current.RegisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
@@ -523,8 +432,6 @@ internal static class DrawingNetSync
         current.RegisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
         current.RegisterMessageHandler<RelicAuctionTargetMessage>(OnAuctionTargetReceived);
         current.RegisterMessageHandler<RelicAuctionSubmissionMessage>(OnAuctionSubmissionReceived);
-        current.RegisterMessageHandler<RelicAuctionVoteMessage>(OnAuctionVoteReceived);
-        current.RegisterMessageHandler<RelicAuctionResultMessage>(OnAuctionResultReceived);
         _registeredBuffer = current;
     }
 
@@ -722,46 +629,4 @@ internal static class DrawingNetSync
         }
     }
 
-    private static void OnAuctionVoteReceived(RelicAuctionVoteMessage message, ulong senderId)
-    {
-        if (senderId != message.VoterId)
-        {
-            Entry.Logger.Warn(
-                $"[DrawAndGuessMod] Rejected relic auction vote from {senderId}; expected {message.VoterId}.");
-            return;
-        }
-        AcceptAuctionVote(message.AuctionId, message.VoterId, message.WorkOwnerId);
-    }
-
-    private static void AcceptAuctionVote(uint auctionId, ulong voterId, ulong workOwnerId)
-    {
-        (uint AuctionId, ulong VoterId) key = (auctionId, voterId);
-        AuctionVotes[key] = workOwnerId;
-        if (AuctionVoteWaiters.Remove(key, out TaskCompletionSource<ulong>? waiter))
-        {
-            waiter.TrySetResult(workOwnerId);
-        }
-    }
-
-    private static void OnAuctionResultReceived(RelicAuctionResultMessage message, ulong senderId)
-    {
-        if (senderId != HostNetId)
-        {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected relic auction result from non-host {senderId}.");
-            return;
-        }
-        AcceptAuctionResults(message.AuctionId, message.AwardedRelicIds);
-    }
-
-    private static void AcceptAuctionResults(uint auctionId, IReadOnlyDictionary<ulong, string> results)
-    {
-        Dictionary<ulong, string> copy = results.ToDictionary(pair => pair.Key, pair => pair.Value);
-        AuctionResults[auctionId] = copy;
-        if (AuctionResultWaiters.Remove(
-                auctionId,
-                out TaskCompletionSource<IReadOnlyDictionary<ulong, string>>? waiter))
-        {
-            waiter.TrySetResult(copy);
-        }
-    }
 }

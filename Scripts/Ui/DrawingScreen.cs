@@ -18,7 +18,10 @@ using MegaCrit.Sts2.Core.Runs;
 namespace DrawAndGuessMod.Scripts.Ui;
 
 public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess, bool SkipAddingToDeck);
-public sealed record RelicDrawingResult(byte[] PngBytes, RelicModel Relic);
+public sealed record RelicDrawingResult(
+    byte[] PngBytes,
+    RelicModel Relic,
+    string WorkTitle);
 public sealed record DrawingScreenOptions(
     string Title,
     string Help,
@@ -110,6 +113,9 @@ public partial class DrawingScreen : Control
     private bool _privateDrawing;
     private RelicModel? _relicTarget;
     private RelicArtGuess? _currentRelicGuess;
+    private TextureRect? _relicGuessImage;
+    private TextureRect? _relicTargetImage;
+    private LineEdit? _relicWorkTitleInput;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
@@ -437,6 +443,10 @@ public partial class DrawingScreen : Control
         _canvas.LeftColorSampled += OnLeftColorSampled;
         _canvas.SetMouseColors(_leftColor, _rightColor);
         canvasCenter.AddChild(_canvas);
+        if (_relicTarget != null)
+        {
+            BuildRelicReferencePanel(canvasRow);
+        }
 
         HBoxContainer paletteArea = new()
         {
@@ -931,7 +941,13 @@ public partial class DrawingScreen : Control
 
                 byte[] relicPng = _canvas.ExportPng();
                 await ToSignal(GetTree().CreateTimer(0.15d, processAlways: true), SceneTreeTimer.SignalName.Timeout);
-                CompleteRelic(new RelicDrawingResult(relicPng, _relicTarget));
+                string workTitle = string.IsNullOrWhiteSpace(_relicWorkTitleInput?.Text)
+                    ? Localized("无题作品", "Untitled Work")
+                    : _relicWorkTitleInput.Text.Trim();
+                CompleteRelic(new RelicDrawingResult(
+                    relicPng,
+                    _relicTarget,
+                    workTitle));
                 return;
             }
 
@@ -2426,12 +2442,84 @@ public partial class DrawingScreen : Control
         string guessName = _currentRelicGuess?.Relic.Title.GetFormattedText() ??
                            Localized("尚未识别", "No guess");
         bool matches = _currentRelicGuess?.Relic.Id == _relicTarget.Id;
+        if (_relicGuessImage != null)
+        {
+            _relicGuessImage.Texture = _currentRelicGuess?.Relic.BigIcon;
+        }
         _status.Text = Localized(
             $"当前识别：{guessName}" +
             (matches ? "\n识别正确，可以提交作品。" : "\n必须与题目完全一致才能提交。"),
             $"Current guess: {guessName}" +
             (matches ? "\nExact match. You may submit the work." : "\nThe guess must exactly match the target before submission."));
-        _guessButton.Disabled = !matches;
+        _guessButton.Disabled =
+            !matches ||
+            string.IsNullOrWhiteSpace(_relicWorkTitleInput?.Text);
+    }
+
+    private void BuildRelicReferencePanel(Container canvasRow)
+    {
+        if (_relicTarget == null)
+        {
+            return;
+        }
+
+        VBoxContainer references = new()
+        {
+            CustomMinimumSize = new Vector2(230f, 0f),
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        references.AddThemeConstantOverride("separation", 6);
+        canvasRow.AddChild(references);
+
+        Label guessLabel = new()
+        {
+            Text = Localized("瓦库的猜测", "VAKUU's Guess"),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        references.AddChild(guessLabel);
+        _relicGuessImage = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(190f, 190f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
+        };
+        references.AddChild(_relicGuessImage);
+
+        Label targetLabel = new()
+        {
+            Text = Localized(
+                $"题目参考：{_relicTarget.Title.GetFormattedText()}",
+                $"Target Reference: {_relicTarget.Title.GetFormattedText()}"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        references.AddChild(targetLabel);
+        _relicTargetImage = new TextureRect
+        {
+            Texture = _relicTarget.BigIcon,
+            CustomMinimumSize = new Vector2(190f, 190f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
+        };
+        references.AddChild(_relicTargetImage);
+
+        Label titleLabel = new()
+        {
+            Text = Localized("作品名", "Work Title"),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        references.AddChild(titleLabel);
+        _relicWorkTitleInput = new LineEdit
+        {
+            Text = Localized("无题作品", "Untitled Work"),
+            MaxLength = 32,
+            CustomMinimumSize = new Vector2(220f, 40f),
+            TooltipText = Localized(
+                "拍卖时会显示这个名字；你可以用它伪装遗物。",
+                "This title is shown at auction; you may use it to disguise the relic.")
+        };
+        _relicWorkTitleInput.TextChanged += _ => UpdateRelicGuessStatus();
+        references.AddChild(_relicWorkTitleInput);
     }
 
     private static string Localized(string simplifiedChinese, string english)

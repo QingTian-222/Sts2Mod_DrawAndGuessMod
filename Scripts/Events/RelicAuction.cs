@@ -127,12 +127,10 @@ public sealed class RelicAuction : ModEventTemplate
                 throw new InvalidOperationException("The required relic drawing closed before submission.");
             }
 
-            string workTitle = await RelicWorkTitlePrompt.ShowAsync(
-                ModText.Get("无题作品", "Untitled Work"));
             submission = new RelicAuctionSubmission(
                 EventOwner.NetId,
                 target.Id.Entry,
-                workTitle,
+                drawing.WorkTitle,
                 drawing.PngBytes);
             DrawingNetSync.PublishAuctionSubmission(_auctionId, submission);
         }
@@ -145,34 +143,21 @@ public sealed class RelicAuction : ModEventTemplate
 
         IReadOnlyList<RelicAuctionSubmission> allSubmissions =
             await WaitForAllSubmissions();
-        if (LocalContext.IsMe(EventOwner))
+        foreach (RelicAuctionSubmission candidate in allSubmissions)
         {
-            ulong selectedWorkOwner = await RelicAuctionSelectionScreen.ShowAsync(allSubmissions);
-            if (selectedWorkOwner == 0UL)
-            {
-                selectedWorkOwner = submission.OwnerId;
-            }
-            DrawingNetSync.PublishAuctionVote(
-                _auctionId,
-                EventOwner.NetId,
-                selectedWorkOwner);
-        }
-
-        if (DrawingNetSync.IsLocalHost && EventOwner.NetId == HostPlayer.NetId)
-        {
-            IReadOnlyDictionary<ulong, string> awards =
-                await ResolveAuctionAsHost(allSubmissions);
-            DrawingNetSync.PublishAuctionResults(_auctionId, awards);
+            ValidateSubmission(candidate);
         }
 
         IReadOnlyDictionary<ulong, string> results =
-            await DrawingNetSync.WaitForAuctionResultsAsync(_auctionId);
+            await RelicAuctionTreasureFlow.RunAsync(
+                _auctionId,
+                (MegaCrit.Sts2.Core.Runs.RunState)EventOwner.RunState,
+                allSubmissions);
         if (results.TryGetValue(EventOwner.NetId, out string? awardedRelicId))
         {
             RelicModel awarded = FindRelic(awardedRelicId);
             ((StringVar)DynamicVars["Awarded"]).StringValue =
                 awarded.Title.GetFormattedText();
-            await RelicCmd.Obtain(awarded.ToMutable(), EventOwner);
         }
         else
         {
@@ -217,70 +202,6 @@ public sealed class RelicAuction : ModEventTemplate
                 _auctionId,
                 player.NetId)));
         return submissions;
-    }
-
-    private async Task<IReadOnlyDictionary<ulong, string>> ResolveAuctionAsHost(
-        IReadOnlyList<RelicAuctionSubmission> submissions)
-    {
-        List<Player> players = EventOwner.RunState.Players
-            .OrderBy(player => player.NetId)
-            .ToList();
-        ulong[] votes = await Task.WhenAll(players.Select(
-            player => DrawingNetSync.WaitForAuctionVoteAsync(_auctionId, player.NetId)));
-        Dictionary<ulong, RelicAuctionSubmission> works =
-            submissions.ToDictionary(submission => submission.OwnerId);
-
-        foreach (RelicAuctionSubmission submission in submissions)
-        {
-            ValidateSubmission(submission);
-        }
-
-        Dictionary<ulong, List<Player>> contenders = works.Keys.ToDictionary(
-            ownerId => ownerId,
-            _ => new List<Player>());
-        for (int index = 0; index < players.Count; index++)
-        {
-            ulong votedWork = works.ContainsKey(votes[index])
-                ? votes[index]
-                : submissions[0].OwnerId;
-            contenders[votedWork].Add(players[index]);
-        }
-
-        Dictionary<ulong, string> awards = new();
-        List<RelicAuctionSubmission> unclaimedWorks = new();
-        RelicPickingFightMove[] moves = Enum.GetValues<RelicPickingFightMove>();
-        foreach ((ulong workOwner, List<Player> interestedPlayers) in
-                 contenders.OrderBy(pair => pair.Key))
-        {
-            RelicAuctionSubmission work = works[workOwner];
-            RelicModel relic = FindRelic(work.TargetRelicId);
-            if (interestedPlayers.Count == 0)
-            {
-                unclaimedWorks.Add(work);
-                continue;
-            }
-
-            Player winner = interestedPlayers.Count == 1
-                ? interestedPlayers[0]
-                : RelicPickingResult.GenerateRelicFight(
-                    interestedPlayers,
-                    relic,
-                    () => Rng.NextItem(moves)).player!;
-            awards[winner.NetId] = relic.Id.Entry;
-        }
-
-        List<Player> playersWithoutAward = players
-            .Where(player => !awards.ContainsKey(player.NetId))
-            .ToList();
-        Shuffle(unclaimedWorks);
-        for (int index = 0;
-             index < playersWithoutAward.Count && index < unclaimedWorks.Count;
-             index++)
-        {
-            awards[playersWithoutAward[index].NetId] =
-                unclaimedWorks[index].TargetRelicId;
-        }
-        return awards;
     }
 
     private void ValidateSubmission(RelicAuctionSubmission submission)
