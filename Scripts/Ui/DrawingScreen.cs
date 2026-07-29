@@ -59,6 +59,9 @@ public partial class DrawingScreen : Control
     private uint _canvasStateSequence;
     private bool _isChooser;
     private bool _isTimerAuthority;
+    private bool _isRegularBlank;
+    private bool _excludePreviouslySelectedBlankCards;
+    private bool _receivedAuthoritativeBlankSettings;
     private ulong _lastCommandFlushMsec;
     private ulong _lastTimerSyncMsec;
     private DrawingCanvas _canvas = null!;
@@ -102,7 +105,7 @@ public partial class DrawingScreen : Control
     private StyleBoxFlat? _timerFillStyle;
     private bool _receivedAuthoritativeTimer;
 
-    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null)
+    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
@@ -124,6 +127,8 @@ public partial class DrawingScreen : Control
 
         bool isChooser = LocalContext.IsMe(owner);
         bool isTimerAuthority = !DrawingNetSync.IsMultiplayer || DrawingNetSync.IsLocalHost;
+        bool hasAuthoritativeBlankSettings =
+            !isRegularBlank || !DrawingNetSync.IsMultiplayer || isTimerAuthority;
         Player paletteOwner = LocalContext.GetMe(owner.RunState) ?? owner;
         double? requestedTimeLimit = options?.TimeLimitSeconds ?? defaultTimeLimitSeconds;
         double? effectiveTimeLimit = isTimerAuthority
@@ -137,6 +142,11 @@ public partial class DrawingScreen : Control
             _sessionId = sessionId,
             _isChooser = isChooser,
             _isTimerAuthority = isTimerAuthority,
+            _isRegularBlank = isRegularBlank,
+            _excludePreviouslySelectedBlankCards = isRegularBlank &&
+                                                       hasAuthoritativeBlankSettings &&
+                                                       DrawAndGuessSettings.ExcludePreviouslySelectedBlankCards,
+            _receivedAuthoritativeBlankSettings = hasAuthoritativeBlankSettings,
             _options = options,
             _canvasMode = options?.InitialCanvasMode ?? DrawingCanvasMode.Standard,
             _remainingSeconds = effectiveTimeLimit,
@@ -157,6 +167,7 @@ public partial class DrawingScreen : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         BuildUi();
         DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
+        SendBlankSettings();
         SendTimerSync(force: true);
     }
 
@@ -613,7 +624,7 @@ public partial class DrawingScreen : Control
             new Color("176B72"),
             new Color("75F0E6"),
             primary: true);
-        _guessButton.Disabled = !_isChooser;
+        _guessButton.Disabled = !_isChooser || !_receivedAuthoritativeBlankSettings;
         _guessButton.Pressed += OnGuessPressed;
         buttons.AddChild(_guessButton);
 
@@ -833,7 +844,7 @@ public partial class DrawingScreen : Control
 
     private async void OnGuessPressed()
     {
-        if (_finishing)
+        if (_finishing || !_receivedAuthoritativeBlankSettings)
         {
             return;
         }
@@ -847,10 +858,15 @@ public partial class DrawingScreen : Control
         try
         {
             byte[] png = _canvas.ExportPng();
+            IReadOnlySet<ModelId>? excludedCardIds =
+                _isRegularBlank && _excludePreviouslySelectedBlankCards
+                    ? BlankSelectionStore.GetSelectedCardIds(_owner.RunState)
+                    : null;
             CardGuess guess = CardArtClassifier.Guess(
                 _canvas.Snapshot(),
                 _owner,
-                _options?.CandidateScope ?? GuessCandidateScope.Default);
+                _options?.CandidateScope ?? GuessCandidateScope.Default,
+                excludedCardIds);
             bool skipAddingToDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck;
             _status.Text = "";
             FlushCommands();
@@ -1577,6 +1593,19 @@ public partial class DrawingScreen : Control
         return true;
     }
 
+    internal static bool TryReceiveBlankSettings(DrawingBlankSettingsMessage message)
+    {
+        if (_active == null || !GodotObject.IsInstanceValid(_active) ||
+            _active._owner.NetId != message.OwnerId ||
+            _active._sessionId != message.SessionId)
+        {
+            return false;
+        }
+
+        _active.ReceiveBlankSettings(message);
+        return true;
+    }
+
     internal void ReceiveCommands(DrawingSyncMessage message, ulong senderId)
     {
         if (_finishing || senderId == LocalContext.NetId || message.Epoch != _historyEpoch)
@@ -1686,6 +1715,21 @@ public partial class DrawingScreen : Control
         }
     }
 
+    internal void ReceiveBlankSettings(DrawingBlankSettingsMessage message)
+    {
+        if (_finishing || !_isRegularBlank || _isTimerAuthority)
+        {
+            return;
+        }
+
+        _excludePreviouslySelectedBlankCards = message.ExcludePreviouslySelectedCards;
+        _receivedAuthoritativeBlankSettings = true;
+        if (_isChooser)
+        {
+            _guessButton.Disabled = false;
+        }
+    }
+
     internal void ReceiveFinal(DrawingFinalMessage message)
     {
         if (_finishing)
@@ -1745,6 +1789,19 @@ public partial class DrawingScreen : Control
 
         _lastTimerSyncMsec = now;
         DrawingNetSync.SendTimer(_owner.NetId, _sessionId, _remainingSeconds.Value);
+    }
+
+    private void SendBlankSettings()
+    {
+        if (!DrawingNetSync.IsMultiplayer || !_isTimerAuthority || !_isRegularBlank)
+        {
+            return;
+        }
+
+        DrawingNetSync.SendBlankSettings(
+            _owner.NetId,
+            _sessionId,
+            _excludePreviouslySelectedBlankCards);
     }
 
     private void OnLocalCommand(DrawingCommand command)

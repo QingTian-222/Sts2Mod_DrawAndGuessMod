@@ -173,10 +173,16 @@ internal static class CardArtClassifier
         }
     }
 
-    public static CardGuess Guess(Image drawing, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default)
+    public static CardGuess Guess(Image drawing, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default, IReadOnlySet<ModelId>? excludedCardIds = null)
     {
         EnsureTrained();
-        List<TrainingSample> candidates = FilterCandidates(owner, candidateScope).ToList();
+        IEnumerable<TrainingSample> filteredCandidates = FilterCandidates(owner, candidateScope);
+        if (excludedCardIds is { Count: > 0 })
+        {
+            filteredCandidates = filteredCandidates.Where(sample =>
+                !excludedCardIds.Contains(sample.Card.Id));
+        }
+        List<TrainingSample> candidates = filteredCandidates.ToList();
         if (candidates.Count == 0)
         {
             throw new InvalidOperationException(ModText.Get(
@@ -235,7 +241,7 @@ internal static class CardArtClassifier
         IReadOnlyList<CardModel> nearest = ranked.Take(nearestCount).Select(item => item.Sample.Card).ToList();
         string diagnostics = string.Join(", ", ranked.Take(6).Select(item =>
             $"{item.Sample.Card.Id.Entry}:score={item.FusedScore:F3}, handDist={item.CurrentDistance:F3}, dino={(item.HasDino ? item.DinoSimilarity.ToString("F3") : "n/a")}"));
-        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, model={DrawAndGuessSettings.RecognitionModelAccuracy}, dino={useDino}): {diagnostics}");
+        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, excludedPreviousBlank={excludedCardIds?.Count ?? 0}, model={DrawAndGuessSettings.RecognitionModelAccuracy}, dino={useDino}): {diagnostics}");
         return new CardGuess(selected.Sample.Card, selectedRank, selected.CurrentDistance, nearest);
     }
 

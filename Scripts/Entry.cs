@@ -43,6 +43,7 @@ public static class Entry
             DrawAndGuessSettings.Register();
             ArtworkStore.Register();
             DrawingPaletteStore.Register();
+            BlankSelectionStore.Register();
             ErasedCardStore.Register();
             GalleryChallengeStore.Register();
             CardLocalization.Install();

@@ -55,6 +55,13 @@ internal static class DrawAndGuessSettings
             data => data.IncludeMultiplayerCards,
             (data, value) => data.IncludeMultiplayerCards = value);
 
+    private static readonly IModSettingsValueBinding<bool> ExcludePreviouslySelectedBlankCardsBinding =
+        ModSettingsBindings.Global<SettingsData, bool>(
+            Entry.ModId,
+            DataKey,
+            data => data.ExcludePreviouslySelectedBlankCards,
+            (data, value) => data.ExcludePreviouslySelectedBlankCards = value);
+
     private static readonly IModSettingsValueBinding<bool> BlankGeneratedCardSkipsDeckBinding =
         ModSettingsBindings.Global<SettingsData, bool>(
             Entry.ModId,
@@ -116,6 +123,21 @@ internal static class DrawAndGuessSettings
             catch
             {
                 return true;
+            }
+        }
+    }
+
+    public static bool ExcludePreviouslySelectedBlankCards
+    {
+        get
+        {
+            try
+            {
+                return ExcludePreviouslySelectedBlankCardsBinding.Read();
+            }
+            catch
+            {
+                return false;
             }
         }
     }
@@ -274,6 +296,16 @@ internal static class DrawAndGuessSettings
                     LocalizedText(
                         "开启后，AI 候选中可以包含仅限多人模式的卡牌；关闭时会排除这些牌。",
                         "Allow multiplayer-only cards to appear among AI candidates. Disable this to exclude them."),
+                    () => true)
+                .AddToggle(
+                    "exclude_previously_selected_blank_cards",
+                    LocalizedText(
+                        "空白不再猜测已选择的卡牌",
+                        "Exclude Cards Previously Selected by Blank"),
+                    ExcludePreviouslySelectedBlankCardsBinding,
+                    LocalizedText(
+                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置；不影响死亡绘本、无限画廊或其他绘画。默认关闭。",
+                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Death Sketchbook, Infinite Gallery, and other drawing modes are unaffected. Disabled by default."),
                     () => true)
                 .AddToggle(
                     "blank_generated_card_skips_deck",
@@ -785,6 +817,7 @@ internal static class DrawAndGuessSettings
     {
         public int CardPoolScope { get; set; } = (int)GuessCardPoolScope.AllCards;
         public bool IncludeMultiplayerCards { get; set; } = true;
+        public bool ExcludePreviouslySelectedBlankCards { get; set; }
         public bool BlankGeneratedCardSkipsDeck { get; set; }
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;

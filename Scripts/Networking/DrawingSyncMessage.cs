@@ -276,6 +276,41 @@ public sealed class DrawingTimerSyncMessage : INetMessage, IPacketSerializable, 
     }
 }
 
+public sealed class DrawingBlankSettingsMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint SessionId { get; set; }
+    public bool ExcludePreviouslySelectedCards { get; set; }
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(SessionId);
+        writer.WriteBool(ExcludePreviouslySelectedCards);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        SessionId = reader.ReadUInt();
+        ExcludePreviouslySelectedCards = reader.ReadBool();
+        LocationValue = reader.Read<RunLocation>();
+    }
+
+    public override string ToString()
+    {
+        return $"DrawingBlankSettingsMessage owner={OwnerId} session={SessionId} excludePrevious={ExcludePreviouslySelectedCards}";
+    }
+}
+
 public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     private const int MaxPngBytes = 2 * 1024 * 1024;

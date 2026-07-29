@@ -19,6 +19,7 @@ internal static class DrawingNetSync
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), List<(DrawingSyncMessage Message, ulong SenderId)>> PendingBatches = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingCanvasStateMessage> PendingCanvasStates = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingTimerSyncMessage> PendingTimers = new();
+    private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingBlankSettingsMessage> PendingBlankSettings = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingFinalMessage> PendingFinals = new();
 
     public static bool IsMultiplayer
@@ -59,6 +60,7 @@ internal static class DrawingNetSync
         PendingBatches.Clear();
         PendingCanvasStates.Clear();
         PendingTimers.Clear();
+        PendingBlankSettings.Clear();
         PendingFinals.Clear();
         EnsureRegistered();
     }
@@ -244,6 +246,23 @@ internal static class DrawingNetSync
         });
     }
 
+    public static void SendBlankSettings(ulong ownerId, uint sessionId, bool excludePreviouslySelectedCards)
+    {
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        EnsureRegistered();
+        RunManager.Instance.NetService.SendMessage(new DrawingBlankSettingsMessage
+        {
+            OwnerId = ownerId,
+            SessionId = sessionId,
+            ExcludePreviouslySelectedCards = excludePreviouslySelectedCards,
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
     public static void DeliverPending(DrawingScreen screen, ulong ownerId, uint sessionId)
     {
         (ulong OwnerId, uint SessionId) key = (ownerId, sessionId);
@@ -263,6 +282,11 @@ internal static class DrawingNetSync
         if (PendingTimers.Remove(key, out DrawingTimerSyncMessage? timer))
         {
             screen.ReceiveTimer(timer);
+        }
+
+        if (PendingBlankSettings.Remove(key, out DrawingBlankSettingsMessage? blankSettings))
+        {
+            screen.ReceiveBlankSettings(blankSettings);
         }
 
         if (PendingFinals.Remove(key, out DrawingFinalMessage? final))
@@ -287,6 +311,7 @@ internal static class DrawingNetSync
             _registeredBuffer.UnregisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
+            _registeredBuffer.UnregisterMessageHandler<DrawingBlankSettingsMessage>(OnBlankSettingsReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
         }
 
@@ -296,6 +321,7 @@ internal static class DrawingNetSync
         current.RegisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
         current.RegisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
         current.RegisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
+        current.RegisterMessageHandler<DrawingBlankSettingsMessage>(OnBlankSettingsReceived);
         current.RegisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
         _registeredBuffer = current;
     }
@@ -412,6 +438,23 @@ internal static class DrawingNetSync
         {
             PendingTimers[key] = message;
         }
+    }
+
+    private static void OnBlankSettingsReceived(DrawingBlankSettingsMessage message, ulong senderId)
+    {
+        if (senderId != HostNetId)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected Blank settings from {senderId}; expected host {HostNetId}.");
+            return;
+        }
+
+        if (DrawingScreen.TryReceiveBlankSettings(message))
+        {
+            return;
+        }
+
+        PendingBlankSettings[(message.OwnerId, message.SessionId)] = message;
     }
 
     private static void OnFinalReceived(DrawingFinalMessage message, ulong senderId)
