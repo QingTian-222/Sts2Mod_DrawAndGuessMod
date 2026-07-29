@@ -7,6 +7,7 @@ using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -147,7 +148,7 @@ internal static class RelicAuctionTreasureFlow
             RelicAuctionArtworkStore.SetPickingActive(true);
             collection.InitializeRelics();
             collection.AnimIn(dummyChest);
-            collection.DefaultFocusedControl?.GrabFocus();
+            collection.DefaultFocusedControl?.TryGrabFocus();
 
             await collection.RelicPickingFinished();
             IReadOnlyDictionary<ulong, string> awards =
