@@ -33,6 +33,7 @@
     <Content Include="Models\card_features.bin" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\card_dino_features.bin" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\dinov2_vits14.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\sketch_adapter.onnx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -66,6 +67,7 @@
     <Copy SourceFiles="Models\card_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Models\card_dino_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Models\dinov2_vits14.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Models\sketch_adapter.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectName).pck" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)Microsoft.ML.OnnxRuntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)Microsoft.ML.OnnxRuntime.dll')" />
     <Copy SourceFiles="$(TargetDir)onnxruntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)onnxruntime.dll')" />

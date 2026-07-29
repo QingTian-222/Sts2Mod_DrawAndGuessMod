@@ -10,6 +10,7 @@ obj/
 __pycache__/
 *.py[cod]
 Scripts/Training/.eval-deps/
+Scripts/Training/.sketch-adapter-artifacts/
 Scripts/Preview/.clip-cache/
 Scripts/Preview/.semantic-cache/
 card_features.local.bin
