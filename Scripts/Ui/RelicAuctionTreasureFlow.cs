@@ -86,8 +86,17 @@ internal static class RelicAuctionTreasureFlow
             Node temporaryRoom = scene.Instantiate();
             collection = temporaryRoom.GetNode<NTreasureRoomRelicCollection>(
                 "RelicCollection");
+            Control fightBackstop = temporaryRoom.GetNode<Control>(
+                "FightBackstop");
+            Control handsContainer = temporaryRoom.GetNode<Control>(
+                "HandsContainer");
+            List<Node> sceneOwnedNodes = new();
+            CollectSceneOwnedNodes(collection, temporaryRoom, sceneOwnedNodes);
+            CollectSceneOwnedNodes(fightBackstop, temporaryRoom, sceneOwnedNodes);
+            CollectSceneOwnedNodes(handsContainer, temporaryRoom, sceneOwnedNodes);
             temporaryRoom.RemoveChild(collection);
-            temporaryRoom.Free();
+            temporaryRoom.RemoveChild(fightBackstop);
+            temporaryRoom.RemoveChild(handsContainer);
 
             overlay = new Control
             {
@@ -96,11 +105,6 @@ internal static class RelicAuctionTreasureFlow
                 ZIndex = 3900
             };
             overlay.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-            Node parent = NRun.Instance != null
-                ? NRun.Instance
-                : ((SceneTree)Engine.GetMainLoop()).Root;
-            parent.AddChild(overlay);
-            overlay.AddChild(collection);
 
             ColorRect backstop = new()
             {
@@ -110,13 +114,25 @@ internal static class RelicAuctionTreasureFlow
             };
             backstop.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
             overlay.AddChild(backstop);
-            overlay.MoveChild(backstop, 0);
+            overlay.AddChild(collection);
+            overlay.AddChild(fightBackstop);
+            overlay.AddChild(handsContainer);
+            foreach (Node sceneOwnedNode in sceneOwnedNodes)
+            {
+                sceneOwnedNode.Owner = overlay;
+            }
+            temporaryRoom.Free();
 
             Control dummyChest = new()
             {
                 Visible = false
             };
             overlay.AddChild(dummyChest);
+
+            Node parent = NRun.Instance != null
+                ? NRun.Instance
+                : ((SceneTree)Engine.GetMainLoop()).Root;
+            parent.AddChild(overlay);
 
             collection.Initialize(runState);
             collection.InitializeRelics();
@@ -149,6 +165,18 @@ internal static class RelicAuctionTreasureFlow
             {
                 collection.QueueFree();
             }
+        }
+    }
+
+    private static void CollectSceneOwnedNodes(Node node, Node owner, List<Node> result)
+    {
+        if (node.Owner == owner)
+        {
+            result.Add(node);
+        }
+        foreach (Node child in node.GetChildren())
+        {
+            CollectSceneOwnedNodes(child, owner, result);
         }
     }
 

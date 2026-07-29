@@ -115,7 +115,10 @@ public partial class DrawingScreen : Control
     private RelicArtGuess? _currentRelicGuess;
     private TextureRect? _relicGuessImage;
     private TextureRect? _relicTargetImage;
+    private Label? _relicWorkTitleLabel;
     private LineEdit? _relicWorkTitleInput;
+    private Button? _relicWorkTitleEditButton;
+    private bool _editingRelicWorkTitle;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
@@ -285,6 +288,11 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        if (IsEditingRelicWorkTitle())
+        {
+            return;
+        }
+
         if (@event is InputEventMouseButton { Pressed: true } wheel &&
             wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown &&
             !_finishing)
@@ -395,13 +403,20 @@ public partial class DrawingScreen : Control
         column.AddThemeConstantOverride("separation", 12);
         margin.AddChild(column);
 
-        Label title = new()
+        if (_relicTarget != null)
         {
-            Text = _options?.Title ?? Localized("空白", "Blank"),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        title.AddThemeFontSizeOverride("font_size", 30);
-        column.AddChild(title);
+            BuildRelicTitleEditor(column);
+        }
+        else
+        {
+            Label title = new()
+            {
+                Text = _options?.Title ?? Localized("空白", "Blank"),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            title.AddThemeFontSizeOverride("font_size", 30);
+            column.AddChild(title);
+        }
 
         Label help = new()
         {
@@ -429,23 +444,37 @@ public partial class DrawingScreen : Control
 
         HBoxContainer canvasRow = new()
         {
-            Alignment = BoxContainer.AlignmentMode.Center,
+            Alignment = BoxContainer.AlignmentMode.Begin,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
         canvasRow.AddThemeConstantOverride("separation", 12);
         column.AddChild(canvasRow);
 
-        CenterContainer canvasCenter = new();
-        canvasRow.AddChild(canvasCenter);
         _canvas = new DrawingCanvas();
         _canvas.SetCanvasMode(_canvasMode);
         _canvas.LocalCommandGenerated += OnLocalCommand;
         _canvas.LeftColorSampled += OnLeftColorSampled;
         _canvas.SetMouseColors(_leftColor, _rightColor);
-        canvasCenter.AddChild(_canvas);
         if (_relicTarget != null)
         {
+            _canvas.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+            canvasRow.AddChild(_canvas);
+            canvasRow.AddChild(new Control
+            {
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                MouseFilter = MouseFilterEnum.Ignore
+            });
             BuildRelicReferencePanel(canvasRow);
+        }
+        else
+        {
+            CenterContainer canvasCenter = new()
+            {
+                SizeFlagsHorizontal = SizeFlags.ExpandFill
+            };
+            canvasRow.AddChild(canvasCenter);
+            canvasCenter.AddChild(_canvas);
         }
 
         HBoxContainer paletteArea = new()
@@ -941,9 +970,7 @@ public partial class DrawingScreen : Control
 
                 byte[] relicPng = _canvas.ExportPng();
                 await ToSignal(GetTree().CreateTimer(0.15d, processAlways: true), SceneTreeTimer.SignalName.Timeout);
-                string workTitle = string.IsNullOrWhiteSpace(_relicWorkTitleInput?.Text)
-                    ? Localized("无题作品", "Untitled Work")
-                    : _relicWorkTitleInput.Text.Trim();
+                string workTitle = GetRelicWorkTitle();
                 CompleteRelic(new RelicDrawingResult(
                     relicPng,
                     _relicTarget,
@@ -2419,6 +2446,105 @@ public partial class DrawingScreen : Control
 
     private bool UsesCollaborativeNetworking => DrawingNetSync.IsMultiplayer && !_privateDrawing;
 
+    private void BuildRelicTitleEditor(Container column)
+    {
+        HBoxContainer titleRow = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        titleRow.AddThemeConstantOverride("separation", 12);
+        column.AddChild(titleRow);
+
+        _relicWorkTitleLabel = new Label
+        {
+            Text = Localized("无题作品", "Untitled Work"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _relicWorkTitleLabel.AddThemeFontSizeOverride("font_size", 30);
+        titleRow.AddChild(_relicWorkTitleLabel);
+
+        _relicWorkTitleInput = new LineEdit
+        {
+            Text = _relicWorkTitleLabel.Text,
+            MaxLength = 32,
+            CustomMinimumSize = new Vector2(360f, 46f),
+            Visible = false,
+            TooltipText = Localized(
+                "拍卖时会显示这个名字；你可以用它伪装遗物。",
+                "This title is shown at auction; you may use it to disguise the relic.")
+        };
+        _relicWorkTitleInput.AddThemeFontSizeOverride("font_size", 26);
+        _relicWorkTitleInput.TextChanged += _ => UpdateRelicGuessStatus();
+        titleRow.AddChild(_relicWorkTitleInput);
+
+        _relicWorkTitleEditButton = CreateActionButton(
+            Localized("修改", "Edit"),
+            new Color("253D58"),
+            new Color("79BCE8"));
+        _relicWorkTitleEditButton.TooltipText = Localized(
+            "修改拍卖时显示的作品名称",
+            "Edit the work title shown during the auction");
+        _relicWorkTitleEditButton.Pressed += ToggleRelicWorkTitleEditing;
+        titleRow.AddChild(_relicWorkTitleEditButton);
+    }
+
+    private void ToggleRelicWorkTitleEditing()
+    {
+        if (_relicWorkTitleInput == null ||
+            _relicWorkTitleLabel == null ||
+            _relicWorkTitleEditButton == null)
+        {
+            return;
+        }
+
+        if (!_editingRelicWorkTitle)
+        {
+            if (_gFillHeld)
+            {
+                _gFillHeld = false;
+                ActivateBrushTool();
+            }
+            _editingRelicWorkTitle = true;
+            _relicWorkTitleInput.Text = _relicWorkTitleLabel.Text;
+            _relicWorkTitleLabel.Visible = false;
+            _relicWorkTitleInput.Visible = true;
+            _relicWorkTitleEditButton.Text = Localized("确认", "Confirm");
+            _relicWorkTitleInput.GrabFocus();
+            _relicWorkTitleInput.SelectAll();
+            UpdateRelicGuessStatus();
+            return;
+        }
+
+        string editedTitle = _relicWorkTitleInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(editedTitle))
+        {
+            return;
+        }
+
+        _relicWorkTitleLabel.Text = editedTitle;
+        _relicWorkTitleInput.ReleaseFocus();
+        _relicWorkTitleInput.Visible = false;
+        _relicWorkTitleLabel.Visible = true;
+        _relicWorkTitleEditButton.Text = Localized("修改", "Edit");
+        _editingRelicWorkTitle = false;
+        UpdateRelicGuessStatus();
+    }
+
+    private bool IsEditingRelicWorkTitle()
+    {
+        return _editingRelicWorkTitle ||
+               (_relicWorkTitleInput?.HasFocus() ?? false);
+    }
+
+    private string GetRelicWorkTitle()
+    {
+        string? title = _relicWorkTitleLabel?.Text;
+        return string.IsNullOrWhiteSpace(title)
+            ? Localized("无题作品", "Untitled Work")
+            : title.Trim();
+    }
+
     private void UpdateRelicGuess()
     {
         if (_relicTarget == null || _finishing)
@@ -2453,7 +2579,8 @@ public partial class DrawingScreen : Control
             (matches ? "\nExact match. You may submit the work." : "\nThe guess must exactly match the target before submission."));
         _guessButton.Disabled =
             !matches ||
-            string.IsNullOrWhiteSpace(_relicWorkTitleInput?.Text);
+            _editingRelicWorkTitle ||
+            string.IsNullOrWhiteSpace(_relicWorkTitleLabel?.Text);
     }
 
     private void BuildRelicReferencePanel(Container canvasRow)
@@ -2503,23 +2630,6 @@ public partial class DrawingScreen : Control
         };
         references.AddChild(_relicTargetImage);
 
-        Label titleLabel = new()
-        {
-            Text = Localized("作品名", "Work Title"),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        references.AddChild(titleLabel);
-        _relicWorkTitleInput = new LineEdit
-        {
-            Text = Localized("无题作品", "Untitled Work"),
-            MaxLength = 32,
-            CustomMinimumSize = new Vector2(220f, 40f),
-            TooltipText = Localized(
-                "拍卖时会显示这个名字；你可以用它伪装遗物。",
-                "This title is shown at auction; you may use it to disguise the relic.")
-        };
-        _relicWorkTitleInput.TextChanged += _ => UpdateRelicGuessStatus();
-        references.AddChild(_relicWorkTitleInput);
     }
 
     private static string Localized(string simplifiedChinese, string english)
