@@ -61,6 +61,15 @@ internal static class RelicAuctionTreasureFlow
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnRelicsAwarded(List<RelicPickingResult> results)
         {
+            foreach (RelicPickingResult result in results)
+            {
+                if (result.player != null &&
+                    result.type != RelicPickingResultType.Skipped)
+                {
+                    RelicAuctionArtworkStore.MarkAwarded(result.relic);
+                }
+            }
+
             Dictionary<ulong, string> awards = results
                 .Where(result => result.player != null &&
                                  result.type != RelicPickingResultType.Skipped)

@@ -6,6 +6,7 @@ using DrawAndGuessMod.Scripts.Ai;
 using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
+using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using MegaCrit.Sts2.Core.Commands;
@@ -157,7 +158,11 @@ public sealed class RelicAuction : ModEventTemplate
         {
             RelicModel awarded = FindRelic(awardedRelicId);
             ((StringVar)DynamicVars["Awarded"]).StringValue =
-                awarded.Title.GetFormattedText();
+                RelicAuctionArtworkStore.TryGetAwarded(
+                    awarded,
+                    out RelicAuctionPresentation? presentation)
+                    ? presentation.WorkTitle
+                    : awarded.Title.GetFormattedText();
         }
         else
         {

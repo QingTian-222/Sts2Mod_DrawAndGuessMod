@@ -14,6 +14,7 @@ internal sealed record RelicAuctionPresentation(
 internal static class RelicAuctionArtworkStore
 {
     private static readonly Dictionary<ModelId, RelicAuctionPresentation> Presentations = new();
+    private static readonly HashSet<ModelId> AwardedPresentationIds = new();
 
     public static bool IsPickingActive { get; private set; }
 
@@ -21,6 +22,7 @@ internal static class RelicAuctionArtworkStore
     {
         IsPickingActive = false;
         Presentations.Clear();
+        AwardedPresentationIds.Clear();
     }
 
     public static void InstallPresentations(IEnumerable<RelicAuctionSubmission> submissions)
@@ -53,6 +55,27 @@ internal static class RelicAuctionArtworkStore
 
     public static bool TryGet(RelicModel relic, out RelicAuctionPresentation presentation)
     {
+        return Presentations.TryGetValue(relic.Id, out presentation!);
+    }
+
+    public static void MarkAwarded(RelicModel relic)
+    {
+        if (Presentations.ContainsKey(relic.Id))
+        {
+            AwardedPresentationIds.Add(relic.Id);
+        }
+    }
+
+    public static bool TryGetAwarded(
+        RelicModel relic,
+        out RelicAuctionPresentation presentation)
+    {
+        if (!AwardedPresentationIds.Contains(relic.Id))
+        {
+            presentation = null!;
+            return false;
+        }
+
         return Presentations.TryGetValue(relic.Id, out presentation!);
     }
 

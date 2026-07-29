@@ -2,10 +2,13 @@ using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.State;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.addons.mega_text;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Localization;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Relics;
+using MegaCrit.Sts2.Core.Nodes.Screens.InspectScreens;
 using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
 using MegaCrit.Sts2.Core.Platform;
 using MegaCrit.Sts2.Core.Runs;
@@ -40,6 +43,82 @@ internal static class RelicAuctionRelicIconPatch
         }
         __instance.Icon.Texture = presentation.Artwork;
         __instance.Outline.Visible = false;
+    }
+}
+
+[HarmonyPatch(
+    typeof(RelicModel),
+    nameof(RelicModel.HoverTip),
+    MethodType.Getter)]
+internal static class RelicAuctionRelicNamePatch
+{
+    private static void Postfix(
+        RelicModel __instance,
+        ref HoverTip __result)
+    {
+        if (!RelicAuctionArtworkStore.TryGetAwarded(
+                __instance,
+                out RelicAuctionPresentation? presentation))
+        {
+            return;
+        }
+
+        HoverTip renamed = new(
+            CreateWorkTitle(presentation.WorkTitle),
+            __result.Description,
+            presentation.Artwork);
+        renamed.SetCanonicalModel(__instance.CanonicalInstance);
+        __result = renamed;
+    }
+
+    internal static LocString CreateWorkTitle(string workTitle)
+    {
+        LocString title = new(
+            "events",
+            "DRAW_AND_GUESS_MOD_EVENT_RELIC_AUCTION.work.title");
+        title.Add("Title", workTitle);
+        return title;
+    }
+}
+
+[HarmonyPatch(typeof(NInspectRelicScreen), "UpdateRelicDisplay")]
+internal static class RelicAuctionInspectRelicPatch
+{
+    private static readonly AccessTools.FieldRef<
+        NInspectRelicScreen,
+        IReadOnlyList<RelicModel>> Relics =
+        AccessTools.FieldRefAccess<
+            NInspectRelicScreen,
+            IReadOnlyList<RelicModel>>("_relics");
+    private static readonly AccessTools.FieldRef<
+        NInspectRelicScreen,
+        int> Index =
+        AccessTools.FieldRefAccess<NInspectRelicScreen, int>("_index");
+    private static readonly AccessTools.FieldRef<
+        NInspectRelicScreen,
+        MegaLabel> NameLabel =
+        AccessTools.FieldRefAccess<NInspectRelicScreen, MegaLabel>("_nameLabel");
+    private static readonly AccessTools.FieldRef<
+        NInspectRelicScreen,
+        TextureRect> RelicImage =
+        AccessTools.FieldRefAccess<NInspectRelicScreen, TextureRect>("_relicImage");
+
+    private static void Postfix(NInspectRelicScreen __instance)
+    {
+        IReadOnlyList<RelicModel>? relics = Relics(__instance);
+        int index = Index(__instance);
+        if (relics == null ||
+            index < 0 ||
+            index >= relics.Count ||
+            !RelicAuctionArtworkStore.TryGetAwarded(
+                relics[index],
+                out RelicAuctionPresentation? presentation))
+        {
+            return;
+        }
+
+        NameLabel(__instance).SetTextAutoSize(presentation.WorkTitle);
+        RelicImage(__instance).Texture = presentation.Artwork;
     }
 }
 
@@ -90,14 +169,14 @@ internal static class RelicAuctionRelicHoverPatch
         string artist = PlatformUtil.GetPlayerNameRaw(
             RunManager.Instance.NetService.Platform,
             presentation.ArtistId);
-        LocString title = new(
-            "events",
-            "DRAW_AND_GUESS_MOD_EVENT_RELIC_AUCTION.work.title");
-        title.Add("Title", presentation.WorkTitle);
         string description = ModText.Get(
             $"作者：{artist}\n真正的遗物将在拍卖结束后揭晓。",
             $"Artist: {artist}\nThe actual relic will be revealed after the auction.");
-        HoverTip hoverTip = new(title, description, presentation.Artwork);
+        HoverTip hoverTip = new(
+            RelicAuctionRelicNamePatch.CreateWorkTitle(
+                presentation.WorkTitle),
+            description,
+            presentation.Artwork);
         NHoverTipSet.Remove(__instance);
         NHoverTipSet? tipSet = NHoverTipSet.CreateAndShow(
             __instance,
