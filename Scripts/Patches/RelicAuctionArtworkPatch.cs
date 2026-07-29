@@ -9,7 +9,9 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens.InspectScreens;
+using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
+using MegaCrit.Sts2.Core.Nodes.Vfx;
 using MegaCrit.Sts2.Core.Platform;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -20,7 +22,8 @@ internal static class RelicAuctionRelicIconPatch
 {
     private static void Postfix(NRelic __instance)
     {
-        if (!__instance.IsNodeReady())
+        if (!__instance.IsNodeReady() ||
+            HasAncestor<NRelicCollectionEntry>(__instance))
         {
             return;
         }
@@ -35,14 +38,45 @@ internal static class RelicAuctionRelicIconPatch
             return;
         }
 
-        if (!RelicAuctionArtworkStore.TryGet(
+        bool isAuctionStand =
+            RelicAuctionArtworkStore.IsPickingActive &&
+            HasAncestor<NTreasureRoomRelicHolder>(__instance);
+        bool isAwarded =
+            RelicAuctionArtworkStore.TryGetAwarded(
                 model,
-                out RelicAuctionPresentation? presentation))
+                out RelicAuctionPresentation? awardedPresentation);
+        if (!isAuctionStand &&
+            !isAwarded)
+        {
+            return;
+        }
+
+        RelicAuctionPresentation? presentation =
+            awardedPresentation;
+        if (presentation == null &&
+            !RelicAuctionArtworkStore.TryGet(
+                model,
+                out presentation))
         {
             return;
         }
         __instance.Icon.Texture = presentation.Artwork;
         __instance.Outline.Visible = false;
+    }
+
+    private static bool HasAncestor<T>(Node node) where T : Node
+    {
+        for (Node? parent = node.GetParent();
+             parent != null;
+             parent = parent.GetParent())
+        {
+            if (parent is T)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 
@@ -56,12 +90,62 @@ internal static class RelicAuctionRelicTriggerIconPatch
         RelicModel __instance,
         ref Texture2D __result)
     {
-        if (RelicAuctionArtworkStore.TryGetAwarded(
+        if (RelicAuctionArtworkStore.TryGetTriggerArtwork(
                 __instance,
-                out RelicAuctionPresentation? presentation))
+                out Texture2D? triggerArtwork))
         {
-            __result = presentation.TriggerArtwork;
+            __result = triggerArtwork;
         }
+    }
+}
+
+[HarmonyPatch(typeof(NRelicInventoryHolder), "DoFlash")]
+internal static class RelicAuctionInventoryFlashPatch
+{
+    private static readonly AccessTools.FieldRef<
+        NRelicInventoryHolder,
+        NRelic> Relic =
+        AccessTools.FieldRefAccess<NRelicInventoryHolder, NRelic>("_relic");
+
+    private static void Prefix(
+        NRelicInventoryHolder __instance,
+        ref RelicModel? __state)
+    {
+        __state = RelicAuctionArtworkStore.PushTriggerIconContext(
+            Relic(__instance).Model);
+    }
+
+    private static System.Exception? Finalizer(
+        System.Exception? __exception,
+        RelicModel? __state)
+    {
+        RelicAuctionArtworkStore.RestoreTriggerIconContext(__state);
+        return __exception;
+    }
+}
+
+[HarmonyPatch(typeof(NRelicFlashVfx), "StartVfx")]
+internal static class RelicAuctionCombatFlashPatch
+{
+    private static readonly AccessTools.FieldRef<
+        NRelicFlashVfx,
+        RelicModel> Relic =
+        AccessTools.FieldRefAccess<NRelicFlashVfx, RelicModel>("_relic");
+
+    private static void Prefix(
+        NRelicFlashVfx __instance,
+        ref RelicModel? __state)
+    {
+        __state = RelicAuctionArtworkStore.PushTriggerIconContext(
+            Relic(__instance));
+    }
+
+    private static System.Exception? Finalizer(
+        System.Exception? __exception,
+        RelicModel? __state)
+    {
+        RelicAuctionArtworkStore.RestoreTriggerIconContext(__state);
+        return __exception;
     }
 }
 
@@ -75,7 +159,8 @@ internal static class RelicAuctionRelicNamePatch
         RelicModel __instance,
         ref HoverTip __result)
     {
-        if (!RelicAuctionArtworkStore.TryGetAwarded(
+        if (!__instance.IsMutable ||
+            !RelicAuctionArtworkStore.TryGetAwarded(
                 __instance,
                 out RelicAuctionPresentation? presentation))
         {
@@ -129,6 +214,7 @@ internal static class RelicAuctionInspectRelicPatch
         if (relics == null ||
             index < 0 ||
             index >= relics.Count ||
+            !relics[index].IsMutable ||
             !RelicAuctionArtworkStore.TryGetAwarded(
                 relics[index],
                 out RelicAuctionPresentation? presentation))

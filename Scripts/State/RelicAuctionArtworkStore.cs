@@ -16,6 +16,8 @@ internal static class RelicAuctionArtworkStore
 {
     private static readonly Dictionary<ModelId, RelicAuctionPresentation> Presentations = new();
     private static readonly HashSet<ModelId> AwardedPresentationIds = new();
+    [ThreadStatic]
+    private static RelicModel? _triggerIconContext;
 
     public static bool IsPickingActive { get; private set; }
 
@@ -24,6 +26,7 @@ internal static class RelicAuctionArtworkStore
         IsPickingActive = false;
         Presentations.Clear();
         AwardedPresentationIds.Clear();
+        _triggerIconContext = null;
     }
 
     public static void InstallPresentations(IEnumerable<RelicAuctionSubmission> submissions)
@@ -91,6 +94,35 @@ internal static class RelicAuctionArtworkStore
         }
 
         return Presentations.TryGetValue(relic.Id, out presentation!);
+    }
+
+    public static RelicModel? PushTriggerIconContext(RelicModel relic)
+    {
+        RelicModel? previous = _triggerIconContext;
+        _triggerIconContext = relic;
+        return previous;
+    }
+
+    public static void RestoreTriggerIconContext(RelicModel? previous)
+    {
+        _triggerIconContext = previous;
+    }
+
+    public static bool TryGetTriggerArtwork(
+        RelicModel relic,
+        out Texture2D texture)
+    {
+        if (_triggerIconContext?.Id != relic.Id ||
+            !TryGetAwarded(
+                relic,
+                out RelicAuctionPresentation? presentation))
+        {
+            texture = null!;
+            return false;
+        }
+
+        texture = presentation.TriggerArtwork;
+        return true;
     }
 
     public static void SetPickingActive(bool active)
