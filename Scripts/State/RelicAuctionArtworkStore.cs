@@ -9,7 +9,8 @@ namespace DrawAndGuessMod.Scripts.State;
 internal sealed record RelicAuctionPresentation(
     string WorkTitle,
     ulong ArtistId,
-    Texture2D Artwork);
+    Texture2D Artwork,
+    Texture2D TriggerArtwork);
 
 internal static class RelicAuctionArtworkStore
 {
@@ -38,11 +39,24 @@ internal static class RelicAuctionArtworkStore
                 }
 
                 Texture2D texture = ImageTexture.CreateFromImage(image);
+                Image triggerImage = Image.CreateFromData(
+                    image.GetWidth(),
+                    image.GetHeight(),
+                    false,
+                    image.GetFormat(),
+                    image.GetData());
+                triggerImage.Resize(
+                    68,
+                    68,
+                    Image.Interpolation.Lanczos);
+                Texture2D triggerTexture =
+                    ImageTexture.CreateFromImage(triggerImage);
                 Presentations[new ModelId("RELIC", submission.TargetRelicId)] =
                     new RelicAuctionPresentation(
                         submission.WorkTitle,
                         submission.OwnerId,
-                        texture);
+                        texture,
+                        triggerTexture);
             }
             catch (Exception ex)
             {

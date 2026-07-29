@@ -48,6 +48,25 @@ internal static class RelicAuctionRelicIconPatch
 
 [HarmonyPatch(
     typeof(RelicModel),
+    nameof(RelicModel.Icon),
+    MethodType.Getter)]
+internal static class RelicAuctionRelicTriggerIconPatch
+{
+    private static void Postfix(
+        RelicModel __instance,
+        ref Texture2D __result)
+    {
+        if (RelicAuctionArtworkStore.TryGetAwarded(
+                __instance,
+                out RelicAuctionPresentation? presentation))
+        {
+            __result = presentation.TriggerArtwork;
+        }
+    }
+}
+
+[HarmonyPatch(
+    typeof(RelicModel),
     nameof(RelicModel.HoverTip),
     MethodType.Getter)]
 internal static class RelicAuctionRelicNamePatch
