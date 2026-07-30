@@ -65,6 +65,7 @@ public partial class DrawingScreen : Control
     private Label _status = null!;
     private Button _guessButton = null!;
     private Button _brushToolButton = null!;
+    private Button _eraserToolButton = null!;
     private Button _fillToolButton = null!;
     private Label _sizeLabel = null!;
     private HSlider _sizeSlider = null!;
@@ -245,6 +246,20 @@ public partial class DrawingScreen : Control
                 GetViewport().SetInputAsHandled();
                 return;
             }
+        }
+
+        if (@event is InputEventKey
+            {
+                Pressed: true,
+                Echo: false,
+                Keycode: Key.E
+            } &&
+            !_finishing &&
+            !_colorPickerOverlay.Visible)
+        {
+            ActivateEraserTool();
+            GetViewport().SetInputAsHandled();
+            return;
         }
 
         if (@event is InputEventKey
@@ -485,9 +500,18 @@ public partial class DrawingScreen : Control
                 "快捷键：按住 G 临时切换，松开回到画笔\n",
                 "Shortcut: hold G temporarily and release to return to the brush\n"),
             drawingToolGroup);
+        _eraserToolButton = CreateDrawingToolButton(
+            null,
+            Localized("橡皮擦", "Eraser"),
+            Localized(
+                "擦除已有笔迹（快捷键 E）；使用与画笔相同的粗细",
+                "Erase existing strokes (shortcut: E); uses the brush size"),
+            drawingToolGroup);
         _brushToolButton.Pressed += ActivateBrushTool;
+        _eraserToolButton.Pressed += ActivateEraserTool;
         _fillToolButton.Pressed += ActivateFillTool;
         drawingTools.AddChild(_brushToolButton);
+        drawingTools.AddChild(_eraserToolButton);
         drawingTools.AddChild(_fillToolButton);
         SelectDrawingTool(_brushToolButton);
 
@@ -523,8 +547,8 @@ public partial class DrawingScreen : Control
             Value = DrawingCanvas.DefaultBrushSize,
             CustomMinimumSize = new Vector2(170f, 32f),
             TooltipText = Localized(
-                "调整画笔粗细",
-                "Adjust brush size")
+                "调整画笔或橡皮擦粗细",
+                "Adjust brush or eraser size")
         };
         _sizeSlider.ValueChanged += value =>
         {
@@ -1393,7 +1417,7 @@ public partial class DrawingScreen : Control
         CloseColorPicker();
     }
 
-    private static Button CreateDrawingToolButton(Texture2D icon, string text, string tooltip, ButtonGroup group)
+    private static Button CreateDrawingToolButton(Texture2D? icon, string text, string tooltip, ButtonGroup group)
     {
         Button button = new()
         {
@@ -1428,6 +1452,7 @@ public partial class DrawingScreen : Control
     private void SelectDrawingTool(Button selected)
     {
         _brushToolButton.ButtonPressed = ReferenceEquals(selected, _brushToolButton);
+        _eraserToolButton.ButtonPressed = ReferenceEquals(selected, _eraserToolButton);
         _fillToolButton.ButtonPressed = ReferenceEquals(selected, _fillToolButton);
     }
 
@@ -1435,6 +1460,13 @@ public partial class DrawingScreen : Control
     {
         SelectDrawingTool(_brushToolButton);
         _canvas.SetBrushTool();
+        ConfigureSizeControl(showStampSize: false);
+    }
+
+    private void ActivateEraserTool()
+    {
+        SelectDrawingTool(_eraserToolButton);
+        _canvas.SetEraserTool();
         ConfigureSizeControl(showStampSize: false);
     }
 
@@ -1448,6 +1480,7 @@ public partial class DrawingScreen : Control
     private void ClearDrawingToolSelection()
     {
         _brushToolButton.ButtonPressed = false;
+        _eraserToolButton.ButtonPressed = false;
         _fillToolButton.ButtonPressed = false;
     }
 
@@ -1471,8 +1504,8 @@ public partial class DrawingScreen : Control
             _sizeSlider.MaxValue = DrawingCanvas.MaxBrushSize;
             _sizeSlider.Value = _brushSize;
             _sizeSlider.TooltipText = Localized(
-                "调整画笔粗细",
-                "Adjust brush size");
+                "调整画笔或橡皮擦粗细",
+                "Adjust brush or eraser size");
             _sizeLabel.Text = Localized($"粗细：{_brushSize} px", $"Size: {_brushSize} px");
         }
         _syncingSizeSlider = false;

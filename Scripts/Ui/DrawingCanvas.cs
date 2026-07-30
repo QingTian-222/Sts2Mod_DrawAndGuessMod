@@ -24,6 +24,7 @@ public partial class DrawingCanvas : Control
     private enum DrawingTool
     {
         Brush,
+        Eraser,
         Fill,
         Stamp
     }
@@ -130,7 +131,7 @@ public partial class DrawingCanvas : Control
             }
             _lastPixel = ToPixel(button.Position);
             Color inputColor = button.ButtonIndex == MouseButton.Right ? _rightColor : _leftColor;
-            if (_tool == DrawingTool.Brush)
+            if (_tool is DrawingTool.Brush or DrawingTool.Eraser)
             {
                 _activeStrokeOperationId = NextOperationId();
                 _activeStrokeButton = button.ButtonIndex;
@@ -219,13 +220,23 @@ public partial class DrawingCanvas : Control
 
     public void SetBrushTool()
     {
+        FinishStroke();
         _tool = DrawingTool.Brush;
+        UpdateMouseCursor();
+        QueueRedraw();
+    }
+
+    public void SetEraserTool()
+    {
+        FinishStroke();
+        _tool = DrawingTool.Eraser;
         UpdateMouseCursor();
         QueueRedraw();
     }
 
     public void SetFillTool()
     {
+        FinishStroke();
         _tool = DrawingTool.Fill;
         UpdateMouseCursor();
         QueueRedraw();
@@ -276,6 +287,7 @@ public partial class DrawingCanvas : Control
             return false;
         }
 
+        FinishStroke();
         _stampIndex = stampIndex;
         _tool = DrawingTool.Stamp;
         UpdateMouseCursor();
@@ -394,14 +406,15 @@ public partial class DrawingCanvas : Control
 
     private void PaintLineLocal(Vector2 from, Vector2 to)
     {
-        ApplyLine(from, to, _activeStrokeColor, false, _brushSize);
+        bool erasing = _tool == DrawingTool.Eraser;
+        ApplyLine(from, to, _activeStrokeColor, erasing, _brushSize);
         LocalCommandGenerated?.Invoke(DrawingCommand.Line(
             ToUShort(from.X),
             ToUShort(from.Y),
             ToUShort(to.X),
             ToUShort(to.Y),
             _activeStrokeColor,
-            false,
+            erasing,
             _brushSize,
             _activeStrokeOperationId));
     }

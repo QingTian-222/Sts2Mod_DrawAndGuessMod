@@ -6,7 +6,7 @@
 
 ## 功能
 
-- 作画工具包括画笔、填充、RGB 调色盘、左右键独立颜色、中键吸管和五名角色印花；鼠标滚轮可以调整画笔或印花大小。
+- 作画工具包括画笔、橡皮擦、填充、RGB 调色盘、左右键独立颜色、中键吸管和五名角色印花；按 `E` 可切换到橡皮擦，鼠标滚轮可以调整画笔、橡皮擦或印花大小。
 - 单人和多人模式均支持撤销；`Ctrl+Z` 撤销，`Ctrl+Y` 或 `Ctrl+Shift+Z` 重做。多人模式下每名玩家只能撤销或重做自己的操作。
 - 可以观察战局而不关闭作画界面；观察时会暂停绘图快捷键，避免与游戏操作冲突。
 - 支持全卡池或当前角色卡池识别范围，并可在高级选项中检测当前已加载卡池、单独关闭不希望参与识别的卡池。
@@ -21,7 +21,7 @@
 ### “空白”与作画
 
 - 打出“空白”后绘制卡面，瓦库会给出最接近的三个候选。选中的卡牌加入手牌，并默认同时加入牌组；画作会在本局游戏中替换该卡牌的卡面。
-- 作画工具包括左右键独立画笔颜色、填充、RGB 调色盘、中键吸管和五名角色印花；鼠标滚轮可以调整画笔或印花大小。
+- 作画工具包括左右键独立画笔颜色、橡皮擦、填充、RGB 调色盘、中键吸管和五名角色印花；按 `E` 可切换到橡皮擦，鼠标滚轮可以调整画笔、橡皮擦或印花大小。
 - 支持普通卡面与先古卡面两种画布，并会在最终卡牌类型不同时自动调整画作比例。
 - `Ctrl+Z` 撤销，`Ctrl+Y` 或 `Ctrl+Shift+Z` 重做。单人和多人模式均可使用。
 - 可以暂时观察战局而不关闭作画界面；观察时绘图快捷键会暂停，避免与游戏操作冲突。
@@ -142,7 +142,7 @@ A drawing-based card guessing mod for *Slay the Spire 2*. After playing **Blank*
 ### Blank and Drawing
 
 - Playing **Blank** opens the drawing screen and VAKUU returns the three closest candidates. The selected card enters the Hand and, by default, the Deck; its artwork is replaced by the drawing for the rest of the run.
-- Tools include independent left- and right-button colors, fill, an RGB color picker, a middle-click eyedropper, and five character stamps. The mouse wheel adjusts brush or stamp size.
+- Tools include independent left- and right-button colors, an eraser, fill, an RGB color picker, a middle-click eyedropper, and five character stamps. Press `E` to select the eraser; the mouse wheel adjusts brush, eraser, or stamp size.
 - Both standard-card and Ancient-card canvases are supported, with automatic artwork fitting when the final card uses the other card type.
 - Use `Ctrl+Z` to undo and `Ctrl+Y` or `Ctrl+Shift+Z` to redo in both singleplayer and multiplayer.
 - The battle can be observed without closing the drawing screen. Drawing shortcuts are suspended while observing to avoid conflicts with normal game controls.
