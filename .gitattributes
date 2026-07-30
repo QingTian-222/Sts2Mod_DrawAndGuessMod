@@ -1,0 +1,2 @@
+# Keep training notebooks in the repository without counting them in GitHub language statistics.
+*.ipynb linguist-detectable=false
