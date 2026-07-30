@@ -35,6 +35,7 @@
     <Content Include="Models\card_features.bin" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\card_dino_features.bin" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\dinov2_vits14.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\sketch_adapter.onnx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -68,6 +69,7 @@
     <Copy SourceFiles="Models\card_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Models\card_dino_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Models\dinov2_vits14.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Models\sketch_adapter.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectName).pck" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)Microsoft.ML.OnnxRuntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)Microsoft.ML.OnnxRuntime.dll')" />
     <Copy SourceFiles="$(TargetDir)onnxruntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)onnxruntime.dll')" />
@@ -75,9 +77,5 @@
     <Copy SourceFiles="$(TargetDir)libonnxruntime.dylib" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)libonnxruntime.dylib')" />
     <Copy SourceFiles="$(PkgMicrosoft_ML_OnnxRuntime_Managed)\lib\net8.0\Microsoft.ML.OnnxRuntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(PkgSystem_Numerics_Tensors)\lib\net9.0\System.Numerics.Tensors.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
-  </Target>
-  <Target Name="Deploy Mod MacOS" AfterTargets="PostBuildEvent" Condition="'$(SkipModDeploy)' != 'true' and '$(OS)' == 'Unix'">
-    <Message Text="Deploying DrawAndGuessMod to local macOS game and LAN Windows share..." Importance="high" />
-    <Exec Command="sh &quot;$(MSBuildProjectDirectory)/deploy.sh&quot; --deploy-only &quot;$(TargetDir)&quot;" />
   </Target>
 </Project>

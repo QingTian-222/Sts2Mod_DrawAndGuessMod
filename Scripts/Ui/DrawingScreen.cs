@@ -6,11 +6,13 @@ using DrawAndGuessMod.Scripts.Ai;
 using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
+using DrawAndGuessMod.Scripts.State;
 using Godot;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Characters;
+using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Ui;
@@ -20,12 +22,16 @@ public sealed record DrawingScreenOptions(
     string Title,
     string Help,
     double? TimeLimitSeconds = null,
-    string? PeekTooltip = null);
+    string? PeekTooltip = null,
+    bool CloseWhenRestSiteEnds = false,
+    GuessCandidateScope CandidateScope = GuessCandidateScope.Default,
+    DrawingCanvasMode InitialCanvasMode = DrawingCanvasMode.Standard,
+    bool AllowCanvasModeSwitch = true);
 
 public partial class DrawingScreen : Control
 {
     private const int MaxUndoSteps = 20;
-    private const int CustomColorCapacity = 11;
+    private const int CustomColorCapacity = DrawingPaletteStore.Capacity;
     private const float ColorButtonHeight = 30f;
     private const ulong TimerSyncIntervalMsec = 250uL;
     private const string PenNibIconPath =
@@ -46,6 +52,7 @@ public partial class DrawingScreen : Control
     private readonly List<Color> _customColors = new();
     private readonly List<Button> _customColorButtons = new();
     private Player _owner = null!;
+    private Player _paletteOwner = null!;
     private DrawingScreenOptions? _options;
     private uint _sessionId;
     private uint _historyEpoch;
@@ -65,6 +72,8 @@ public partial class DrawingScreen : Control
     private Button _rightColorButton = null!;
     private Button _peekButton = null!;
     private EyeIconControl _peekIcon = null!;
+    private Button _canvasModeButton = null!;
+    private CanvasModeIconControl _canvasModeIcon = null!;
     private Control _peekBackdrop = null!;
     private Control _peekPanelContainer = null!;
     private Control _colorPickerOverlay = null!;
@@ -79,6 +88,8 @@ public partial class DrawingScreen : Control
     private bool _syncingColorInputs;
     private bool _peeking;
     private bool _finishing;
+    private bool _canvasModeLocked;
+    private DrawingCanvasMode _canvasMode;
     private bool _gFillHeld;
     private bool _syncingSizeSlider;
     private bool _showingStampSize;
@@ -96,7 +107,15 @@ public partial class DrawingScreen : Control
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
-            return _active._completion.Task;
+            if (_active._owner.NetId == owner.NetId && _active._sessionId == sessionId)
+            {
+                return _active._completion.Task;
+            }
+
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected drawing session {owner.NetId}/{sessionId} because " +
+                $"session {_active._owner.NetId}/{_active._sessionId} is still active.");
+            return Task.FromResult<DrawingResult?>(null);
         }
 
         if (Engine.GetMainLoop() is not SceneTree tree)
@@ -106,6 +125,7 @@ public partial class DrawingScreen : Control
 
         bool isChooser = LocalContext.IsMe(owner);
         bool isTimerAuthority = !DrawingNetSync.IsMultiplayer || DrawingNetSync.IsLocalHost;
+        Player paletteOwner = LocalContext.GetMe(owner.RunState) ?? owner;
         double? requestedTimeLimit = options?.TimeLimitSeconds ?? defaultTimeLimitSeconds;
         double? effectiveTimeLimit = isTimerAuthority
             ? requestedTimeLimit
@@ -114,13 +134,16 @@ public partial class DrawingScreen : Control
         {
             Name = "DrawAndGuessMod_DrawingScreen",
             _owner = owner,
+            _paletteOwner = paletteOwner,
             _sessionId = sessionId,
             _isChooser = isChooser,
             _isTimerAuthority = isTimerAuthority,
             _options = options,
+            _canvasMode = options?.InitialCanvasMode ?? DrawingCanvasMode.Standard,
             _remainingSeconds = effectiveTimeLimit,
             _timerDurationSeconds = effectiveTimeLimit
         };
+        screen._customColors.AddRange(DrawingPaletteStore.GetColors(paletteOwner));
         DrawingNetSync.BeginSession(owner.NetId, sessionId);
         _active = screen;
         tree.Root.AddChild(screen);
@@ -211,7 +234,9 @@ public partial class DrawingScreen : Control
         return runManager.IsAbandoned ||
                runManager.IsCleaningUp ||
                !runManager.IsInProgress ||
-               !ReferenceEquals(runManager.DebugOnlyGetState(), _owner.RunState);
+               !ReferenceEquals(runManager.DebugOnlyGetState(), _owner.RunState) ||
+               (_options?.CloseWhenRestSiteEnds == true &&
+                _owner.RunState.CurrentRoom is not RestSiteRoom);
     }
 
     public override void _Input(InputEvent @event)
@@ -374,6 +399,7 @@ public partial class DrawingScreen : Control
         CenterContainer canvasCenter = new();
         canvasRow.AddChild(canvasCenter);
         _canvas = new DrawingCanvas();
+        _canvas.SetCanvasMode(_canvasMode);
         _canvas.LocalCommandGenerated += OnLocalCommand;
         _canvas.LeftColorSampled += OnLeftColorSampled;
         _canvas.SetMouseColors(_leftColor, _rightColor);
@@ -626,6 +652,7 @@ public partial class DrawingScreen : Control
         buttons.AddChild(_guessButton);
 
         AddPeekButton(backdrop, center);
+        AddCanvasModeButton();
         BuildColorPickerOverlay();
     }
 
@@ -709,6 +736,38 @@ public partial class DrawingScreen : Control
         AddChild(_peekButton);
     }
 
+    private void AddCanvasModeButton()
+    {
+        _canvasModeButton = new Button
+        {
+            Name = "CanvasModeButton",
+            Text = string.Empty,
+            FocusMode = FocusModeEnum.None,
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        _canvasModeButton.SetAnchorsPreset(LayoutPreset.Center);
+        _canvasModeButton.OffsetLeft = 452f;
+        _canvasModeButton.OffsetTop = -32f;
+        _canvasModeButton.OffsetRight = 516f;
+        _canvasModeButton.OffsetBottom = 32f;
+        _canvasModeButton.AddThemeStyleboxOverride("normal", CreatePeekButtonStyle(new Color("171C24"), new Color("768393")));
+        _canvasModeButton.AddThemeStyleboxOverride("hover", CreatePeekButtonStyle(new Color("22303A"), new Color("8EE9E0")));
+        _canvasModeButton.AddThemeStyleboxOverride("pressed", CreatePeekButtonStyle(new Color("10272A"), new Color("75F0E6")));
+        _canvasModeButton.AddThemeStyleboxOverride("disabled", CreatePeekButtonStyle(new Color("11151B"), new Color("46505B")));
+        _canvasModeButton.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+
+        _canvasModeIcon = new CanvasModeIconControl
+        {
+            Name = "CanvasModeIcon",
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        _canvasModeIcon.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _canvasModeButton.AddChild(_canvasModeIcon);
+        _canvasModeButton.Pressed += SwitchCanvasMode;
+        AddChild(_canvasModeButton);
+        RefreshCanvasModeButton();
+    }
+
     private static StyleBoxFlat CreatePeekButtonStyle(Color fill, Color border)
     {
         return new StyleBoxFlat
@@ -742,6 +801,7 @@ public partial class DrawingScreen : Control
         _peeking = peeking;
         MouseFilter = peeking ? MouseFilterEnum.Ignore : MouseFilterEnum.Stop;
         _peekButton.MouseFilter = MouseFilterEnum.Stop;
+        _canvasModeButton.Visible = !peeking;
         _peekBackdrop.Visible = !peeking;
         _peekPanelContainer.Visible = !peeking;
         _peekButton.TooltipText = peeking
@@ -749,6 +809,47 @@ public partial class DrawingScreen : Control
             : _options?.PeekTooltip ?? Localized("观察战局", "View combat");
         _peekIcon.SetActive(peeking);
         AnimatePeekButton();
+    }
+
+    private void SwitchCanvasMode()
+    {
+        if (_finishing ||
+            !_isChooser ||
+            _options?.AllowCanvasModeSwitch == false ||
+            _canvasModeLocked)
+        {
+            return;
+        }
+
+        FlushCommands();
+        _canvasMode = _canvasMode == DrawingCanvasMode.Standard
+            ? DrawingCanvasMode.Ancient
+            : DrawingCanvasMode.Standard;
+        _canvas.SetCanvasMode(_canvasMode);
+        ResetDrawingHistory();
+        AdvanceHistoryEpoch();
+        _canvasStateSequence++;
+        RefreshCanvasModeButton();
+        SendAuthoritativeCanvasState(_canvas.ExportPng(), resetPendingOperations: true);
+        Entry.Logger.Info(
+            $"[DrawAndGuessMod] Switched drawing canvas mode to {_canvasMode}: " +
+            $"owner={_owner.NetId}, session={_sessionId}, epoch={_historyEpoch}.");
+    }
+
+    private void RefreshCanvasModeButton()
+    {
+        if (_canvasModeButton == null)
+        {
+            return;
+        }
+
+        bool switchAllowed = _isChooser &&
+                             _options?.AllowCanvasModeSwitch != false &&
+                             !_canvasModeLocked &&
+                             !_finishing;
+        _canvasModeButton.Disabled = !switchAllowed;
+        _canvasModeButton.TooltipText = Localized("切换画布", "Switch canvas");
+        _canvasModeIcon.SetMode(_canvasMode, !switchAllowed);
     }
 
     private void AnimatePeekButton()
@@ -773,6 +874,7 @@ public partial class DrawingScreen : Control
 
         _finishing = true;
         _guessButton.Disabled = true;
+        RefreshCanvasModeButton();
         _status.Text = "";
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
@@ -795,6 +897,7 @@ public partial class DrawingScreen : Control
                 OwnerId = _owner.NetId,
                 SessionId = _sessionId,
                 SkipAddingToDeck = skipAddingToDeck,
+                CanvasMode = _canvasMode,
                 CardIds = guess.NearestCards.Select(card => card.Id.Entry).ToList(),
                 PngBytes = png
             });
@@ -810,6 +913,7 @@ public partial class DrawingScreen : Control
             _status.Text = Localized("识别失败：", "Recognition failed: ") + ex.Message;
             _guessButton.Disabled = false;
             _finishing = false;
+            RefreshCanvasModeButton();
         }
     }
 
@@ -1309,10 +1413,18 @@ public partial class DrawingScreen : Control
     private void ConfirmCustomColor()
     {
         Color color = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(_colorPicker.Color));
-        _customColors.Insert(0, color);
-        if (_customColors.Count > CustomColorCapacity)
+        if (DrawingPaletteStore.TryRemember(_paletteOwner, color))
         {
-            _customColors.RemoveAt(_customColors.Count - 1);
+            _customColors.Clear();
+            _customColors.AddRange(DrawingPaletteStore.GetColors(_paletteOwner));
+        }
+        else
+        {
+            _customColors.Insert(0, color);
+            if (_customColors.Count > CustomColorCapacity)
+            {
+                _customColors.RemoveAt(_customColors.Count - 1);
+            }
         }
         RefreshCustomColorButtons();
         SelectColor(color);
@@ -1519,6 +1631,7 @@ public partial class DrawingScreen : Control
                     continue;
                 }
 
+                UpdateCanvasModeLock(command);
                 TrackPendingMultiplayerCommand(senderId, command);
                 _canvas.ApplyRemote(command);
                 if (_isChooser && command.CompletesOperation)
@@ -1532,6 +1645,7 @@ public partial class DrawingScreen : Control
             {
                 RecordHistoryCommand(senderId, command);
             }
+            UpdateCanvasModeLock(command);
             _canvas.ApplyRemote(command);
         }
     }
@@ -1546,10 +1660,24 @@ public partial class DrawingScreen : Control
         }
 
         bool resetPending = message.ResetPendingOperations || message.Epoch > _historyEpoch;
+        if (message.CanvasMode != _canvasMode)
+        {
+            _canvasMode = message.CanvasMode;
+            _canvas.SetCanvasMode(_canvasMode);
+            ResetDrawingHistory();
+            _canvasModeLocked = false;
+            RefreshCanvasModeButton();
+            resetPending = true;
+        }
         if (!_canvas.ImportPng(message.PngBytes, cancelActiveOperation: resetPending))
         {
             Entry.Logger.Warn("[DrawAndGuessMod] Received an invalid authoritative canvas state.");
             return;
+        }
+        if (resetPending)
+        {
+            _canvasModeLocked = !_canvas.IsBlank();
+            RefreshCanvasModeButton();
         }
 
         _historyEpoch = message.Epoch;
@@ -1561,8 +1689,8 @@ public partial class DrawingScreen : Control
             _pendingCommands.Clear();
             _pendingMultiplayerOperations.Clear();
             _status.Text = Localized(
-                "已同步撤回或重做后的画布。",
-                "The canvas has been synchronized after the undo or redo.");
+                "画布已同步。",
+                "The canvas has been synchronized.");
             return;
         }
 
@@ -1604,6 +1732,7 @@ public partial class DrawingScreen : Control
         }
 
         _finishing = true;
+        RefreshCanvasModeButton();
         if (message.Cancelled)
         {
             Complete(null);
@@ -1621,6 +1750,12 @@ public partial class DrawingScreen : Control
             }
 
             candidates.Add(candidate);
+        }
+        if (message.CanvasMode != _canvasMode)
+        {
+            _canvasMode = message.CanvasMode;
+            _canvas.SetCanvasMode(_canvasMode);
+            RefreshCanvasModeButton();
         }
         if (candidates.Count == 0 || !_canvas.ImportPng(message.PngBytes))
         {
@@ -1796,6 +1931,8 @@ public partial class DrawingScreen : Control
         _canvas.RebuildFromCommands(_historyCommands
             .Where(entry => !_undoneOperations.Contains(entry.Operation))
             .Select(entry => entry.Command));
+        _canvasModeLocked = !_canvas.IsBlank();
+        RefreshCanvasModeButton();
         _historyEpoch++;
         _pendingCommands.Clear();
         _status.Text = Localized(
@@ -1808,6 +1945,7 @@ public partial class DrawingScreen : Control
             SessionId = _sessionId,
             Epoch = _historyEpoch,
             StateSequence = ++_canvasStateSequence,
+            CanvasMode = _canvasMode,
             ResetPendingOperations = true,
             PngBytes = _canvas.ExportPng()
         });
@@ -1844,6 +1982,8 @@ public partial class DrawingScreen : Control
         _canvas.RebuildFromCommands(_historyCommands
             .Where(entry => !_undoneOperations.Contains(entry.Operation))
             .Select(entry => entry.Command));
+        _canvasModeLocked = !_canvas.IsBlank();
+        RefreshCanvasModeButton();
         _historyEpoch++;
         if (_historyEpoch == 0u)
         {
@@ -1862,6 +2002,7 @@ public partial class DrawingScreen : Control
             SessionId = _sessionId,
             Epoch = _historyEpoch,
             StateSequence = ++_canvasStateSequence,
+            CanvasMode = _canvasMode,
             ResetPendingOperations = true,
             PngBytes = _canvas.ExportPng()
         });
@@ -1926,6 +2067,8 @@ public partial class DrawingScreen : Control
         _pendingCommands.Clear();
         _pendingMultiplayerOperations.Clear();
         RebuildAuthoritativeCanvas();
+        _canvasModeLocked = !_canvas.IsBlank();
+        RefreshCanvasModeButton();
         _historyEpoch++;
         if (_historyEpoch == 0u)
         {
@@ -1957,6 +2100,8 @@ public partial class DrawingScreen : Control
         _pendingCommands.Clear();
         _pendingMultiplayerOperations.Clear();
         RebuildAuthoritativeCanvas();
+        _canvasModeLocked = !_canvas.IsBlank();
+        RefreshCanvasModeButton();
         _historyEpoch++;
         if (_historyEpoch == 0u)
         {
@@ -1996,6 +2141,7 @@ public partial class DrawingScreen : Control
             SessionId = _sessionId,
             Epoch = _historyEpoch,
             StateSequence = _canvasStateSequence,
+            CanvasMode = _canvasMode,
             ResetPendingOperations = resetPendingOperations,
             Watermarks = _settledOperationWatermarks
                 .Select(pair => new DrawingOperationWatermark
@@ -2053,6 +2199,47 @@ public partial class DrawingScreen : Control
             IsOperationSettled(localSenderId, command.OperationId));
     }
 
+    private void UpdateCanvasModeLock(DrawingCommand command)
+    {
+        bool locked = command.Kind switch
+        {
+            DrawingCommandKind.Clear => false,
+            DrawingCommandKind.Line or DrawingCommandKind.Fill or DrawingCommandKind.Stamp => true,
+            _ => _canvasModeLocked
+        };
+        if (locked == _canvasModeLocked)
+        {
+            return;
+        }
+
+        _canvasModeLocked = locked;
+        RefreshCanvasModeButton();
+    }
+
+    private void ResetDrawingHistory()
+    {
+        _canvas.CancelActiveOperation();
+        _pendingCommands.Clear();
+        _historyCommands.Clear();
+        _undoableOperations.Clear();
+        _redoableOperations.Clear();
+        _completedOperations.Clear();
+        _undoneOperations.Clear();
+        _pendingMultiplayerOperations.Clear();
+        _multiplayerHistory.Reset();
+        _settledOperationWatermarks.Clear();
+        _canvasModeLocked = false;
+    }
+
+    private void AdvanceHistoryEpoch()
+    {
+        _historyEpoch++;
+        if (_historyEpoch == 0u)
+        {
+            _historyEpoch = 1u;
+        }
+    }
+
     private void RecordHistoryCommand(ulong senderId, DrawingCommand command)
     {
         if (command.OperationId == 0u)
@@ -2088,6 +2275,48 @@ public partial class DrawingScreen : Control
     private static string Localized(string simplifiedChinese, string english)
     {
         return ModText.Get(simplifiedChinese, english);
+    }
+
+    private sealed partial class CanvasModeIconControl : Control
+    {
+        private DrawingCanvasMode _mode;
+        private bool _muted;
+
+        public void SetMode(DrawingCanvasMode mode, bool muted)
+        {
+            _mode = mode;
+            _muted = muted;
+            QueueRedraw();
+        }
+
+        public override void _Draw()
+        {
+            Color line = _muted ? new Color("59636D") : new Color("AEB8C2");
+            Color accent = _muted ? new Color("46505B") : new Color("75F0E6");
+            Rect2 standardCard = new(new Vector2(6f, 21f), new Vector2(29f, 22f));
+            Rect2 ancientCard = new(new Vector2(41f, 14f), new Vector2(17f, 36f));
+            DrawCardOutline(
+                standardCard,
+                _mode == DrawingCanvasMode.Standard ? accent : line,
+                _mode == DrawingCanvasMode.Standard);
+            DrawCardOutline(
+                ancientCard,
+                _mode == DrawingCanvasMode.Ancient ? accent : line,
+                _mode == DrawingCanvasMode.Ancient);
+            DrawLine(new Vector2(34f, 17f), new Vector2(42f, 11f), accent, 1.8f, true);
+            DrawLine(new Vector2(42f, 11f), new Vector2(39f, 17f), accent, 1.8f, true);
+            DrawLine(new Vector2(42f, 53f), new Vector2(34f, 47f), accent, 1.8f, true);
+            DrawLine(new Vector2(34f, 47f), new Vector2(37f, 53f), accent, 1.8f, true);
+        }
+
+        private void DrawCardOutline(Rect2 rect, Color color, bool selected)
+        {
+            if (selected)
+            {
+                DrawRect(rect, new Color(color, 0.18f), true);
+            }
+            DrawRect(rect, color, false, selected ? 2.8f : 1.8f);
+        }
     }
 
     private sealed partial class EyeIconControl : Control

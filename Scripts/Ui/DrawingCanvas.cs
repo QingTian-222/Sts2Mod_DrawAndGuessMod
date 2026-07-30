@@ -6,8 +6,12 @@ namespace DrawAndGuessMod.Scripts.Ui;
 
 public partial class DrawingCanvas : Control
 {
-    public const int CanvasWidth = 500;
-    public const int CanvasHeight = 380;
+    public const int StandardCanvasWidth = 500;
+    public const int StandardCanvasHeight = 380;
+    public const int AncientCanvasWidth = 300;
+    public const int AncientCanvasHeight = 422;
+    private const int AncientCanvasDisplayWidth = 360;
+    private const int AncientCanvasDisplayHeight = 506;
     public const int MinBrushSize = 4;
     public const int MaxBrushSize = 48;
     public const int DefaultBrushSize = 14;
@@ -45,17 +49,21 @@ public partial class DrawingCanvas : Control
     private bool _pointerInside;
     private Vector2 _lastPixel;
     private Vector2 _pointerPosition;
+    private int _canvasWidth = StandardCanvasWidth;
+    private int _canvasHeight = StandardCanvasHeight;
+
+    internal DrawingCanvasMode CanvasMode { get; private set; } = DrawingCanvasMode.Standard;
 
     internal event Action<DrawingCommand>? LocalCommandGenerated;
     internal event Action<Color>? LeftColorSampled;
 
     public override void _Ready()
     {
-        CustomMinimumSize = new Vector2(CanvasWidth, CanvasHeight);
+        CustomMinimumSize = GetCanvasDisplaySize(CanvasMode);
         ClipContents = true;
         MouseDefaultCursorShape = CursorShape.Cross;
         MouseFilter = MouseFilterEnum.Stop;
-        _image = Image.CreateEmpty(CanvasWidth, CanvasHeight, false, Image.Format.Rgba8);
+        _image = Image.CreateEmpty(_canvasWidth, _canvasHeight, false, Image.Format.Rgba8);
         _image.Fill(PaperColor);
         _texture = ImageTexture.CreateFromImage(_image);
         MouseEntered += OnMouseEnteredCanvas;
@@ -69,8 +77,8 @@ public partial class DrawingCanvas : Control
         if (_tool == DrawingTool.Stamp && _pointerInside && !_drawing && _stampImage != null && _stampPreviewTexture != null)
         {
             Vector2 previewSize = new(
-                _stampImage.GetWidth() * Size.X / CanvasWidth,
-                _stampImage.GetHeight() * Size.Y / CanvasHeight);
+                _stampImage.GetWidth() * Size.X / _canvasWidth,
+                _stampImage.GetHeight() * Size.Y / _canvasHeight);
             Rect2 previewRect = new(_pointerPosition - previewSize / 2f, previewSize);
             DrawTextureRect(_stampPreviewTexture, previewRect, false, StampPreviewModulate);
         }
@@ -171,6 +179,32 @@ public partial class DrawingCanvas : Control
     {
         ApplyClear();
         LocalCommandGenerated?.Invoke(DrawingCommand.Clear(NextOperationId()));
+    }
+
+    internal void SetCanvasMode(DrawingCanvasMode mode)
+    {
+        CanvasMode = mode;
+        (_canvasWidth, _canvasHeight) = mode == DrawingCanvasMode.Ancient
+            ? (AncientCanvasWidth, AncientCanvasHeight)
+            : (StandardCanvasWidth, StandardCanvasHeight);
+        CustomMinimumSize = GetCanvasDisplaySize(mode);
+        CancelActiveOperation();
+        if (_image == null)
+        {
+            return;
+        }
+
+        _image = Image.CreateEmpty(_canvasWidth, _canvasHeight, false, Image.Format.Rgba8);
+        _image.Fill(PaperColor);
+        _texture.SetImage(_image);
+        QueueRedraw();
+    }
+
+    private static Vector2 GetCanvasDisplaySize(DrawingCanvasMode mode)
+    {
+        return mode == DrawingCanvasMode.Ancient
+            ? new Vector2(AncientCanvasDisplayWidth, AncientCanvasDisplayHeight)
+            : new Vector2(StandardCanvasWidth, StandardCanvasHeight);
     }
 
     public void SetMouseColors(Color leftColor, Color rightColor)
@@ -304,7 +338,7 @@ public partial class DrawingCanvas : Control
         }
 
         imported.Convert(Image.Format.Rgba8);
-        imported.Resize(CanvasWidth, CanvasHeight, Image.Interpolation.Lanczos);
+        imported.Resize(_canvasWidth, _canvasHeight, Image.Interpolation.Lanczos);
         if (cancelActiveOperation)
         {
             CancelActiveOperation();
@@ -336,10 +370,25 @@ public partial class DrawingCanvas : Control
         return _image.SavePngToBuffer();
     }
 
+    internal bool IsBlank()
+    {
+        for (int y = 0; y < _canvasHeight; y++)
+        {
+            for (int x = 0; x < _canvasWidth; x++)
+            {
+                if (!ColorsAreClose(_image.GetPixel(x, y), PaperColor))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private Vector2 ToPixel(Vector2 position)
     {
-        float x = Mathf.Clamp(position.X / Mathf.Max(Size.X, 1f) * CanvasWidth, 0f, CanvasWidth - 1f);
-        float y = Mathf.Clamp(position.Y / Mathf.Max(Size.Y, 1f) * CanvasHeight, 0f, CanvasHeight - 1f);
+        float x = Mathf.Clamp(position.X / Mathf.Max(Size.X, 1f) * _canvasWidth, 0f, _canvasWidth - 1f);
+        float y = Mathf.Clamp(position.Y / Mathf.Max(Size.Y, 1f) * _canvasHeight, 0f, _canvasHeight - 1f);
         return new Vector2(x, y);
     }
 
@@ -384,7 +433,7 @@ public partial class DrawingCanvas : Control
                 }
                 int px = centerX + x;
                 int py = centerY + y;
-                if (px >= 0 && py >= 0 && px < CanvasWidth && py < CanvasHeight)
+                if (px >= 0 && py >= 0 && px < _canvasWidth && py < _canvasHeight)
                 {
                     _image.SetPixel(px, py, color);
                 }
@@ -412,7 +461,7 @@ public partial class DrawingCanvas : Control
             return false;
         }
 
-        bool[] visited = new bool[CanvasWidth * CanvasHeight];
+        bool[] visited = new bool[_canvasWidth * _canvasHeight];
         Queue<Vector2I> pending = new();
         EnqueueFillPoint(pending, visited, startX, startY);
         while (pending.Count > 0)
@@ -434,14 +483,14 @@ public partial class DrawingCanvas : Control
         return true;
     }
 
-    private static void EnqueueFillPoint(Queue<Vector2I> pending, bool[] visited, int x, int y)
+    private void EnqueueFillPoint(Queue<Vector2I> pending, bool[] visited, int x, int y)
     {
-        if (x < 0 || y < 0 || x >= CanvasWidth || y >= CanvasHeight)
+        if (x < 0 || y < 0 || x >= _canvasWidth || y >= _canvasHeight)
         {
             return;
         }
 
-        int index = y * CanvasWidth + x;
+        int index = y * _canvasWidth + x;
         if (visited[index])
         {
             return;
@@ -537,8 +586,8 @@ public partial class DrawingCanvas : Control
         int sourceY = Math.Max(0, -destinationY);
         destinationX = Math.Max(0, destinationX);
         destinationY = Math.Max(0, destinationY);
-        int width = Math.Min(stampImage.GetWidth() - sourceX, CanvasWidth - destinationX);
-        int height = Math.Min(stampImage.GetHeight() - sourceY, CanvasHeight - destinationY);
+        int width = Math.Min(stampImage.GetWidth() - sourceX, _canvasWidth - destinationX);
+        int height = Math.Min(stampImage.GetHeight() - sourceY, _canvasHeight - destinationY);
         if (width <= 0 || height <= 0)
         {
             return false;

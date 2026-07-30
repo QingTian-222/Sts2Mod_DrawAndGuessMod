@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Config;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -22,9 +23,73 @@ internal static class CardFuzzySearch
 {
     private const int MaxHits = 5;
     private static List<CardEntry>? _cache;
-    private static object? _cacheLocaleKey;
+
+    /// <summary>缓存键：复合条件，任意一个变化都会使缓存失效。</summary>
+    private static (object? Loc, string? CharId, GuessCardPoolScope Scope, bool IncMulti, string AdvancedExcludeHash)? _cacheKey;
 
     private sealed record CardEntry(string CardId, string Title, string NormalizedTitle, CardModel Card);
+
+    /// <summary>
+    /// 返回当前设置下的合法猜测卡牌集合。
+    /// 此方法是以下位置的统一候选来源：模糊搜索、CardId 验证、兜底随机选牌。
+    /// </summary>
+    public static IReadOnlyList<CardModel> GetEligibleGuessCards(Player owner)
+    {
+        HashSet<ModelId> advancedExcluded;
+        try
+        {
+            advancedExcluded = DrawAndGuessSettings.GetCardIdsExcludedByAdvancedPoolSettings();
+        }
+        catch
+        {
+            advancedExcluded = new HashSet<ModelId>();
+        }
+
+        List<CardModel> result = new();
+        foreach (CardModel card in ModelDb.AllCards)
+        {
+            if (card == null || card.Id.Entry.Length == 0)
+            {
+                continue;
+            }
+
+            // 排除 Blank、DrawGuessBlank、Mock、不显示在卡牌库中的内部卡、CardType.None。
+            if (card is Blank || card is DrawGuessBlank)
+            {
+                continue;
+            }
+
+            if (!card.ShouldShowInCardLibrary || card.Type == CardType.None)
+            {
+                continue;
+            }
+
+            // 排除高级候选卡池设置中被关闭的卡牌。
+            if (advancedExcluded.Contains(card.Id))
+            {
+                continue;
+            }
+
+            // 多人卡牌过滤。
+            if (!DrawAndGuessSettings.IncludeMultiplayerCards &&
+                card.MultiplayerConstraint == CardMultiplayerConstraint.MultiplayerOnly)
+            {
+                continue;
+            }
+
+            // 当前角色卡池过滤。
+            if (DrawAndGuessSettings.CardPoolScope == GuessCardPoolScope.CurrentCharacter &&
+                owner.Character != null &&
+                !owner.Character.CardPool.AllCardIds.Contains(card.Id))
+            {
+                continue;
+            }
+
+            result.Add(card);
+        }
+
+        return result;
+    }
 
     /// <summary>按输入文本检索卡牌，返回按匹配度排序的前 <see cref="MaxHits"/> 条。</summary>
     public static IReadOnlyList<CardSearchHit> Search(string? rawInput, Player owner)
@@ -60,43 +125,48 @@ internal static class CardFuzzySearch
         return string.IsNullOrWhiteSpace(title) ? cardId : title!;
     }
 
+    /// <summary>使缓存失效（语言切换或设置变更时调用）。</summary>
+    public static void InvalidateCache()
+    {
+        _cache = null;
+        _cacheKey = null;
+    }
+
     private static List<CardEntry> EnsureIndex(Player owner)
     {
-        // 以本地化单例实例作为缓存键：语言切换后 LocManager 会重新初始化，实例随之更换。
+        // 复合缓存键：本地化实例、角色 ID、卡池范围、多人卡开关、高级排除摘要。
         object? localeKey = LocManager.Instance;
-        if (_cache != null && ReferenceEquals(_cacheLocaleKey, localeKey))
+        string? charId = owner.Character?.Id.ToString();
+        GuessCardPoolScope scope = DrawAndGuessSettings.CardPoolScope;
+        bool incMulti = DrawAndGuessSettings.IncludeMultiplayerCards;
+
+        // 用排除卡牌数量作为高级设置摘要（轻量；如需精确可改为排序后 ID 拼接）。
+        string advancedHash;
+        try
+        {
+            advancedHash = DrawAndGuessSettings.GetCardIdsExcludedByAdvancedPoolSettings().Count.ToString(CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            advancedHash = "0";
+        }
+
+        var currentKey = (localeKey, charId, scope, incMulti, advancedHash);
+        if (_cache != null && _cacheKey.HasValue && _cacheKey.Value == currentKey)
         {
             return _cache;
         }
 
-        List<CardEntry> entries = new();
-        foreach (CardModel card in ModelDb.AllCards)
+        IReadOnlyList<CardModel> eligible = GetEligibleGuessCards(owner);
+        List<CardEntry> entries = new(eligible.Count);
+        foreach (CardModel card in eligible)
         {
-            if (card == null || card.Id.Entry.Length == 0)
-            {
-                continue;
-            }
-
-            // 与 AI 识别候选保持同一口径的可猜牌池过滤。
-            if (!DrawAndGuessSettings.IncludeMultiplayerCards &&
-                card.MultiplayerConstraint == CardMultiplayerConstraint.MultiplayerOnly)
-            {
-                continue;
-            }
-
-            if (DrawAndGuessSettings.CardPoolScope == GuessCardPoolScope.CurrentCharacter &&
-                owner.Character != null &&
-                !owner.Character.CardPool.AllCardIds.Contains(card.Id))
-            {
-                continue;
-            }
-
             string title = TryGetLocTitle(card.Id.Entry) ?? card.Id.Entry;
             entries.Add(new CardEntry(card.Id.Entry, title, Normalize(title), card));
         }
 
         _cache = entries;
-        _cacheLocaleKey = localeKey;
+        _cacheKey = currentKey;
         Entry.Logger.Info($"[DrawAndGuessMod] 猜测检索索引构建完成：{entries.Count} 张卡牌。");
         return entries;
     }

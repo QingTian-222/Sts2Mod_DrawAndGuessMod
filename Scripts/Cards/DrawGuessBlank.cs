@@ -35,8 +35,7 @@ public sealed class DrawGuessBlank : CardModel
             // 发牌由绘画者端入队 DrawGuessGrantAction 经行动队列同步到全房。
             if (LocalContext.IsMe(Owner))
             {
-                DrawGuessSession.IsUpgradedContext = IsUpgraded;
-                await DrawGuessSession.RunOwnerAsync(Owner, sessionId);
+                await DrawGuessSession.RunOwnerAsync(Owner, sessionId, IsUpgraded);
             }
 
             return;

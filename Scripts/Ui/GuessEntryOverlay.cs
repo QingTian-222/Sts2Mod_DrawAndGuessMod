@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Guess;
+using DrawAndGuessMod.Scripts.Localization;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Players;
 
@@ -36,7 +37,7 @@ public partial class GuessEntryOverlay : Control
     {
         ProcessMode = ProcessModeEnum.Always;
         MouseFilter = MouseFilterEnum.Stop;
-        ZIndex = 4100;
+        ZIndex = 4096;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         BuildUi();
     }
@@ -104,12 +105,12 @@ public partial class GuessEntryOverlay : Control
             if (_queueOnly)
             {
                 // 轮询模式：倒计时结束由后台循环兜底提交，这里只展示状态。
-                _statusLabel.Text = "时间到，等待结算……";
+                _statusLabel.Text = ModText.Get("时间到，等待结算……", "Time's up, waiting for result...");
             }
             else
             {
                 // 绘画者端倒计时是权威；本地到时只锁定输入，等待最终裁定。
-                LockInput("时间到，等待绘画者结算……");
+                LockInput(ModText.Get("时间到，等待绘画者结算……", "Time's up, waiting for host to finalize..."));
             }
         }
 
@@ -177,7 +178,7 @@ public partial class GuessEntryOverlay : Control
 
         Label title = new()
         {
-            Text = "你画我猜",
+            Text = ModText.Get("你画我猜", "Draw & Guess"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 26);
@@ -193,7 +194,7 @@ public partial class GuessEntryOverlay : Control
 
         _input = new LineEdit
         {
-            PlaceholderText = "输入卡牌名称，从下方候选中确认……",
+            PlaceholderText = ModText.Get("输入卡牌名称，从下方候选中确认……", "Type a card name, then select from the list below..."),
             CustomMinimumSize = new Vector2(0f, 40f),
             SizeFlagsHorizontal = SizeFlags.ExpandFill
         };
@@ -207,7 +208,7 @@ public partial class GuessEntryOverlay : Control
 
         _statusLabel = new Label
         {
-            Text = "回车提交最佳匹配，或点击候选确认。",
+            Text = ModText.Get("回车提交最佳匹配，或点击候选确认。", "Press Enter to submit the top match, or click a candidate."),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = MouseFilterEnum.Ignore
@@ -215,7 +216,7 @@ public partial class GuessEntryOverlay : Control
         _statusLabel.AddThemeFontSizeOverride("font_size", 13);
         column.AddChild(_statusLabel);
 
-        _skipButton = new Button { Text = "放弃猜测" };
+        _skipButton = new Button { Text = ModText.Get("放弃猜测", "Skip") };
         _skipButton.Pressed += OnSkipPressed;
         column.AddChild(_skipButton);
     }
@@ -249,7 +250,7 @@ public partial class GuessEntryOverlay : Control
         IReadOnlyList<CardSearchHit> hits = CardFuzzySearch.Search(text, _owner);
         if (hits.Count == 0)
         {
-            _statusLabel.Text = "没有匹配的卡牌，请换个关键词。";
+            _statusLabel.Text = ModText.Get("没有匹配的卡牌，请换个关键词。", "No matching card found. Try a different keyword.");
             return;
         }
 
@@ -263,7 +264,7 @@ public partial class GuessEntryOverlay : Control
             _pendingGuess = string.Empty;
         }
 
-        Finish("已放弃猜测，等待结算……");
+        Finish(ModText.Get("已放弃猜测，等待结算……", "Skipped, waiting for result..."));
     }
 
     private void Submit(string cardId, string title)
@@ -276,12 +277,12 @@ public partial class GuessEntryOverlay : Control
         if (_queueOnly)
         {
             _pendingGuess = cardId;
-            Finish($"已提交猜测：{title}，等待结算……");
+            Finish(ModText.Get("已提交猜测：{0}，等待结算……", "Guess submitted: {0}, waiting for result...").Replace("{0}", title));
             return;
         }
 
         GuessPhaseCoordinator.SubmitGuess(_owner.NetId, _sessionId, cardId);
-        Finish($"已提交猜测：{title}，等待结算……");
+        Finish(ModText.Get("已提交猜测：{0}，等待结算……", "Guess submitted: {0}, waiting for result...").Replace("{0}", title));
     }
 
     private void Finish(string message)
@@ -305,6 +306,8 @@ public partial class GuessEntryOverlay : Control
 
     private void UpdateCountdownLabel()
     {
-        _countdownLabel.Text = $"剩余时间：{Mathf.CeilToInt((float)_timeLeft)} 秒";
+        _countdownLabel.Text = ModText.Get(
+            $"剩余时间：{Mathf.CeilToInt((float)_timeLeft)} 秒",
+            $"Time Left: {Mathf.CeilToInt((float)_timeLeft)} s");
     }
 }

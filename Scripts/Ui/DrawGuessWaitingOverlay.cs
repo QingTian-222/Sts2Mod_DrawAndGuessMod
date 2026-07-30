@@ -1,4 +1,5 @@
 using DrawAndGuessMod.Scripts.Guess;
+using DrawAndGuessMod.Scripts.Localization;
 using Godot;
 
 namespace DrawAndGuessMod.Scripts.Ui;
@@ -48,7 +49,9 @@ public partial class DrawGuessWaitingOverlay : Control
         _expected = expected;
         if (GodotObject.IsInstanceValid(_progressLabel))
         {
-            _progressLabel.Text = $"已收到猜测：{_submitted} / {_expected}";
+            _progressLabel.Text = ModText.Get(
+                $"已收到猜测：{_submitted} / {_expected}",
+                $"Guesses received: {_submitted} / {_expected}");
         }
     }
 
@@ -80,7 +83,9 @@ public partial class DrawGuessWaitingOverlay : Control
         }
 
         double timeLeft = GuessPhaseCoordinator.GetOwnerTimeLeft(_ownerId, _sessionId);
-        _countdownLabel.Text = $"剩余时间：{Mathf.CeilToInt((float)timeLeft)} 秒";
+        _countdownLabel.Text = ModText.Get(
+            $"剩余时间：{Mathf.CeilToInt((float)timeLeft)} 秒",
+            $"Time Left: {Mathf.CeilToInt((float)timeLeft)} s");
     }
 
     private void BuildUi()
@@ -117,7 +122,7 @@ public partial class DrawGuessWaitingOverlay : Control
 
         Label title = new()
         {
-            Text = "等待其他玩家猜测",
+            Text = ModText.Get("等待其他玩家猜测", "Waiting for Others to Guess"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 26);
@@ -125,7 +130,7 @@ public partial class DrawGuessWaitingOverlay : Control
 
         _countdownLabel = new Label
         {
-            Text = "剩余时间：-- 秒",
+            Text = ModText.Get("剩余时间：-- 秒", "Time Left: -- s"),
             HorizontalAlignment = HorizontalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore
         };
@@ -134,7 +139,7 @@ public partial class DrawGuessWaitingOverlay : Control
 
         _progressLabel = new Label
         {
-            Text = "已收到猜测：0 / 0",
+            Text = ModText.Get("已收到猜测：0 / 0", "Guesses received: 0 / 0"),
             HorizontalAlignment = HorizontalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore
         };
@@ -142,7 +147,7 @@ public partial class DrawGuessWaitingOverlay : Control
 
         Label hint = new()
         {
-            Text = "全员提交或倒计时结束后自动结算。",
+            Text = ModText.Get("全员提交或倒计时结束后自动结算。", "Will finalize automatically when everyone guesses or time runs out."),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             MouseFilter = MouseFilterEnum.Ignore

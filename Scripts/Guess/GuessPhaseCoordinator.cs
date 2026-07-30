@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Networking;
 using Godot;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Players;
 
 namespace DrawAndGuessMod.Scripts.Guess;
 
@@ -14,7 +15,7 @@ public sealed record DrawGuessOutcome(string CardId, byte[] PngBytes, int TotalG
 /// <summary>
 /// 你画我猜模式的数据池聚合器（纯本地优先架构）：
 /// 绘画者端收集所有 <see cref="GuessCardPacket"/>，满足触发条件（全员提交或超时）后
-/// 按票数权重用本地 RNG 敲定卡牌，再把结果广播给全房。
+/// 按票数权重用确定性 RNG 敲定卡牌，再把结果广播给全房。
 /// 网络消息只会打到静态会话表上，不依赖任何 Godot 节点存活。
 /// </summary>
 internal static class GuessPhaseCoordinator
@@ -39,10 +40,11 @@ internal static class GuessPhaseCoordinator
         public TaskCompletionSource<DrawGuessOutcome?>? ResultTcs;
         /// <summary>绘画者等待界面的进度回调（已提交/总数）。</summary>
         public Action<int, int>? ProgressChanged;
+        /// <summary>合法候选卡牌 ID 集合（绘画者端建立，用于验证猜测包）。</summary>
+        public HashSet<string> EligibleCardIds = new(StringComparer.Ordinal);
     }
 
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), Session> Sessions = new();
-    private static readonly Random Rng = new();
 
     /// <summary>对局开始时清空残留会话。</summary>
     public static void Reset()
@@ -58,6 +60,12 @@ internal static class GuessPhaseCoordinator
         Sessions.Clear();
     }
 
+    /// <summary>主动删除指定会话（客机结算完成后调用，释放 PNG 和 TCS 内存）。</summary>
+    public static void RemoveSession(ulong ownerId, uint sessionId)
+    {
+        Sessions.Remove((ownerId, sessionId));
+    }
+
     // ---------------------------------------------------------------- 绘画者端
 
     /// <summary>
@@ -65,15 +73,30 @@ internal static class GuessPhaseCoordinator
     /// 返回的任务在全员提交或超时后完成。
     /// </summary>
     public static async Task<DrawGuessOutcome?> BeginOwnerSession(
-        ulong ownerId,
+        Player owner,
         uint sessionId,
         byte[] pngBytes,
         IReadOnlyCollection<ulong> expectedGuesserIds,
         double timeoutSeconds,
         Action<int, int>? progressChanged)
     {
+        ulong ownerId = owner.NetId;
         (ulong OwnerId, uint SessionId) key = (ownerId, sessionId);
         Sessions.Remove(key);
+
+        // 建立合法候选卡牌集合（绘画者端权威过滤）。
+        HashSet<string> eligibleCardIds;
+        try
+        {
+            eligibleCardIds = new HashSet<string>(
+                CardFuzzySearch.GetEligibleGuessCards(owner).Select(c => c.Id.Entry),
+                StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] 建立合法候选失败，兜底为空集: {ex.Message}");
+            eligibleCardIds = new HashSet<string>(StringComparer.Ordinal);
+        }
 
         Session session = new()
         {
@@ -83,7 +106,8 @@ internal static class GuessPhaseCoordinator
             TimeoutSeconds = timeoutSeconds > 0d ? timeoutSeconds : DefaultTimeoutSeconds,
             Started = true,
             ResultTcs = new TaskCompletionSource<DrawGuessOutcome?>(TaskCreationOptions.RunContinuationsAsynchronously),
-            ProgressChanged = progressChanged
+            ProgressChanged = progressChanged,
+            EligibleCardIds = eligibleCardIds
         };
         foreach (ulong guesserId in expectedGuesserIds)
         {
@@ -158,9 +182,17 @@ internal static class GuessPhaseCoordinator
             return;
         }
 
-        session.Guesses[senderId] = packet.CardId;
+        // 验证 CardId 合法性：非空 ID 必须在合法候选中，否则视为空票（弃权）。
+        string cardId = packet.CardId;
+        if (cardId.Length > 0 && session.EligibleCardIds.Count > 0 && !session.EligibleCardIds.Contains(cardId))
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] 收到非法 CardId「{cardId}」来自 {senderId}，已降级为弃权票。");
+            cardId = string.Empty;
+        }
+
+        session.Guesses[senderId] = cardId;
         session.ProgressChanged?.Invoke(session.Guesses.Count, session.ExpectedGuesserIds.Count);
-        Entry.Logger.Debug($"[DrawAndGuessMod] 收到猜测 {session.Guesses.Count}/{session.ExpectedGuesserIds.Count} from={senderId} card={(packet.CardId.Length == 0 ? "<skip>" : packet.CardId)}");
+        Entry.Logger.Debug($"[DrawAndGuessMod] 收到猜测 {session.Guesses.Count}/{session.ExpectedGuesserIds.Count} from={senderId} card={(cardId.Length == 0 ? "<skip>" : cardId)}");
 
         if (session.Guesses.Count >= session.ExpectedGuesserIds.Count)
         {
@@ -169,9 +201,9 @@ internal static class GuessPhaseCoordinator
     }
 
     /// <summary>
-    /// 结算：按票数权重随机敲定卡牌并广播。
+    /// 结算：按票数权重用确定性 RNG 敲定卡牌并广播。
     /// 权重 = 该 CardId 获得的有效票数（弃权票不计入任何候选）。
-    /// 空票池兜底：从检索牌池中均匀随机，保证流程一定收敛。
+    /// 空票池兜底：从合法候选集合中均匀随机，保证流程一定收敛。
     /// </summary>
     private static void FinalizeOwnerSession(Session session)
     {
@@ -182,48 +214,55 @@ internal static class GuessPhaseCoordinator
 
         session.Completed = true;
 
+        // 确定性 RNG：由 ownerId 和 sessionId 派生种子，保证相同输入下结果可复现。
+        Random rng = new Random((int)(session.OwnerId ^ session.SessionId));
+
         Dictionary<string, int> weights = new(StringComparer.Ordinal);
-        foreach (string cardId in session.Guesses.Values)
+        foreach (string guessedCardId in session.Guesses.Values)
         {
-            if (cardId.Length == 0)
+            if (guessedCardId.Length == 0)
             {
                 continue;
             }
 
-            weights[cardId] = weights.GetValueOrDefault(cardId) + 1;
+            weights[guessedCardId] = weights.GetValueOrDefault(guessedCardId) + 1;
         }
 
         string chosen;
         if (weights.Count == 0)
         {
-            chosen = PickFallbackCardId();
+            chosen = PickFallbackCardId(session, rng);
             Entry.Logger.Info($"[DrawAndGuessMod] 无人有效猜测，兜底随机选定 {chosen}。");
         }
         else
         {
-            int totalWeight = weights.Values.Sum();
-            int roll = Rng.Next(totalWeight);
+            // 先按 CardId 排序，确保遍历顺序与网络包到达顺序无关（确定性）。
+            List<KeyValuePair<string, int>> sortedWeights = weights
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .ToList();
+
+            int totalWeight = sortedWeights.Sum(pair => pair.Value);
+            int roll = rng.Next(totalWeight);
             chosen = string.Empty;
-            foreach ((string cardId, int weight) in weights)
+            foreach ((string candidateId, int weight) in sortedWeights)
             {
                 roll -= weight;
                 if (roll < 0)
                 {
-                    chosen = cardId;
+                    chosen = candidateId;
                     break;
                 }
             }
 
             if (chosen.Length == 0)
             {
-                chosen = weights.Keys.First();
+                chosen = sortedWeights[0].Key;
             }
 
-            string distribution = string.Join(", ", weights.Select(pair => $"{pair.Key}×{pair.Value}"));
+            string distribution = string.Join(", ", sortedWeights.Select(pair => $"{pair.Key}×{pair.Value}"));
             Entry.Logger.Info($"[DrawAndGuessMod] 猜测票池 {distribution}，权重随机敲定 {chosen}。");
         }
 
-        session.Completed = true;
         session.FinalCardId = chosen;
         session.FinalTotalGuesses = session.Guesses.Count;
         session.Cancelled = false;
@@ -240,17 +279,18 @@ internal static class GuessPhaseCoordinator
         session.ResultTcs?.TrySetResult(new DrawGuessOutcome(chosen, session.PngBytes ?? [], session.Guesses.Count, false));
     }
 
-    private static string PickFallbackCardId()
+    private static string PickFallbackCardId(Session session, Random rng)
     {
         try
         {
-            List<string> pool = MegaCrit.Sts2.Core.Models.ModelDb.AllCards
-                .Select(card => card.Id.Entry)
-                .Where(id => id.Length > 0)
-                .ToList();
+            // 从已建立的合法候选集合中随机，不访问 ModelDb.AllCards，避免内部卡混入。
+            List<string> pool = session.EligibleCardIds.Count > 0
+                ? session.EligibleCardIds.OrderBy(id => id, StringComparer.Ordinal).ToList()
+                : new List<string>();
+
             if (pool.Count > 0)
             {
-                return pool[Rng.Next(pool.Count)];
+                return pool[rng.Next(pool.Count)];
             }
         }
         catch (Exception ex)

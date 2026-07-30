@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DrawAndGuessMod.Scripts.Ui;
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Runs;
 using STS2RitsuLib;
@@ -36,6 +38,11 @@ internal static class ArtworkStore
 
         _activeRun = runState;
         TextureCache.Clear();
+    }
+
+    public static void Set(IRunState runState, CardModel card, byte[] pngBytes)
+    {
+        Set(runState, card.Id.Entry, AdaptToCardPortrait(card, pngBytes));
     }
 
     public static void Set(IRunState runState, string cardId, byte[] pngBytes)
@@ -116,5 +123,43 @@ internal static class ArtworkStore
         Image image = new();
         Error error = image.LoadPngFromBuffer(pngBytes);
         return error == Error.Ok ? ImageTexture.CreateFromImage(image) : null;
+    }
+
+    private static byte[] AdaptToCardPortrait(CardModel card, byte[] pngBytes)
+    {
+        try
+        {
+            Image source = new();
+            if (source.LoadPngFromBuffer(pngBytes) != Error.Ok || source.IsEmpty())
+            {
+                return pngBytes;
+            }
+
+            int targetWidth = card.Rarity == CardRarity.Ancient
+                ? DrawingCanvas.AncientCanvasWidth
+                : DrawingCanvas.StandardCanvasWidth;
+            int targetHeight = card.Rarity == CardRarity.Ancient
+                ? DrawingCanvas.AncientCanvasHeight
+                : DrawingCanvas.StandardCanvasHeight;
+            if (source.GetWidth() == targetWidth && source.GetHeight() == targetHeight)
+            {
+                return pngBytes;
+            }
+
+            source.Convert(Image.Format.Rgba8);
+            int sourceWidth = source.GetWidth();
+            int sourceHeight = source.GetHeight();
+            source.Resize(targetWidth, targetHeight, Image.Interpolation.Lanczos);
+            Entry.Logger.Debug(
+                $"[DrawAndGuessMod] Adapted artwork for {card.Id.Entry}: " +
+                $"{sourceWidth}x{sourceHeight} -> {targetWidth}x{targetHeight}.");
+            return source.SavePngToBuffer();
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Failed to adapt artwork for {card.Id.Entry}; using the original PNG: {ex.Message}");
+            return pngBytes;
+        }
     }
 }
