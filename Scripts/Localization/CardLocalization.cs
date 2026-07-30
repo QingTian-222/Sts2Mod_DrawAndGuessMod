@@ -10,6 +10,7 @@ namespace DrawAndGuessMod.Scripts.Localization;
 internal static class CardLocalization
 {
     private const string GeneratedId = "DRAW_AND_GUESS_MOD_CARD_BLANK";
+    private const string GeneratedDrawGuessBlankId = "DRAW_AND_GUESS_MOD_CARD_DRAW_GUESS_BLANK";
     private static bool _subscribed;
 
     public static void Install()
@@ -35,9 +36,11 @@ internal static class CardLocalization
         {
             Dictionary<string, string> values = new();
             Add(values, GeneratedId);
+            AddDrawGuessBlank(values, GeneratedDrawGuessBlankId);
             try
             {
                 Add(values, ModelDb.GetId(typeof(Blank)).Entry);
+                AddDrawGuessBlank(values, ModelDb.GetId(typeof(DrawGuessBlank)).Entry);
             }
             catch
             {
@@ -57,6 +60,14 @@ internal static class CardLocalization
         values[id + ".description"] = ModText.Get(
             "绘制一张卡面，瓦库会把它猜测的{IfUpgraded:show:[gold]升级过的[/gold]}卡牌加入你的[gold]手牌[/gold]和[gold]牌组[/gold]。",
             "Draw a card illustration. VAKUU adds the {IfUpgraded:show:[gold]upgraded[/gold] }card it guesses to your [gold]Hand[/gold] and [gold]Deck[/gold].");
+    }
+
+    private static void AddDrawGuessBlank(IDictionary<string, string> values, string id)
+    {
+        values[id + ".title"] = ModText.Get("你画我猜", "Draw & Guess");
+        values[id + ".description"] = ModText.Get(
+            "绘制一张卡面，其他玩家将猜测你画的是哪张卡牌；最终裁定的{IfUpgraded:show:[gold]升级过的[/gold]}卡牌将加入你的[gold]手牌[/gold]和[gold]牌组[/gold]。",
+            "Draw a card illustration and let the other players guess which card it is. The resulting {IfUpgraded:show:[gold]upgraded[/gold] }card is added to your [gold]Hand[/gold] and [gold]Deck[/gold].");
     }
 }
 

@@ -5,6 +5,8 @@
     <LangVersion>12.0</LangVersion>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- AnyCPU：同一托管 dll 可加载进 Windows x64 与 macOS arm64 进程；
+         原生推理库按 RID 分发，由部署脚本两侧各放一份。 -->
     <PlatformTarget>AnyCPU</PlatformTarget>
 
     <Sts2Dir Condition="'$(Sts2Dir)' == '' and '$(STS2_DIR)' != ''">$(STS2_DIR)</Sts2Dir>
@@ -59,7 +61,7 @@
     <Copy SourceFiles="@(UniversalOnnxRuntimeNative)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="Copy Mod" AfterTargets="PostBuildEvent" Condition="'$(SkipModDeploy)' != 'true' and Exists('$(Sts2Dir)')">
+  <Target Name="Copy Mod" AfterTargets="PostBuildEvent" Condition="'$(SkipModDeploy)' != 'true' and '$(OS)' != 'Unix' and Exists('$(Sts2Dir)')">
     <Message Text="Copying DrawAndGuessMod to Slay the Spire 2 mods folder..." Importance="high" />
     <MakeDir Directories="$(Sts2Dir)\mods\$(MSBuildProjectName)\" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" />

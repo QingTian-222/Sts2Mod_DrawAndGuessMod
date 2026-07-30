@@ -370,7 +370,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         GalleryChallengeRoll roll = GalleryChallengeStore.ReserveRoll(HostPlayer);
         HashSet<string> usedTargetIds = new(roll.UsedTargetIds, StringComparer.Ordinal);
         List<CardModel> pool = candidates
-            .Where(card => card is not Blank)
+            .Where(card => card is not Blank and not DrawGuessBlank)
             .Where(card => !ErasedCardStore.IsErased(HostPlayer.RunState, card.Id))
             .Where(card => !usedTargetIds.Contains(card.Id.Entry))
             .OrderBy(card => card.Id.Entry, StringComparer.Ordinal)

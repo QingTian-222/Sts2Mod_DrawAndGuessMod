@@ -17,6 +17,7 @@
 - AI 猜测前三名；单人模式由自己选择，多人模式由“空白”指定的玩家三选一。
 - 可在“识别模型准确度”中选择瓦库（100%特征提取算法，准确率较低）、鸡煲（原算法与DINOv2各50%）或实验性的自训练适配器（30%特征提取算法与70%适配后DINOv2）。
 - 多人协作绘画；出牌者指定目标并确认画作，被指定的玩家选择卡牌，最终卡面同步给所有玩家。
+- 新增联机专属卡牌“你画我猜”：绘画者独立作画，其余玩家猜测卡牌，最终按票池权重裁定发放卡牌；单机模式下回退为协作绘画逻辑。
 - 新增事件“瓦库的无限画廊”，包含限时连续作画、普通挑战和连胜奖励。
 ### “空白”与作画
 
@@ -160,6 +161,7 @@ A drawing-based card guessing mod for *Slay the Spire 2*. After playing **Blank*
 - The AI returns its top three guesses. The local player chooses in singleplayer; in multiplayer, the player targeted by **Blank** chooses one of the three cards.
 - The recognition model can be selected in the settings: VAKUU uses only the handcrafted feature extractor and is less accurate, while Defect combines the original algorithm and DINOv2 at a 50/50 weight, and the experimental trained adapter combines 30% handcrafted features with 70% adapted DINOv2.
 - Multiplayer collaborative drawing is supported. The player who played **Blank** selects a target and confirms the drawing, the targeted player chooses the card, and the final artwork is synchronized to every player.
+- Added multiplayer-only card **Draw & Guess**: the drawer creates an illustration privately while other players guess the card; the final card is granted based on vote weights. Falls back to collaborative drawing logic in singleplayer.
 - The **VAKUU's Infinite Gallery** event offers timed streaks, standard challenges, and a special streak reward.
 - Cards, the settings page, and the drawing interface support Chinese and English. Languages other than Chinese fall back to English.
 - Recognition caches for all 611 base-game cards are included. The settings page can scan all currently installed base-game and modded cards, rebuild the local recognition cache, and display progress in real time.
