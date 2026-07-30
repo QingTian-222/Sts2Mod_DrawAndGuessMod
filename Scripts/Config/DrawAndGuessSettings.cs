@@ -56,6 +56,13 @@ internal static class DrawAndGuessSettings
             data => data.IncludeMultiplayerCards,
             (data, value) => data.IncludeMultiplayerCards = value);
 
+    private static readonly IModSettingsValueBinding<bool> ExcludePreviouslySelectedBlankCardsBinding =
+        ModSettingsBindings.Global<SettingsData, bool>(
+            Entry.ModId,
+            DataKey,
+            data => data.ExcludePreviouslySelectedBlankCards,
+            (data, value) => data.ExcludePreviouslySelectedBlankCards = value);
+
     private static readonly IModSettingsValueBinding<bool> BlankGeneratedCardSkipsDeckBinding =
         ModSettingsBindings.Global<SettingsData, bool>(
             Entry.ModId,
@@ -113,6 +120,21 @@ internal static class DrawAndGuessSettings
             try
             {
                 return IncludeMultiplayerCardsBinding.Read();
+            }
+            catch
+            {
+                return true;
+            }
+        }
+    }
+
+    public static bool ExcludePreviouslySelectedBlankCards
+    {
+        get
+        {
+            try
+            {
+                return ExcludePreviouslySelectedBlankCardsBinding.Read();
             }
             catch
             {
@@ -277,6 +299,16 @@ internal static class DrawAndGuessSettings
                         "Allow multiplayer-only cards to appear among AI candidates. Disable this to exclude them."),
                     () => true)
                 .AddToggle(
+                    "exclude_previously_selected_blank_cards",
+                    LocalizedText(
+                        "空白不再猜测已选择的卡牌",
+                        "Exclude Cards Previously Selected by Blank"),
+                    ExcludePreviouslySelectedBlankCardsBinding,
+                    LocalizedText(
+                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认开启。",
+                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Enabled by default."),
+                    () => true)
+                .AddToggle(
                     "blank_generated_card_skips_deck",
                     LocalizedText(
                         "空白生成的卡片不进入卡组",
@@ -310,8 +342,8 @@ internal static class DrawAndGuessSettings
                         new ModSettingsChoiceOption<int>(-1, LocalizedText("自定义", "Custom"))
                     },
                     LocalizedText(
-                        "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。无限画廊事件使用自己的时间规则。",
-                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default. Infinite Gallery uses its own timer."),
+                        "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。",
+                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default. "),
                     ModSettingsChoicePresentation.Dropdown)
                 .AddIntSlider(
                     "custom_drawing_time_limit_seconds",
@@ -789,6 +821,7 @@ internal static class DrawAndGuessSettings
     {
         public int CardPoolScope { get; set; } = (int)GuessCardPoolScope.AllCards;
         public bool IncludeMultiplayerCards { get; set; } = true;
+        public bool ExcludePreviouslySelectedBlankCards { get; set; } = true;
         public bool BlankGeneratedCardSkipsDeck { get; set; }
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;

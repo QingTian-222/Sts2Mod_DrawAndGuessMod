@@ -18,6 +18,10 @@ using MegaCrit.Sts2.Core.Runs;
 namespace DrawAndGuessMod.Scripts.Ui;
 
 public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess, bool SkipAddingToDeck);
+public sealed record RelicDrawingResult(
+    byte[] PngBytes,
+    RelicModel Relic,
+    string WorkTitle);
 public sealed record DrawingScreenOptions(
     string Title,
     string Help,
@@ -40,6 +44,8 @@ public partial class DrawingScreen : Control
         "res://images/atlases/relic_atlas.sprites/ink_bottle.tres";
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
+    private readonly TaskCompletionSource<RelicDrawingResult?> _relicCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<DrawingCommand> _pendingCommands = new();
     private readonly List<RecordedDrawingCommand> _historyCommands = new();
     private readonly LinkedList<DrawingOperationKey> _undoableOperations = new();
@@ -59,6 +65,9 @@ public partial class DrawingScreen : Control
     private uint _canvasStateSequence;
     private bool _isChooser;
     private bool _isTimerAuthority;
+    private bool _isRegularBlank;
+    private bool _excludePreviouslySelectedBlankCards;
+    private bool _receivedAuthoritativeBlankSettings;
     private ulong _lastCommandFlushMsec;
     private ulong _lastTimerSyncMsec;
     private DrawingCanvas _canvas = null!;
@@ -101,8 +110,20 @@ public partial class DrawingScreen : Control
     private ProgressBar? _timerBar;
     private StyleBoxFlat? _timerFillStyle;
     private bool _receivedAuthoritativeTimer;
+    private bool _privateDrawing;
+    private RelicModel? _relicTarget;
+    private IReadOnlySet<ModelId>? _relicCandidateIds;
+    private RelicArtGuess? _currentRelicGuess;
+    private TextureRect? _relicGuessImage;
+    private TextureRect? _relicTargetImage;
+    private Label? _relicWorkTitleLabel;
+    private LineEdit? _relicWorkTitleInput;
+    private Control? _relicWorkTitleOverlay;
+    private Control? _relicWaitingOverlay;
+    private bool _editingRelicWorkTitle;
+    private bool _relicDrawingConfirmed;
 
-    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null)
+    public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
@@ -124,6 +145,8 @@ public partial class DrawingScreen : Control
 
         bool isChooser = LocalContext.IsMe(owner);
         bool isTimerAuthority = !DrawingNetSync.IsMultiplayer || DrawingNetSync.IsLocalHost;
+        bool hasAuthoritativeBlankSettings =
+            !isRegularBlank || !DrawingNetSync.IsMultiplayer || isTimerAuthority;
         Player paletteOwner = LocalContext.GetMe(owner.RunState) ?? owner;
         double? requestedTimeLimit = options?.TimeLimitSeconds ?? defaultTimeLimitSeconds;
         double? effectiveTimeLimit = isTimerAuthority
@@ -137,16 +160,89 @@ public partial class DrawingScreen : Control
             _sessionId = sessionId,
             _isChooser = isChooser,
             _isTimerAuthority = isTimerAuthority,
+            _isRegularBlank = isRegularBlank,
+            _excludePreviouslySelectedBlankCards = isRegularBlank &&
+                                                       hasAuthoritativeBlankSettings &&
+                                                       DrawAndGuessSettings.ExcludePreviouslySelectedBlankCards,
+            _receivedAuthoritativeBlankSettings = hasAuthoritativeBlankSettings,
             _options = options,
             _canvasMode = options?.InitialCanvasMode ?? DrawingCanvasMode.Standard,
+            _rightColor = options?.InitialCanvasMode == DrawingCanvasMode.Relic
+                ? Colors.Transparent
+                : DrawingCanvas.PaperColor,
             _remainingSeconds = effectiveTimeLimit,
             _timerDurationSeconds = effectiveTimeLimit
         };
-        screen._customColors.AddRange(DrawingPaletteStore.GetColors(paletteOwner));
+        screen._customColors.AddRange(
+            DrawingPaletteStore.GetColors(paletteOwner)
+                .Select(color => new Color(color.R, color.G, color.B, 1f)));
         DrawingNetSync.BeginSession(owner.NetId, sessionId);
         _active = screen;
         tree.Root.AddChild(screen);
         return screen._completion.Task;
+    }
+
+    public static Task<RelicDrawingResult?> ShowRelicAsync(
+        Player owner,
+        uint sessionId,
+        RelicModel target,
+        DrawingScreenOptions options,
+        IReadOnlySet<ModelId>? candidateIds = null)
+    {
+        if (_active != null && GodotObject.IsInstanceValid(_active))
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected private relic drawing session {owner.NetId}/{sessionId} because another drawing is active.");
+            return Task.FromResult<RelicDrawingResult?>(null);
+        }
+
+        if (Engine.GetMainLoop() is not SceneTree tree)
+        {
+            return Task.FromResult<RelicDrawingResult?>(null);
+        }
+
+        Player paletteOwner = LocalContext.GetMe(owner.RunState) ?? owner;
+        DrawingScreen screen = new()
+        {
+            Name = "DrawAndGuessMod_RelicDrawingScreen",
+            _owner = owner,
+            _paletteOwner = paletteOwner,
+            _sessionId = sessionId,
+            _isChooser = true,
+            _isTimerAuthority = true,
+            _receivedAuthoritativeBlankSettings = true,
+            _options = options with
+            {
+                InitialCanvasMode = DrawingCanvasMode.Relic,
+                AllowCanvasModeSwitch = false
+            },
+            _canvasMode = DrawingCanvasMode.Relic,
+            _rightColor = Colors.Transparent,
+            _privateDrawing = true,
+            _relicTarget = target,
+            _relicCandidateIds = candidateIds == null
+                ? null
+                : new HashSet<ModelId>(candidateIds)
+        };
+        screen._customColors.AddRange(
+            DrawingPaletteStore.GetColors(paletteOwner)
+                .Select(color => new Color(color.R, color.G, color.B, 1f)));
+        _active = screen;
+        tree.Root.AddChild(screen);
+        return screen._relicCompletion.Task;
+    }
+
+    public static void CloseCompletedRelicScreen()
+    {
+        if (_active == null ||
+            !GodotObject.IsInstanceValid(_active) ||
+            _active._relicTarget == null ||
+            !_active._relicCompletion.Task.IsCompleted)
+        {
+            return;
+        }
+
+        _active.QueueFree();
     }
 
     public override void _Ready()
@@ -156,8 +252,12 @@ public partial class DrawingScreen : Control
         ZIndex = 4000;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         BuildUi();
-        DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
-        SendTimerSync(force: true);
+        if (!_privateDrawing)
+        {
+            DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
+            SendBlankSettings();
+            SendTimerSync(force: true);
+        }
     }
 
     public override void _Process(double delta)
@@ -212,6 +312,11 @@ public partial class DrawingScreen : Control
     public override void _Input(InputEvent @event)
     {
         if (_peeking)
+        {
+            return;
+        }
+
+        if (IsEditingRelicWorkTitle())
         {
             return;
         }
@@ -284,6 +389,10 @@ public partial class DrawingScreen : Control
         {
             _completion.TrySetResult(null);
         }
+        if (!_relicCompletion.Task.IsCompleted)
+        {
+            _relicCompletion.TrySetResult(null);
+        }
         if (ReferenceEquals(_active, this))
         {
             _active = null;
@@ -322,13 +431,20 @@ public partial class DrawingScreen : Control
         column.AddThemeConstantOverride("separation", 12);
         margin.AddChild(column);
 
-        Label title = new()
+        if (_relicTarget != null)
         {
-            Text = _options?.Title ?? Localized("空白", "Blank"),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        title.AddThemeFontSizeOverride("font_size", 30);
-        column.AddChild(title);
+            BuildRelicTitleEditor(column);
+        }
+        else
+        {
+            Label title = new()
+            {
+                Text = _options?.Title ?? Localized("空白", "Blank"),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            title.AddThemeFontSizeOverride("font_size", 30);
+            column.AddChild(title);
+        }
 
         Label help = new()
         {
@@ -357,19 +473,37 @@ public partial class DrawingScreen : Control
         HBoxContainer canvasRow = new()
         {
             Alignment = BoxContainer.AlignmentMode.Center,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
         canvasRow.AddThemeConstantOverride("separation", 12);
         column.AddChild(canvasRow);
 
-        CenterContainer canvasCenter = new();
-        canvasRow.AddChild(canvasCenter);
         _canvas = new DrawingCanvas();
         _canvas.SetCanvasMode(_canvasMode);
         _canvas.LocalCommandGenerated += OnLocalCommand;
         _canvas.LeftColorSampled += OnLeftColorSampled;
         _canvas.SetMouseColors(_leftColor, _rightColor);
-        canvasCenter.AddChild(_canvas);
+        if (_relicTarget != null)
+        {
+            canvasRow.AddChild(new Control
+            {
+                CustomMinimumSize = new Vector2(230f, 0f),
+                MouseFilter = MouseFilterEnum.Ignore
+            });
+            _canvas.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+            canvasRow.AddChild(_canvas);
+            BuildRelicReferencePanel(canvasRow);
+        }
+        else
+        {
+            CenterContainer canvasCenter = new()
+            {
+                SizeFlagsHorizontal = SizeFlags.ExpandFill
+            };
+            canvasRow.AddChild(canvasCenter);
+            canvasCenter.AddChild(_canvas);
+        }
 
         HBoxContainer paletteArea = new()
         {
@@ -391,9 +525,14 @@ public partial class DrawingScreen : Control
                 "Current left mouse button color; left-click a swatch to replace it"));
         _rightColorButton = CreateMouseColorButton(
             Localized("右键", "RMB"),
-            Localized(
-                "当前右键颜色；右键点击右侧色块即可替换",
-                "Current right mouse button color; right-click a swatch to replace it"));
+            _relicTarget != null
+                ? Localized(
+                    "固定为透明；右键可擦除画布内容",
+                    "Locked to transparent; use the right mouse button to erase")
+                : Localized(
+                    "当前右键颜色；右键点击右侧色块即可替换",
+                    "Current right mouse button color; right-click a swatch to replace it"));
+        _rightColorButton.Disabled = _relicTarget != null;
         colorAssignments.AddChild(_leftColorButton);
         colorAssignments.AddChild(_rightColorButton);
 
@@ -442,7 +581,8 @@ public partial class DrawingScreen : Control
             customColor.Pressed += () => SelectCustomColor(slotIndex);
             customColor.GuiInput += @event =>
             {
-                if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } &&
+                if (_relicTarget == null &&
+                    @event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } &&
                     slotIndex < _customColors.Count)
                 {
                     SelectRightColor(_customColors[slotIndex]);
@@ -613,13 +753,19 @@ public partial class DrawingScreen : Control
             new Color("176B72"),
             new Color("75F0E6"),
             primary: true);
-        _guessButton.Disabled = !_isChooser;
+        _guessButton.Disabled = !_isChooser ||
+                                !_receivedAuthoritativeBlankSettings ||
+                                _relicTarget != null;
         _guessButton.Pressed += OnGuessPressed;
         buttons.AddChild(_guessButton);
 
         AddPeekButton(backdrop, center);
         AddCanvasModeButton();
         BuildColorPickerOverlay();
+        if (_relicTarget != null)
+        {
+            BuildRelicWorkTitleOverlay();
+        }
     }
 
     private static Button CreateActionButton(string text, Color fill, Color border, bool primary = false)
@@ -833,8 +979,28 @@ public partial class DrawingScreen : Control
 
     private async void OnGuessPressed()
     {
-        if (_finishing)
+        if (_finishing || !_receivedAuthoritativeBlankSettings)
         {
+            return;
+        }
+
+        if (_relicTarget != null && !_relicDrawingConfirmed)
+        {
+            RelicArtGuess? confirmedGuess =
+                RelicArtClassifier.GuessTopOne(
+                    _canvas.Snapshot(),
+                    _relicCandidateIds);
+            if (confirmedGuess?.Relic.Id != _relicTarget.Id)
+            {
+                _currentRelicGuess = confirmedGuess;
+                UpdateRelicGuessStatus();
+                return;
+            }
+
+            _currentRelicGuess = confirmedGuess;
+            _relicDrawingConfirmed = true;
+            UpdateRelicGuessStatus();
+            OpenRelicWorkTitleEditor();
             return;
         }
 
@@ -846,11 +1012,40 @@ public partial class DrawingScreen : Control
 
         try
         {
+            if (_relicTarget != null)
+            {
+                RelicArtGuess? finalGuess = RelicArtClassifier.GuessTopOne(
+                    _canvas.Snapshot(),
+                    _relicCandidateIds);
+                if (finalGuess?.Relic.Id != _relicTarget.Id)
+                {
+                    _currentRelicGuess = finalGuess;
+                    UpdateRelicGuessStatus();
+                    _finishing = false;
+                    RefreshCanvasModeButton();
+                    return;
+                }
+
+                byte[] relicPng = _canvas.ExportPng();
+                await ToSignal(GetTree().CreateTimer(0.15d, processAlways: true), SceneTreeTimer.SignalName.Timeout);
+                string workTitle = GetRelicWorkTitle();
+                CompleteRelic(new RelicDrawingResult(
+                    relicPng,
+                    _relicTarget,
+                    workTitle));
+                return;
+            }
+
             byte[] png = _canvas.ExportPng();
+            IReadOnlySet<ModelId>? excludedCardIds =
+                _isRegularBlank && _excludePreviouslySelectedBlankCards
+                    ? BlankSelectionStore.GetSelectedCardIds(_owner.RunState)
+                    : null;
             CardGuess guess = CardArtClassifier.Guess(
                 _canvas.Snapshot(),
                 _owner,
-                _options?.CandidateScope ?? GuessCandidateScope.Default);
+                _options?.CandidateScope ?? GuessCandidateScope.Default,
+                excludedCardIds);
             bool skipAddingToDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck;
             _status.Text = "";
             FlushCommands();
@@ -960,9 +1155,11 @@ public partial class DrawingScreen : Control
         Button button = new()
         {
             Text = string.Empty,
-            TooltipText = colorName + Localized(
-                "\n右键：设为右键颜色",
-                "\nRight-click: set as the right mouse button color"),
+            TooltipText = colorName + (_relicTarget == null
+                ? Localized(
+                    "\n右键：设为右键颜色",
+                    "\nRight-click: set as the right mouse button color")
+                : string.Empty),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             FocusMode = FocusModeEnum.None
         };
@@ -970,7 +1167,8 @@ public partial class DrawingScreen : Control
         button.Pressed += () => SelectColor(color);
         button.GuiInput += @event =>
         {
-            if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true })
+            if (_relicTarget == null &&
+                @event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true })
             {
                 SelectRightColor(color);
                 button.AcceptEvent();
@@ -992,6 +1190,7 @@ public partial class DrawingScreen : Control
 
     private void SelectColor(Color color)
     {
+        color.A = 1f;
         _leftColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
         _canvas.SetMouseColors(_leftColor, _rightColor);
         RefreshMouseColorButtons();
@@ -1003,6 +1202,10 @@ public partial class DrawingScreen : Control
 
     private void SelectRightColor(Color color)
     {
+        if (_relicTarget != null)
+        {
+            return;
+        }
         _rightColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
         _canvas.SetMouseColors(_leftColor, _rightColor);
         RefreshMouseColorButtons();
@@ -1033,7 +1236,14 @@ public partial class DrawingScreen : Control
     private void RefreshMouseColorButtons()
     {
         ApplyMouseColorButtonStyle(_leftColorButton, _leftColor);
-        ApplyMouseColorButtonStyle(_rightColorButton, _rightColor);
+        if (_relicTarget != null)
+        {
+            ApplyTransparencyMouseColorButtonStyle(_rightColorButton);
+        }
+        else
+        {
+            ApplyMouseColorButtonStyle(_rightColorButton, _rightColor);
+        }
     }
 
     private static void ApplyMouseColorButtonStyle(Button button, Color color)
@@ -1049,6 +1259,50 @@ public partial class DrawingScreen : Control
         button.AddThemeStyleboxOverride("normal", CreateMouseColorButtonStyle(color, border, 2));
         button.AddThemeStyleboxOverride("hover", CreateMouseColorButtonStyle(color, border, 2));
         button.AddThemeStyleboxOverride("pressed", CreateMouseColorButtonStyle(color, border, 2));
+        button.AddThemeStyleboxOverride("disabled", CreateMouseColorButtonStyle(color, border, 2));
+    }
+
+    private static void ApplyTransparencyMouseColorButtonStyle(Button button)
+    {
+        const int width = 66;
+        const int height = 47;
+        const int cellSize = 8;
+        const int borderWidth = 2;
+        Color light = new("D8D8D8");
+        Color dark = new("AFAFAF");
+        Color border = new("8C938F");
+        Image image = Image.CreateEmpty(width, height, false, Image.Format.Rgba8);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                bool isBorder =
+                    x < borderWidth ||
+                    y < borderWidth ||
+                    x >= width - borderWidth ||
+                    y >= height - borderWidth;
+                image.SetPixel(
+                    x,
+                    y,
+                    isBorder
+                        ? border
+                        : ((x / cellSize + y / cellSize) % 2 == 0 ? light : dark));
+            }
+        }
+
+        StyleBoxTexture checker = new()
+        {
+            Texture = ImageTexture.CreateFromImage(image)
+        };
+        button.AddThemeFontSizeOverride("font_size", 15);
+        button.AddThemeColorOverride("font_color", new Color("171B20"));
+        button.AddThemeColorOverride("font_hover_color", new Color("171B20"));
+        button.AddThemeColorOverride("font_pressed_color", new Color("171B20"));
+        button.AddThemeColorOverride("font_disabled_color", new Color("171B20"));
+        button.AddThemeStyleboxOverride("normal", checker);
+        button.AddThemeStyleboxOverride("hover", checker);
+        button.AddThemeStyleboxOverride("pressed", checker);
+        button.AddThemeStyleboxOverride("disabled", checker);
     }
 
     private static StyleBoxFlat CreateMouseColorButtonStyle(Color fill, Color border, int borderWidth)
@@ -1106,10 +1360,12 @@ public partial class DrawingScreen : Control
                 button.Disabled = false;
                 button.TooltipText =
                     Localized("自定义 #", "Custom #") +
-                    color.ToHtml(false).ToUpperInvariant() +
-                    Localized(
-                        "\n右键：设为右键颜色",
-                        "\nRight-click: set as the right mouse button color");
+                    color.ToHtml(true).ToUpperInvariant() +
+                    (_relicTarget == null
+                        ? Localized(
+                            "\n右键：设为右键颜色",
+                            "\nRight-click: set as the right mouse button color")
+                        : string.Empty);
                 ApplyColorButtonStyle(button, color);
             }
             else
@@ -1333,7 +1589,8 @@ public partial class DrawingScreen : Control
         Color color = new(
             (float)(_redInput.Value / 255d),
             (float)(_greenInput.Value / 255d),
-            (float)(_blueInput.Value / 255d));
+            (float)(_blueInput.Value / 255d),
+            1f);
         _colorPicker.Color = color;
         UpdateConfirmColorButton(color);
         _syncingColorInputs = false;
@@ -1342,6 +1599,7 @@ public partial class DrawingScreen : Control
     private void SyncColorInputs(Color color)
     {
         _syncingColorInputs = true;
+        color.A = 1f;
         Color normalized = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
         _colorPicker.Color = normalized;
         _redInput.Value = Mathf.RoundToInt(normalized.R * 255f);
@@ -1360,8 +1618,8 @@ public partial class DrawingScreen : Control
         Color hoverFill = lightColor ? normalized.Darkened(0.08f) : normalized.Lightened(0.10f);
         Color pressedFill = lightColor ? normalized.Darkened(0.16f) : normalized.Lightened(0.18f);
         _confirmColorButton.TooltipText = Localized(
-            $"添加颜色 #{normalized.ToHtml(false).ToUpperInvariant()}",
-            $"Add color #{normalized.ToHtml(false).ToUpperInvariant()}");
+            $"添加颜色 #{normalized.ToHtml(true).ToUpperInvariant()}",
+            $"Add color #{normalized.ToHtml(true).ToUpperInvariant()}");
         _confirmColorButton.AddThemeFontSizeOverride("font_size", 19);
         _confirmColorButton.AddThemeColorOverride("font_color", foreground);
         _confirmColorButton.AddThemeColorOverride("font_hover_color", foreground);
@@ -1375,10 +1633,14 @@ public partial class DrawingScreen : Control
     private void ConfirmCustomColor()
     {
         Color color = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(_colorPicker.Color));
+        color.A = 1f;
         if (DrawingPaletteStore.TryRemember(_paletteOwner, color))
         {
             _customColors.Clear();
-            _customColors.AddRange(DrawingPaletteStore.GetColors(_paletteOwner));
+            _customColors.AddRange(
+                DrawingPaletteStore.GetColors(_paletteOwner)
+                    .Select(stored =>
+                        new Color(stored.R, stored.G, stored.B, 1f)));
         }
         else
         {
@@ -1577,6 +1839,19 @@ public partial class DrawingScreen : Control
         return true;
     }
 
+    internal static bool TryReceiveBlankSettings(DrawingBlankSettingsMessage message)
+    {
+        if (_active == null || !GodotObject.IsInstanceValid(_active) ||
+            _active._owner.NetId != message.OwnerId ||
+            _active._sessionId != message.SessionId)
+        {
+            return false;
+        }
+
+        _active.ReceiveBlankSettings(message);
+        return true;
+    }
+
     internal void ReceiveCommands(DrawingSyncMessage message, ulong senderId)
     {
         if (_finishing || senderId == LocalContext.NetId || message.Epoch != _historyEpoch)
@@ -1686,6 +1961,21 @@ public partial class DrawingScreen : Control
         }
     }
 
+    internal void ReceiveBlankSettings(DrawingBlankSettingsMessage message)
+    {
+        if (_finishing || !_isRegularBlank || _isTimerAuthority)
+        {
+            return;
+        }
+
+        _excludePreviouslySelectedBlankCards = message.ExcludePreviouslySelectedCards;
+        _receivedAuthoritativeBlankSettings = true;
+        if (_isChooser)
+        {
+            _guessButton.Disabled = false;
+        }
+    }
+
     internal void ReceiveFinal(DrawingFinalMessage message)
     {
         if (_finishing)
@@ -1747,10 +2037,28 @@ public partial class DrawingScreen : Control
         DrawingNetSync.SendTimer(_owner.NetId, _sessionId, _remainingSeconds.Value);
     }
 
+    private void SendBlankSettings()
+    {
+        if (!DrawingNetSync.IsMultiplayer || !_isTimerAuthority || !_isRegularBlank)
+        {
+            return;
+        }
+
+        DrawingNetSync.SendBlankSettings(
+            _owner.NetId,
+            _sessionId,
+            _excludePreviouslySelectedBlankCards);
+    }
+
     private void OnLocalCommand(DrawingCommand command)
     {
         UpdateCanvasModeLock(command);
-        if (DrawingNetSync.IsMultiplayer)
+        if (_privateDrawing && command.CompletesOperation)
+        {
+            UpdateRelicGuess();
+        }
+
+        if (UsesCollaborativeNetworking)
         {
             ulong senderId = RunManager.Instance.NetService.NetId;
             TrackPendingMultiplayerCommand(senderId, command);
@@ -1769,7 +2077,7 @@ public partial class DrawingScreen : Control
             RecordHistoryCommand(_owner.NetId, command);
         }
 
-        if (!DrawingNetSync.IsMultiplayer || _finishing)
+        if (!UsesCollaborativeNetworking || _finishing)
         {
             return;
         }
@@ -1788,6 +2096,12 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        if (_privateDrawing)
+        {
+            _pendingCommands.Clear();
+            return;
+        }
+
         DrawingNetSync.SendCommands(_owner.NetId, _sessionId, _historyEpoch, _pendingCommands);
         _pendingCommands.Clear();
         _lastCommandFlushMsec = Time.GetTicksMsec();
@@ -1801,7 +2115,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             if (_isChooser)
             {
@@ -1836,7 +2150,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             if (_isChooser)
             {
@@ -1865,7 +2179,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             ApplyAuthoritativeMultiplayerUndo(requesterId);
             return;
@@ -1902,16 +2216,20 @@ public partial class DrawingScreen : Control
             $"已撤回最近一次操作（剩余 {_undoableOperations.Count} 步可撤回）。",
             $"Undid the most recent action ({_undoableOperations.Count} undoable actions remain).");
         Entry.Logger.Debug($"[DrawAndGuessMod] Undo requested by {requesterId}: sender={operation.SenderId}, operation={operation.OperationId}, epoch={_historyEpoch}.");
-        DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+        if (UsesCollaborativeNetworking)
         {
-            OwnerId = _owner.NetId,
-            SessionId = _sessionId,
-            Epoch = _historyEpoch,
-            StateSequence = ++_canvasStateSequence,
-            CanvasMode = _canvasMode,
-            ResetPendingOperations = true,
-            PngBytes = _canvas.ExportPng()
-        });
+            DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+            {
+                OwnerId = _owner.NetId,
+                SessionId = _sessionId,
+                Epoch = _historyEpoch,
+                StateSequence = ++_canvasStateSequence,
+                CanvasMode = _canvasMode,
+                ResetPendingOperations = true,
+                PngBytes = _canvas.ExportPng()
+            });
+        }
+        UpdateRelicGuess();
     }
 
     private void ApplyAuthoritativeRedo(ulong requesterId)
@@ -1922,7 +2240,7 @@ public partial class DrawingScreen : Control
         }
 
         FlushCommands();
-        if (DrawingNetSync.IsMultiplayer)
+        if (UsesCollaborativeNetworking)
         {
             ApplyAuthoritativeMultiplayerRedo(requesterId);
             return;
@@ -1959,16 +2277,20 @@ public partial class DrawingScreen : Control
         Entry.Logger.Debug(
             $"[DrawAndGuessMod] Redo requested by {requesterId}: sender={operation.SenderId}, " +
             $"operation={operation.OperationId}, epoch={_historyEpoch}.");
-        DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+        if (UsesCollaborativeNetworking)
         {
-            OwnerId = _owner.NetId,
-            SessionId = _sessionId,
-            Epoch = _historyEpoch,
-            StateSequence = ++_canvasStateSequence,
-            CanvasMode = _canvasMode,
-            ResetPendingOperations = true,
-            PngBytes = _canvas.ExportPng()
-        });
+            DrawingNetSync.SendCanvasState(new DrawingCanvasStateMessage
+            {
+                OwnerId = _owner.NetId,
+                SessionId = _sessionId,
+                Epoch = _historyEpoch,
+                StateSequence = ++_canvasStateSequence,
+                CanvasMode = _canvasMode,
+                ResetPendingOperations = true,
+                PngBytes = _canvas.ExportPng()
+            });
+        }
+        UpdateRelicGuess();
     }
 
     private void TrackPendingMultiplayerCommand(ulong senderId, DrawingCommand command)
@@ -2233,6 +2555,340 @@ public partial class DrawingScreen : Control
         {
             QueueFree();
         }
+    }
+
+    private void CompleteRelic(RelicDrawingResult? result)
+    {
+        if (_relicCompletion.TrySetResult(result))
+        {
+            if (result != null && DrawingNetSync.IsMultiplayer)
+            {
+                ShowRelicWaitingState();
+            }
+            else
+            {
+                QueueFree();
+            }
+        }
+    }
+
+    private bool UsesCollaborativeNetworking => DrawingNetSync.IsMultiplayer && !_privateDrawing;
+
+    private void BuildRelicTitleEditor(Container column)
+    {
+        _relicWorkTitleLabel = new Label
+        {
+            Text = _relicTarget?.Title.GetFormattedText() ??
+                   Localized("无题作品", "Untitled Work"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _relicWorkTitleLabel.AddThemeFontSizeOverride("font_size", 30);
+        column.AddChild(_relicWorkTitleLabel);
+    }
+
+    private void BuildRelicWorkTitleOverlay()
+    {
+        _relicWorkTitleOverlay = new Control
+        {
+            Name = "RelicWorkTitleOverlay",
+            Visible = false,
+            MouseFilter = MouseFilterEnum.Stop,
+            ZIndex = 30
+        };
+        _relicWorkTitleOverlay.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_relicWorkTitleOverlay);
+
+        CenterContainer center = new();
+        center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicWorkTitleOverlay.AddChild(center);
+
+        PanelContainer panel = new()
+        {
+            CustomMinimumSize = new Vector2(520f, 190f)
+        };
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.045f, 0.06f, 0.085f, 0.86f),
+            BorderColor = new Color("79BCE8"),
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 12,
+            CornerRadiusTopRight = 12,
+            CornerRadiusBottomLeft = 12,
+            CornerRadiusBottomRight = 12,
+            ShadowColor = new Color(0f, 0f, 0f, 0.45f),
+            ShadowSize = 10,
+            ShadowOffset = new Vector2(0f, 5f)
+        });
+        center.AddChild(panel);
+
+        MarginContainer margin = new();
+        margin.AddThemeConstantOverride("margin_left", 24);
+        margin.AddThemeConstantOverride("margin_right", 24);
+        margin.AddThemeConstantOverride("margin_top", 20);
+        margin.AddThemeConstantOverride("margin_bottom", 20);
+        panel.AddChild(margin);
+
+        VBoxContainer content = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        content.AddThemeConstantOverride("separation", 14);
+        margin.AddChild(content);
+
+        Label title = new()
+        {
+            Text = Localized("为作品命名", "Title Your Work"),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        title.AddThemeFontSizeOverride("font_size", 26);
+        content.AddChild(title);
+
+        _relicWorkTitleInput = new LineEdit
+        {
+            Text = _relicWorkTitleLabel?.Text ?? string.Empty,
+            MaxLength = 32,
+            CustomMinimumSize = new Vector2(440f, 48f),
+            Alignment = HorizontalAlignment.Center,
+            TooltipText = Localized(
+                "鉴宝时只会显示这个名字；你可以用它伪装遗物。",
+                "Only this title is shown during appraisal; you may use it to disguise the relic.")
+        };
+        _relicWorkTitleInput.AddThemeFontSizeOverride("font_size", 26);
+        _relicWorkTitleInput.TextChanged += _ => UpdateRelicGuessStatus();
+        _relicWorkTitleInput.TextSubmitted += _ => ConfirmRelicWorkTitleEditing();
+        content.AddChild(_relicWorkTitleInput);
+
+        Button confirm = CreateActionButton(
+            Localized("确认并提交", "Confirm and Submit"),
+            new Color("176B72"),
+            new Color("75F0E6"),
+            primary: true);
+        confirm.CustomMinimumSize = new Vector2(220f, 48f);
+        confirm.Pressed += ConfirmRelicWorkTitleEditing;
+        content.AddChild(confirm);
+    }
+
+    private void OpenRelicWorkTitleEditor()
+    {
+        if (_relicWorkTitleInput == null ||
+            _relicWorkTitleLabel == null ||
+            _relicWorkTitleOverlay == null ||
+            _editingRelicWorkTitle)
+        {
+            return;
+        }
+
+        if (_gFillHeld)
+        {
+            _gFillHeld = false;
+            ActivateBrushTool();
+        }
+        _editingRelicWorkTitle = true;
+        _relicWorkTitleInput.Text = _relicWorkTitleLabel.Text;
+        _relicWorkTitleOverlay.Visible = true;
+        _relicWorkTitleInput.GrabFocus();
+        _relicWorkTitleInput.SelectAll();
+        UpdateRelicGuessStatus();
+    }
+
+    private void ConfirmRelicWorkTitleEditing()
+    {
+        if (_relicWorkTitleInput == null ||
+            _relicWorkTitleLabel == null ||
+            _relicWorkTitleOverlay == null ||
+            !_editingRelicWorkTitle)
+        {
+            return;
+        }
+        string editedTitle = _relicWorkTitleInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(editedTitle))
+        {
+            return;
+        }
+
+        _relicWorkTitleLabel.Text = editedTitle;
+        _relicWorkTitleInput.ReleaseFocus();
+        _relicWorkTitleOverlay.Visible = false;
+        _editingRelicWorkTitle = false;
+        UpdateRelicGuessStatus();
+        OnGuessPressed();
+    }
+
+    private void ShowRelicWaitingState()
+    {
+        if (_relicWaitingOverlay != null &&
+            GodotObject.IsInstanceValid(_relicWaitingOverlay))
+        {
+            return;
+        }
+
+        if (_relicWorkTitleOverlay != null)
+        {
+            _relicWorkTitleOverlay.Visible = false;
+        }
+        _editingRelicWorkTitle = false;
+        _guessButton.Disabled = true;
+
+        _relicWaitingOverlay = new Control
+        {
+            Name = "RelicWaitingOverlay",
+            MouseFilter = MouseFilterEnum.Stop,
+            ZIndex = 40
+        };
+        _relicWaitingOverlay.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_relicWaitingOverlay);
+
+        ColorRect dimmer = new()
+        {
+            Color = new Color(0.01f, 0.015f, 0.025f, 0.34f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        dimmer.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicWaitingOverlay.AddChild(dimmer);
+
+        CenterContainer center = new();
+        center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicWaitingOverlay.AddChild(center);
+
+        PanelContainer panel = new()
+        {
+            CustomMinimumSize = new Vector2(420f, 108f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.045f, 0.06f, 0.085f, 0.94f),
+            BorderColor = new Color("79BCE8"),
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 12,
+            CornerRadiusTopRight = 12,
+            CornerRadiusBottomLeft = 12,
+            CornerRadiusBottomRight = 12,
+            ShadowColor = new Color(0f, 0f, 0f, 0.5f),
+            ShadowSize = 10,
+            ShadowOffset = new Vector2(0f, 5f)
+        });
+        center.AddChild(panel);
+
+        Label waiting = new()
+        {
+            Text = Localized("等待其他玩家", "Waiting for other players"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        waiting.AddThemeFontSizeOverride("font_size", 30);
+        panel.AddChild(waiting);
+    }
+
+    private bool IsEditingRelicWorkTitle()
+    {
+        return _editingRelicWorkTitle ||
+               (_relicWorkTitleInput?.HasFocus() ?? false);
+    }
+
+    private string GetRelicWorkTitle()
+    {
+        string? title = _relicWorkTitleLabel?.Text;
+        return string.IsNullOrWhiteSpace(title)
+            ? _relicTarget?.Title.GetFormattedText() ??
+              Localized("无题作品", "Untitled Work")
+            : title.Trim();
+    }
+
+    private void UpdateRelicGuess()
+    {
+        if (_relicTarget == null || _finishing)
+        {
+            return;
+        }
+
+        _currentRelicGuess = _canvas.IsBlank()
+            ? null
+            : RelicArtClassifier.GuessTopOne(
+                _canvas.Snapshot(),
+                _relicCandidateIds);
+        UpdateRelicGuessStatus();
+    }
+
+    private void UpdateRelicGuessStatus()
+    {
+        if (_relicTarget == null)
+        {
+            return;
+        }
+
+        string guessName = _currentRelicGuess?.Relic.Title.GetFormattedText() ??
+                           Localized("尚未识别", "No guess");
+        bool matches = _currentRelicGuess?.Relic.Id == _relicTarget.Id;
+        if (_relicGuessImage != null)
+        {
+            _relicGuessImage.Texture = _currentRelicGuess?.Relic.BigIcon;
+        }
+        _status.Text = Localized(
+            $"当前识别：{guessName}" +
+            (matches ? "\n识别正确，可以提交作品。" : "\n必须与题目完全一致才能提交。"),
+            $"Current guess: {guessName}" +
+            (matches ? "\nExact match. You may submit the work." : "\nThe guess must exactly match the target before submission."));
+        _guessButton.Disabled =
+            !matches ||
+            _editingRelicWorkTitle ||
+            string.IsNullOrWhiteSpace(_relicWorkTitleLabel?.Text);
+    }
+
+    private void BuildRelicReferencePanel(Container canvasRow)
+    {
+        if (_relicTarget == null)
+        {
+            return;
+        }
+
+        VBoxContainer references = new()
+        {
+            CustomMinimumSize = new Vector2(230f, 0f),
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        references.AddThemeConstantOverride("separation", 6);
+        canvasRow.AddChild(references);
+
+        Label guessLabel = new()
+        {
+            Text = Localized("瓦库的猜测", "VAKUU's Guess"),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        references.AddChild(guessLabel);
+        _relicGuessImage = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(190f, 190f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
+        };
+        references.AddChild(_relicGuessImage);
+
+        Label targetLabel = new()
+        {
+            Text = Localized(
+                $"题目参考：{_relicTarget.Title.GetFormattedText()}",
+                $"Target Reference: {_relicTarget.Title.GetFormattedText()}"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        references.AddChild(targetLabel);
+        _relicTargetImage = new TextureRect
+        {
+            Texture = _relicTarget.BigIcon,
+            CustomMinimumSize = new Vector2(190f, 190f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
+        };
+        references.AddChild(_relicTargetImage);
+
     }
 
     private static string Localized(string simplifiedChinese, string english)

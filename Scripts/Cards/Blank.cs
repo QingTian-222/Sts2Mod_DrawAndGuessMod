@@ -37,7 +37,8 @@ public sealed class Blank : CardModel
         DrawingResult? drawing = await DrawingScreen.ShowAsync(
             Owner,
             sessionId,
-            defaultTimeLimitSeconds: DrawAndGuessSettings.DrawingTimeLimitSeconds);
+            defaultTimeLimitSeconds: DrawAndGuessSettings.DrawingTimeLimitSeconds,
+            isRegularBlank: true);
         if (drawing == null)
         {
             return;
@@ -77,6 +78,7 @@ public sealed class Blank : CardModel
         }
 
         ArtworkStore.Set(Owner.RunState, selectedCard, drawing.PngBytes);
+        BlankSelectionStore.Remember(Owner.RunState, selectedCard.Id);
 
         if (drawing.SkipAddingToDeck)
         {

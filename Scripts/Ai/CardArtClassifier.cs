@@ -179,10 +179,16 @@ internal static class CardArtClassifier
         }
     }
 
-    public static CardGuess Guess(Image drawing, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default)
+    public static CardGuess Guess(Image drawing, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default, IReadOnlySet<ModelId>? excludedCardIds = null)
     {
         EnsureTrained();
-        List<TrainingSample> candidates = FilterCandidates(owner, candidateScope).ToList();
+        IEnumerable<TrainingSample> filteredCandidates = FilterCandidates(owner, candidateScope);
+        if (excludedCardIds is { Count: > 0 })
+        {
+            filteredCandidates = filteredCandidates.Where(sample =>
+                !excludedCardIds.Contains(sample.Card.Id));
+        }
+        List<TrainingSample> candidates = filteredCandidates.ToList();
         if (candidates.Count == 0)
         {
             throw new InvalidOperationException(ModText.Get(
@@ -260,7 +266,7 @@ internal static class CardArtClassifier
         string dinoMode = useDino
             ? adaptedDrawing ? "adapted" : "raw"
             : "unavailable";
-        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, model={recognitionModel}, dino={dinoMode}): {diagnostics}");
+        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, excludedPreviousBlank={excludedCardIds?.Count ?? 0}, model={recognitionModel}, dino={dinoMode}): {diagnostics}");
         return new CardGuess(selected.Sample.Card, selectedRank, selected.CurrentDistance, nearest);
     }
 
@@ -643,7 +649,7 @@ internal static class CardArtClassifier
         return true;
     }
 
-    private static double[] ExtractFeatures(Image source, bool treatAsSketch)
+    internal static double[] ExtractFeatures(Image source, bool treatAsSketch)
     {
         Image image = Image.CreateFromData(source.GetWidth(), source.GetHeight(), source.HasMipmaps(), source.GetFormat(), source.GetData());
         if (image.IsCompressed())
@@ -846,7 +852,7 @@ internal static class CardArtClassifier
         }
     }
 
-    private static double Distance(double[] left, double[] right)
+    internal static double Distance(double[] left, double[] right)
     {
         double sum = 0d;
         for (int i = 0; i < left.Length; i++)

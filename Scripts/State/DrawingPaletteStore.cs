@@ -35,6 +35,12 @@ internal static class DrawingPaletteStore
 
         DrawingPalettePlayerState data = _savedData.Get(player);
         data.Colors ??= new List<uint>();
+        if (data.ColorEncodingVersion < 1)
+        {
+            _savedData.Modify(player, MigrateLegacyColors);
+            data = _savedData.Get(player);
+        }
+
         return data.Colors
             .Take(Capacity)
             .Select(DrawingCommand.UnpackRgb)
@@ -52,6 +58,11 @@ internal static class DrawingPaletteStore
         _savedData.Modify(player, data =>
         {
             data.Colors ??= new List<uint>();
+            if (data.ColorEncodingVersion < 1)
+            {
+                MigrateLegacyColors(data);
+            }
+
             data.Colors.Insert(0, packedColor);
             if (data.Colors.Count > Capacity)
             {
@@ -59,5 +70,17 @@ internal static class DrawingPaletteStore
             }
         });
         return true;
+    }
+
+    private static void MigrateLegacyColors(DrawingPalettePlayerState data)
+    {
+        data.Colors ??= new List<uint>();
+        for (int index = 0; index < data.Colors.Count; index++)
+        {
+            uint oldRgb = data.Colors[index];
+            data.Colors[index] = 0xFF000000u | oldRgb;
+        }
+
+        data.ColorEncodingVersion = 1;
     }
 }

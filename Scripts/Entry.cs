@@ -10,6 +10,7 @@ using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
 using DrawAndGuessMod.Scripts.RestSite;
 using DrawAndGuessMod.Scripts.State;
+using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Modding;
@@ -43,12 +44,14 @@ public static class Entry
             DrawAndGuessSettings.Register();
             ArtworkStore.Register();
             DrawingPaletteStore.Register();
+            BlankSelectionStore.Register();
             ErasedCardStore.Register();
             GalleryChallengeStore.Register();
             CardLocalization.Install();
             EventLocalization.Install();
             RelicLocalization.Install();
             CardArtClassifier.Preload();
+            RelicArtClassifier.Preload();
 
             _harmony = new Harmony("sts2.qingtian.drawandguessmod");
             _harmony.PatchAll(assembly);
@@ -105,6 +108,8 @@ public static class Entry
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
+        RelicAppraisalFairArtworkStore.Reset();
+        RelicAppraisalFairTreasureFlow.Reset();
         DeathNoteRestSiteOption.ResetSessions();
         DrawingNetSync.Reset();
     }

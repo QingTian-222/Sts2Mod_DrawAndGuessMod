@@ -174,7 +174,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         writer.WriteUInt(SessionId);
         writer.WriteUInt(Epoch);
         writer.WriteUInt(StateSequence);
-        writer.WriteByte((byte)CanvasMode, 1);
+        writer.WriteByte((byte)CanvasMode, 2);
         writer.WriteBool(ResetPendingOperations);
         int watermarkCount = Math.Min(Watermarks.Count, MaxWatermarks);
         writer.WriteByte((byte)watermarkCount, 5);
@@ -193,7 +193,7 @@ public sealed class DrawingCanvasStateMessage : INetMessage, IPacketSerializable
         SessionId = reader.ReadUInt();
         Epoch = reader.ReadUInt();
         StateSequence = reader.ReadUInt();
-        CanvasMode = (DrawingCanvasMode)reader.ReadByte(1);
+        CanvasMode = (DrawingCanvasMode)reader.ReadByte(2);
         ResetPendingOperations = reader.ReadBool();
         int watermarkCount = reader.ReadByte(5);
         if (watermarkCount > MaxWatermarks)
@@ -276,6 +276,41 @@ public sealed class DrawingTimerSyncMessage : INetMessage, IPacketSerializable, 
     }
 }
 
+public sealed class DrawingBlankSettingsMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint SessionId { get; set; }
+    public bool ExcludePreviouslySelectedCards { get; set; }
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(SessionId);
+        writer.WriteBool(ExcludePreviouslySelectedCards);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        SessionId = reader.ReadUInt();
+        ExcludePreviouslySelectedCards = reader.ReadBool();
+        LocationValue = reader.Read<RunLocation>();
+    }
+
+    public override string ToString()
+    {
+        return $"DrawingBlankSettingsMessage owner={OwnerId} session={SessionId} excludePrevious={ExcludePreviouslySelectedCards}";
+    }
+}
+
 public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     private const int MaxPngBytes = 2 * 1024 * 1024;
@@ -300,7 +335,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         writer.WriteULong(OwnerId);
         writer.WriteUInt(SessionId);
         writer.WriteBool(Cancelled);
-        writer.WriteByte((byte)CanvasMode, 1);
+        writer.WriteByte((byte)CanvasMode, 2);
         writer.WriteByte((byte)CardIds.Count, 3);
         for (int index = 0; index < CardIds.Count; index++)
         {
@@ -318,7 +353,7 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
         OwnerId = reader.ReadULong();
         SessionId = reader.ReadUInt();
         Cancelled = reader.ReadBool();
-        CanvasMode = (DrawingCanvasMode)reader.ReadByte(1);
+        CanvasMode = (DrawingCanvasMode)reader.ReadByte(2);
         int cardCount = reader.ReadByte(3);
         CardIds = new List<string>(cardCount);
         for (int i = 0; i < cardCount; i++)
@@ -344,5 +379,79 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
     public override string ToString()
     {
         return $"DrawingFinalMessage owner={OwnerId} session={SessionId} cancelled={Cancelled} skipDeck={SkipAddingToDeck} mode={CanvasMode} cards={CardIds.Count} png={PngBytes.Length}";
+    }
+}
+
+public sealed class RelicAppraisalFairTargetMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public ulong OwnerId { get; set; }
+    public uint AppraisalId { get; set; }
+    public string TargetRelicId { get; set; } = "";
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(AppraisalId);
+        writer.WriteString(TargetRelicId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        AppraisalId = reader.ReadUInt();
+        TargetRelicId = reader.ReadString();
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
+public sealed class RelicAppraisalFairSubmissionMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    private const int MaxPngBytes = 2 * 1024 * 1024;
+    public ulong OwnerId { get; set; }
+    public uint AppraisalId { get; set; }
+    public string TargetRelicId { get; set; } = "";
+    public string WorkTitle { get; set; } = "";
+    public byte[] PngBytes { get; set; } = [];
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteULong(OwnerId);
+        writer.WriteUInt(AppraisalId);
+        writer.WriteString(TargetRelicId);
+        writer.WriteString(WorkTitle);
+        writer.WriteInt(PngBytes.Length);
+        writer.WriteBytes(PngBytes, PngBytes.Length);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        OwnerId = reader.ReadULong();
+        AppraisalId = reader.ReadUInt();
+        TargetRelicId = reader.ReadString();
+        WorkTitle = reader.ReadString();
+        int pngLength = reader.ReadInt();
+        if (pngLength < 0 || pngLength > MaxPngBytes)
+        {
+            throw new InvalidDataException($"Invalid relic appraisal PNG size: {pngLength}");
+        }
+        PngBytes = new byte[pngLength];
+        reader.ReadBytes(PngBytes, pngLength);
+        LocationValue = reader.Read<RunLocation>();
     }
 }

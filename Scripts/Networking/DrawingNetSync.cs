@@ -8,6 +8,12 @@ using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Networking;
 
+internal sealed record RelicAppraisalFairSubmission(
+    ulong OwnerId,
+    string TargetRelicId,
+    string WorkTitle,
+    byte[] PngBytes);
+
 internal static class DrawingNetSync
 {
     private static RunLocationTargetedMessageBuffer? _registeredBuffer;
@@ -19,7 +25,12 @@ internal static class DrawingNetSync
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), List<(DrawingSyncMessage Message, ulong SenderId)>> PendingBatches = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingCanvasStateMessage> PendingCanvasStates = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingTimerSyncMessage> PendingTimers = new();
+    private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingBlankSettingsMessage> PendingBlankSettings = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingFinalMessage> PendingFinals = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), string> AppraisalTargets = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), TaskCompletionSource<string>> AppraisalTargetWaiters = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), RelicAppraisalFairSubmission> AppraisalSubmissions = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), TaskCompletionSource<RelicAppraisalFairSubmission>> AppraisalSubmissionWaiters = new();
 
     public static bool IsMultiplayer
     {
@@ -59,7 +70,9 @@ internal static class DrawingNetSync
         PendingBatches.Clear();
         PendingCanvasStates.Clear();
         PendingTimers.Clear();
+        PendingBlankSettings.Clear();
         PendingFinals.Clear();
+        ClearRelicAppraisalFairState();
         EnsureRegistered();
     }
 
@@ -88,6 +101,100 @@ internal static class DrawingNetSync
         }
         CardSelections.Clear();
         CardSelectionWaiters.Clear();
+    }
+
+    public static void BeginRelicAppraisalFair()
+    {
+        ClearRelicAppraisalFairState();
+        EnsureRegistered();
+    }
+
+    private static void ClearRelicAppraisalFairState()
+    {
+        foreach (TaskCompletionSource<string> waiter in AppraisalTargetWaiters.Values)
+        {
+            waiter.TrySetCanceled();
+        }
+        foreach (TaskCompletionSource<RelicAppraisalFairSubmission> waiter in AppraisalSubmissionWaiters.Values)
+        {
+            waiter.TrySetCanceled();
+        }
+        AppraisalTargets.Clear();
+        AppraisalTargetWaiters.Clear();
+        AppraisalSubmissions.Clear();
+        AppraisalSubmissionWaiters.Clear();
+    }
+
+    public static void PublishAppraisalTarget(uint appraisalId, ulong ownerId, string targetRelicId)
+    {
+        EnsureRegistered();
+        AcceptAppraisalTarget(appraisalId, ownerId, targetRelicId);
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        RunManager.Instance.NetService.SendMessage(new RelicAppraisalFairTargetMessage
+        {
+            AppraisalId = appraisalId,
+            OwnerId = ownerId,
+            TargetRelicId = targetRelicId,
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
+    public static Task<string> WaitForAppraisalTargetAsync(uint appraisalId, ulong ownerId)
+    {
+        EnsureRegistered();
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, ownerId);
+        if (AppraisalTargets.TryGetValue(key, out string? target))
+        {
+            return Task.FromResult(target);
+        }
+
+        if (!AppraisalTargetWaiters.TryGetValue(key, out TaskCompletionSource<string>? waiter))
+        {
+            waiter = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            AppraisalTargetWaiters[key] = waiter;
+        }
+        return waiter.Task;
+    }
+
+    public static void PublishAppraisalSubmission(uint appraisalId, RelicAppraisalFairSubmission submission)
+    {
+        EnsureRegistered();
+        AcceptAppraisalSubmission(appraisalId, submission);
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        RunManager.Instance.NetService.SendMessage(new RelicAppraisalFairSubmissionMessage
+        {
+            AppraisalId = appraisalId,
+            OwnerId = submission.OwnerId,
+            TargetRelicId = submission.TargetRelicId,
+            WorkTitle = submission.WorkTitle,
+            PngBytes = submission.PngBytes,
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
+    public static Task<RelicAppraisalFairSubmission> WaitForAppraisalSubmissionAsync(uint appraisalId, ulong ownerId)
+    {
+        EnsureRegistered();
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, ownerId);
+        if (AppraisalSubmissions.TryGetValue(key, out RelicAppraisalFairSubmission? submission))
+        {
+            return Task.FromResult(submission);
+        }
+
+        if (!AppraisalSubmissionWaiters.TryGetValue(key, out TaskCompletionSource<RelicAppraisalFairSubmission>? waiter))
+        {
+            waiter = new TaskCompletionSource<RelicAppraisalFairSubmission>(TaskCreationOptions.RunContinuationsAsynchronously);
+            AppraisalSubmissionWaiters[key] = waiter;
+        }
+        return waiter.Task;
     }
 
     public static void BeginSession(ulong ownerId, uint sessionId)
@@ -244,6 +351,23 @@ internal static class DrawingNetSync
         });
     }
 
+    public static void SendBlankSettings(ulong ownerId, uint sessionId, bool excludePreviouslySelectedCards)
+    {
+        if (!IsMultiplayer)
+        {
+            return;
+        }
+
+        EnsureRegistered();
+        RunManager.Instance.NetService.SendMessage(new DrawingBlankSettingsMessage
+        {
+            OwnerId = ownerId,
+            SessionId = sessionId,
+            ExcludePreviouslySelectedCards = excludePreviouslySelectedCards,
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
     public static void DeliverPending(DrawingScreen screen, ulong ownerId, uint sessionId)
     {
         (ulong OwnerId, uint SessionId) key = (ownerId, sessionId);
@@ -263,6 +387,11 @@ internal static class DrawingNetSync
         if (PendingTimers.Remove(key, out DrawingTimerSyncMessage? timer))
         {
             screen.ReceiveTimer(timer);
+        }
+
+        if (PendingBlankSettings.Remove(key, out DrawingBlankSettingsMessage? blankSettings))
+        {
+            screen.ReceiveBlankSettings(blankSettings);
         }
 
         if (PendingFinals.Remove(key, out DrawingFinalMessage? final))
@@ -287,7 +416,10 @@ internal static class DrawingNetSync
             _registeredBuffer.UnregisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
+            _registeredBuffer.UnregisterMessageHandler<DrawingBlankSettingsMessage>(OnBlankSettingsReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
+            _registeredBuffer.UnregisterMessageHandler<RelicAppraisalFairTargetMessage>(OnAppraisalTargetReceived);
+            _registeredBuffer.UnregisterMessageHandler<RelicAppraisalFairSubmissionMessage>(OnAppraisalSubmissionReceived);
         }
 
         current.RegisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
@@ -296,7 +428,10 @@ internal static class DrawingNetSync
         current.RegisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
         current.RegisterMessageHandler<DrawingCanvasStateMessage>(OnCanvasStateReceived);
         current.RegisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
+        current.RegisterMessageHandler<DrawingBlankSettingsMessage>(OnBlankSettingsReceived);
         current.RegisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
+        current.RegisterMessageHandler<RelicAppraisalFairTargetMessage>(OnAppraisalTargetReceived);
+        current.RegisterMessageHandler<RelicAppraisalFairSubmissionMessage>(OnAppraisalSubmissionReceived);
         _registeredBuffer = current;
     }
 
@@ -414,6 +549,23 @@ internal static class DrawingNetSync
         }
     }
 
+    private static void OnBlankSettingsReceived(DrawingBlankSettingsMessage message, ulong senderId)
+    {
+        if (senderId != HostNetId)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected Blank settings from {senderId}; expected host {HostNetId}.");
+            return;
+        }
+
+        if (DrawingScreen.TryReceiveBlankSettings(message))
+        {
+            return;
+        }
+
+        PendingBlankSettings[(message.OwnerId, message.SessionId)] = message;
+    }
+
     private static void OnFinalReceived(DrawingFinalMessage message, ulong senderId)
     {
         if (senderId != message.OwnerId)
@@ -427,4 +579,54 @@ internal static class DrawingNetSync
             PendingFinals[(message.OwnerId, message.SessionId)] = message;
         }
     }
+
+    private static void OnAppraisalTargetReceived(RelicAppraisalFairTargetMessage message, ulong senderId)
+    {
+        if (senderId != HostNetId)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected relic appraisal target from non-host {senderId}.");
+            return;
+        }
+        AcceptAppraisalTarget(message.AppraisalId, message.OwnerId, message.TargetRelicId);
+    }
+
+    private static void AcceptAppraisalTarget(uint appraisalId, ulong ownerId, string targetRelicId)
+    {
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, ownerId);
+        AppraisalTargets[key] = targetRelicId;
+        if (AppraisalTargetWaiters.Remove(key, out TaskCompletionSource<string>? waiter))
+        {
+            waiter.TrySetResult(targetRelicId);
+        }
+    }
+
+    private static void OnAppraisalSubmissionReceived(RelicAppraisalFairSubmissionMessage message, ulong senderId)
+    {
+        if (senderId != message.OwnerId)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Rejected relic appraisal submission from {senderId}; expected {message.OwnerId}.");
+            return;
+        }
+        AcceptAppraisalSubmission(
+            message.AppraisalId,
+            new RelicAppraisalFairSubmission(
+                message.OwnerId,
+                message.TargetRelicId,
+                message.WorkTitle,
+                message.PngBytes));
+    }
+
+    private static void AcceptAppraisalSubmission(uint appraisalId, RelicAppraisalFairSubmission submission)
+    {
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, submission.OwnerId);
+        AppraisalSubmissions[key] = submission;
+        if (AppraisalSubmissionWaiters.Remove(
+                key,
+                out TaskCompletionSource<RelicAppraisalFairSubmission>? waiter))
+        {
+            waiter.TrySetResult(submission);
+        }
+    }
+
 }

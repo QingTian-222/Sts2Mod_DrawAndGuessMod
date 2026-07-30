@@ -34,6 +34,7 @@
     <Content Include="Models\card_dino_features.bin" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\dinov2_vits14.onnx" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\sketch_adapter.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\relic_features.bin" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -55,6 +56,11 @@
     <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\build-dino-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts109&quot; &quot;$(MSBuildProjectDirectory)\Models\dinov2_vits14.onnx&quot; &quot;$(MSBuildProjectDirectory)\Models\card_dino_features.bin&quot;" />
   </Target>
 
+  <Target Name="Generate Relic Art Model" BeforeTargets="BeforeBuild"
+          Condition="!Exists('Models\relic_features.bin') and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts109\images\relics')">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\train-relic-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts109&quot; &quot;$(MSBuildProjectDirectory)\Models\relic_features.bin&quot;" />
+  </Target>
+
   <Target Name="CopyUniversalOnnxRuntime" AfterTargets="CopyFilesToOutputDirectory">
     <Copy SourceFiles="@(UniversalOnnxRuntimeNative)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
   </Target>
@@ -68,6 +74,7 @@
     <Copy SourceFiles="Models\card_dino_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Models\dinov2_vits14.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="Models\sketch_adapter.onnx" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="Models\relic_features.bin" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\Models\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(MSBuildProjectName).pck" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(TargetDir)Microsoft.ML.OnnxRuntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)Microsoft.ML.OnnxRuntime.dll')" />
     <Copy SourceFiles="$(TargetDir)onnxruntime.dll" DestinationFolder="$(Sts2Dir)\mods\$(MSBuildProjectName)\" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)onnxruntime.dll')" />

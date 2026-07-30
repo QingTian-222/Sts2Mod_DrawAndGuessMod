@@ -84,7 +84,7 @@ public sealed class DrawingCommand : IPacketSerializable
                 writer.WriteUShort(Y1);
                 writer.WriteUShort(X2);
                 writer.WriteUShort(Y2);
-                writer.WriteUInt(ColorRgb, 24);
+                writer.WriteUInt(ColorRgb);
                 writer.WriteByte(BrushSize, 6);
                 writer.WriteBool(Erasing);
                 break;
@@ -93,7 +93,7 @@ public sealed class DrawingCommand : IPacketSerializable
             case DrawingCommandKind.Fill:
                 writer.WriteUShort(X1);
                 writer.WriteUShort(Y1);
-                writer.WriteUInt(ColorRgb, 24);
+                writer.WriteUInt(ColorRgb);
                 break;
             case DrawingCommandKind.Stamp:
                 writer.WriteUShort(X1);
@@ -117,7 +117,7 @@ public sealed class DrawingCommand : IPacketSerializable
                 Y1 = reader.ReadUShort();
                 X2 = reader.ReadUShort();
                 Y2 = reader.ReadUShort();
-                ColorRgb = reader.ReadUInt(24);
+                ColorRgb = reader.ReadUInt();
                 BrushSize = reader.ReadByte(6);
                 Erasing = reader.ReadBool();
                 break;
@@ -126,7 +126,7 @@ public sealed class DrawingCommand : IPacketSerializable
             case DrawingCommandKind.Fill:
                 X1 = reader.ReadUShort();
                 Y1 = reader.ReadUShort();
-                ColorRgb = reader.ReadUInt(24);
+                ColorRgb = reader.ReadUInt();
                 break;
             case DrawingCommandKind.Stamp:
                 X1 = reader.ReadUShort();
@@ -144,7 +144,8 @@ public sealed class DrawingCommand : IPacketSerializable
         uint red = (uint)Math.Clamp(Mathf.RoundToInt(color.R * 255f), 0, 255);
         uint green = (uint)Math.Clamp(Mathf.RoundToInt(color.G * 255f), 0, 255);
         uint blue = (uint)Math.Clamp(Mathf.RoundToInt(color.B * 255f), 0, 255);
-        return red << 16 | green << 8 | blue;
+        uint alpha = (uint)Math.Clamp(Mathf.RoundToInt(color.A * 255f), 0, 255);
+        return alpha << 24 | red << 16 | green << 8 | blue;
     }
 
     public static Color UnpackRgb(uint rgb)
@@ -152,6 +153,7 @@ public sealed class DrawingCommand : IPacketSerializable
         return new Color(
             ((rgb >> 16) & 0xFFu) / 255f,
             ((rgb >> 8) & 0xFFu) / 255f,
-            (rgb & 0xFFu) / 255f);
+            (rgb & 0xFFu) / 255f,
+            ((rgb >> 24) & 0xFFu) / 255f);
     }
 }

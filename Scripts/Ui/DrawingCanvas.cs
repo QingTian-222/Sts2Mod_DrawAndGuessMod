@@ -12,6 +12,10 @@ public partial class DrawingCanvas : Control
     public const int AncientCanvasHeight = 422;
     private const int AncientCanvasDisplayWidth = 360;
     private const int AncientCanvasDisplayHeight = 506;
+    public const int RelicCanvasWidth = 300;
+    public const int RelicCanvasHeight = 300;
+    private const int RelicCanvasDisplaySize = 300;
+    private const int TransparencyGridSize = 20;
     public const int MinBrushSize = 4;
     public const int MaxBrushSize = 48;
     public const int DefaultBrushSize = 14;
@@ -42,6 +46,7 @@ public partial class DrawingCanvas : Control
     private uint _nextOperationId = 1u;
     private uint _activeStrokeOperationId;
     private MouseButton? _activeStrokeButton;
+    private bool _activeStrokeErasing;
     private readonly Dictionary<byte, Image> _stampImages = new();
     private readonly Dictionary<(byte StampIndex, byte StampSize), Image> _scaledStampImages = new();
     private bool _drawing;
@@ -64,7 +69,7 @@ public partial class DrawingCanvas : Control
         MouseDefaultCursorShape = CursorShape.Cross;
         MouseFilter = MouseFilterEnum.Stop;
         _image = Image.CreateEmpty(_canvasWidth, _canvasHeight, false, Image.Format.Rgba8);
-        _image.Fill(PaperColor);
+        _image.Fill(CanvasBackgroundColor);
         _texture = ImageTexture.CreateFromImage(_image);
         MouseEntered += OnMouseEnteredCanvas;
         MouseExited += OnMouseExitedCanvas;
@@ -73,6 +78,10 @@ public partial class DrawingCanvas : Control
 
     public override void _Draw()
     {
+        if (CanvasMode == DrawingCanvasMode.Relic)
+        {
+            DrawTransparencyGrid();
+        }
         DrawTextureRect(_texture, new Rect2(Vector2.Zero, Size), false);
         if (_tool == DrawingTool.Stamp && _pointerInside && !_drawing && _stampImage != null && _stampPreviewTexture != null)
         {
@@ -135,6 +144,9 @@ public partial class DrawingCanvas : Control
                 _activeStrokeOperationId = NextOperationId();
                 _activeStrokeButton = button.ButtonIndex;
                 _activeStrokeColor = inputColor;
+                _activeStrokeErasing =
+                    CanvasMode == DrawingCanvasMode.Relic &&
+                    button.ButtonIndex == MouseButton.Right;
                 _drawing = true;
                 PaintLineLocal(_lastPixel, _lastPixel);
             }
@@ -184,9 +196,12 @@ public partial class DrawingCanvas : Control
     internal void SetCanvasMode(DrawingCanvasMode mode)
     {
         CanvasMode = mode;
-        (_canvasWidth, _canvasHeight) = mode == DrawingCanvasMode.Ancient
-            ? (AncientCanvasWidth, AncientCanvasHeight)
-            : (StandardCanvasWidth, StandardCanvasHeight);
+        (_canvasWidth, _canvasHeight) = mode switch
+        {
+            DrawingCanvasMode.Ancient => (AncientCanvasWidth, AncientCanvasHeight),
+            DrawingCanvasMode.Relic => (RelicCanvasWidth, RelicCanvasHeight),
+            _ => (StandardCanvasWidth, StandardCanvasHeight)
+        };
         CustomMinimumSize = GetCanvasDisplaySize(mode);
         CancelActiveOperation();
         if (_image == null)
@@ -195,16 +210,19 @@ public partial class DrawingCanvas : Control
         }
 
         _image = Image.CreateEmpty(_canvasWidth, _canvasHeight, false, Image.Format.Rgba8);
-        _image.Fill(PaperColor);
+        _image.Fill(CanvasBackgroundColor);
         _texture.SetImage(_image);
         QueueRedraw();
     }
 
     private static Vector2 GetCanvasDisplaySize(DrawingCanvasMode mode)
     {
-        return mode == DrawingCanvasMode.Ancient
-            ? new Vector2(AncientCanvasDisplayWidth, AncientCanvasDisplayHeight)
-            : new Vector2(StandardCanvasWidth, StandardCanvasHeight);
+        return mode switch
+        {
+            DrawingCanvasMode.Ancient => new Vector2(AncientCanvasDisplayWidth, AncientCanvasDisplayHeight),
+            DrawingCanvasMode.Relic => new Vector2(RelicCanvasDisplaySize, RelicCanvasDisplaySize),
+            _ => new Vector2(StandardCanvasWidth, StandardCanvasHeight)
+        };
     }
 
     public void SetMouseColors(Color leftColor, Color rightColor)
@@ -354,6 +372,7 @@ public partial class DrawingCanvas : Control
         _drawing = false;
         _activeStrokeOperationId = 0u;
         _activeStrokeButton = null;
+        _activeStrokeErasing = false;
         if (HasPointerPreview())
         {
             QueueRedraw();
@@ -376,7 +395,7 @@ public partial class DrawingCanvas : Control
         {
             for (int x = 0; x < _canvasWidth; x++)
             {
-                if (!ColorsAreClose(_image.GetPixel(x, y), PaperColor))
+                if (!ColorsAreClose(_image.GetPixel(x, y), CanvasBackgroundColor))
                 {
                     return false;
                 }
@@ -394,14 +413,14 @@ public partial class DrawingCanvas : Control
 
     private void PaintLineLocal(Vector2 from, Vector2 to)
     {
-        ApplyLine(from, to, _activeStrokeColor, false, _brushSize);
+        ApplyLine(from, to, _activeStrokeColor, _activeStrokeErasing, _brushSize);
         LocalCommandGenerated?.Invoke(DrawingCommand.Line(
             ToUShort(from.X),
             ToUShort(from.Y),
             ToUShort(to.X),
             ToUShort(to.Y),
             _activeStrokeColor,
-            false,
+            _activeStrokeErasing,
             _brushSize,
             _activeStrokeOperationId));
     }
@@ -421,7 +440,7 @@ public partial class DrawingCanvas : Control
     private void PaintBrush(int centerX, int centerY, Color brushColor, bool erasing, byte brushSize)
     {
         int radius = Mathf.Clamp(brushSize, MinBrushSize, MaxBrushSize) / 2;
-        Color color = erasing ? PaperColor : brushColor;
+        Color color = erasing ? CanvasBackgroundColor : brushColor;
         int radiusSquared = radius * radius;
         for (int y = -radius; y <= radius; y++)
         {
@@ -435,7 +454,7 @@ public partial class DrawingCanvas : Control
                 int py = centerY + y;
                 if (px >= 0 && py >= 0 && px < _canvasWidth && py < _canvasHeight)
                 {
-                    _image.SetPixel(px, py, color);
+                    PaintPixel(px, py, color, erasing);
                 }
             }
         }
@@ -472,7 +491,11 @@ public partial class DrawingCanvas : Control
                 continue;
             }
 
-            _image.SetPixel(point.X, point.Y, fillColor);
+            PaintPixel(
+                point.X,
+                point.Y,
+                fillColor,
+                CanvasMode == DrawingCanvasMode.Relic && fillColor.A <= 0.001f);
             EnqueueFillPoint(pending, visited, point.X - 1, point.Y);
             EnqueueFillPoint(pending, visited, point.X + 1, point.Y);
             EnqueueFillPoint(pending, visited, point.X, point.Y - 1);
@@ -481,6 +504,35 @@ public partial class DrawingCanvas : Control
 
         RefreshTexture();
         return true;
+    }
+
+    private void PaintPixel(int x, int y, Color color, bool erasing)
+    {
+        if (CanvasMode != DrawingCanvasMode.Relic || erasing)
+        {
+            _image.SetPixel(x, y, erasing ? CanvasBackgroundColor : color);
+            return;
+        }
+
+        Color destination = _image.GetPixel(x, y);
+        float sourceAlpha = Mathf.Clamp(color.A, 0f, 1f);
+        float destinationAlpha = Mathf.Clamp(destination.A, 0f, 1f);
+        float outputAlpha = sourceAlpha + destinationAlpha * (1f - sourceAlpha);
+        if (outputAlpha <= 0.0001f)
+        {
+            _image.SetPixel(x, y, Colors.Transparent);
+            return;
+        }
+
+        float destinationContribution = destinationAlpha * (1f - sourceAlpha);
+        _image.SetPixel(
+            x,
+            y,
+            new Color(
+                (color.R * sourceAlpha + destination.R * destinationContribution) / outputAlpha,
+                (color.G * sourceAlpha + destination.G * destinationContribution) / outputAlpha,
+                (color.B * sourceAlpha + destination.B * destinationContribution) / outputAlpha,
+                outputAlpha));
     }
 
     private void EnqueueFillPoint(Queue<Vector2I> pending, bool[] visited, int x, int y)
@@ -600,7 +652,7 @@ public partial class DrawingCanvas : Control
 
     private void ApplyClear()
     {
-        _image.Fill(PaperColor);
+        _image.Fill(CanvasBackgroundColor);
         RefreshTexture();
     }
 
@@ -609,7 +661,7 @@ public partial class DrawingCanvas : Control
         _batchApplying = true;
         try
         {
-            _image.Fill(PaperColor);
+            _image.Fill(CanvasBackgroundColor);
             foreach (DrawingCommand command in commands)
             {
                 ApplyRemote(command);
@@ -644,7 +696,7 @@ public partial class DrawingCanvas : Control
         _batchApplying = true;
         try
         {
-            _image.Fill(PaperColor);
+            _image.Fill(CanvasBackgroundColor);
             foreach (DrawingPixelPatch patch in patches)
             {
                 patch.Apply(_image);
@@ -686,6 +738,7 @@ public partial class DrawingCanvas : Control
         _drawing = false;
         _activeStrokeOperationId = 0u;
         _activeStrokeButton = null;
+        _activeStrokeErasing = false;
         if (HasPointerPreview())
         {
             QueueRedraw();
@@ -700,5 +753,31 @@ public partial class DrawingCanvas : Control
     private static Color NormalizeColor(Color color)
     {
         return DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
+    }
+
+    private Color CanvasBackgroundColor => CanvasMode == DrawingCanvasMode.Relic
+        ? Colors.Transparent
+        : PaperColor;
+
+    private void DrawTransparencyGrid()
+    {
+        Color light = new("D8D8D8");
+        Color dark = new("AFAFAF");
+        int columns = Mathf.CeilToInt(Size.X / TransparencyGridSize);
+        int rows = Mathf.CeilToInt(Size.Y / TransparencyGridSize);
+        for (int row = 0; row < rows; row++)
+        {
+            for (int column = 0; column < columns; column++)
+            {
+                Color color = (row + column) % 2 == 0 ? light : dark;
+                DrawRect(
+                    new Rect2(
+                        column * TransparencyGridSize,
+                        row * TransparencyGridSize,
+                        TransparencyGridSize,
+                        TransparencyGridSize),
+                    color);
+            }
+        }
     }
 }

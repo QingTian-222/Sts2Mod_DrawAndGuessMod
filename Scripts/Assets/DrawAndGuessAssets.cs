@@ -6,33 +6,44 @@ internal static class DrawAndGuessAssets
 {
     public const string GalleryPortraitPath =
         "res://images/events/draw_and_guess_mod_event_vakuus_infinite_gallery.png";
+    public const string RelicAppraisalFairPortraitPath =
+        "res://images/events/draw_and_guess_mod_event_relic_appraisal_fair.png";
 
     public static void Install()
     {
-        if (!ResourceLoader.Exists(GalleryPortraitPath))
+        LoadPackedImage(GalleryPortraitPath);
+        LoadPackedImage(RelicAppraisalFairPortraitPath);
+    }
+
+    private static void LoadPackedImage(string path)
+    {
+        if (!ResourceLoader.Exists(path))
         {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Packed image asset not found: {GalleryPortraitPath}");
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Packed image asset not found: {path}");
             return;
         }
 
         try
         {
             Texture2D? texture = ResourceLoader.Load<Texture2D>(
-                GalleryPortraitPath,
+                path,
                 null,
                 ResourceLoader.CacheMode.Reuse);
             if (texture == null)
             {
-                Entry.Logger.Warn($"[DrawAndGuessMod] Packed image asset could not be loaded: {GalleryPortraitPath}");
+                Entry.Logger.Warn(
+                    $"[DrawAndGuessMod] Packed image asset could not be loaded: {path}");
                 return;
             }
 
-            Entry.Logger.Info($"[DrawAndGuessMod] Loaded packed image asset: {GalleryPortraitPath}");
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Loaded packed image asset: {path}");
         }
         catch (System.Exception ex)
         {
             Entry.Logger.Warn(
-                $"[DrawAndGuessMod] Failed to load packed image asset '{GalleryPortraitPath}': {ex.Message}");
+                $"[DrawAndGuessMod] Failed to load packed image asset '{path}': {ex.Message}");
         }
     }
 }
