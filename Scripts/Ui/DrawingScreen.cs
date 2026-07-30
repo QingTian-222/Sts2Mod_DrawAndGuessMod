@@ -38,6 +38,8 @@ public partial class DrawingScreen : Control
         "res://images/atlases/relic_atlas.sprites/pen_nib.tres";
     private const string InkBottleIconPath =
         "res://images/atlases/relic_atlas.sprites/ink_bottle.tres";
+    private const string EraserIconPath =
+        "res://images/atlases/relic_atlas.sprites/orichalcum.tres";
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
     private readonly List<DrawingCommand> _pendingCommands = new();
@@ -506,7 +508,7 @@ public partial class DrawingScreen : Control
                 "Shortcut: hold G temporarily and release to return to the brush\n"),
             drawingToolGroup);
         _eraserToolButton = CreateDrawingToolButton(
-            null,
+            ResourceLoader.Load<Texture2D>(EraserIconPath, null, ResourceLoader.CacheMode.Reuse),
             Localized("橡皮擦", "Eraser"),
             Localized(
                 "按住 E 临时切换，松开回到画笔；使用与画笔相同的粗细",
