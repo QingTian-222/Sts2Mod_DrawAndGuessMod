@@ -13,7 +13,7 @@ using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Ui;
 
-internal static class RelicAuctionTreasureFlow
+internal static class RelicAppraisalFairTreasureFlow
 {
     private const string TreasureRoomScenePath =
         "res://scenes/rooms/treasure_room.tscn";
@@ -29,32 +29,32 @@ internal static class RelicAuctionTreasureFlow
     }
 
     public static Task<IReadOnlyDictionary<ulong, string>> RunAsync(
-        uint auctionId,
+        uint appraisalId,
         RunState runState,
-        IReadOnlyList<RelicAuctionSubmission> submissions)
+        IReadOnlyList<RelicAppraisalFairSubmission> submissions)
     {
-        if (ActiveFlows.TryGetValue(auctionId, out Task<IReadOnlyDictionary<ulong, string>>? active))
+        if (ActiveFlows.TryGetValue(appraisalId, out Task<IReadOnlyDictionary<ulong, string>>? active))
         {
             return active;
         }
 
         Task<IReadOnlyDictionary<ulong, string>> flow =
             RunInternalAsync(runState, submissions);
-        ActiveFlows[auctionId] = flow;
+        ActiveFlows[appraisalId] = flow;
         return flow;
     }
 
     private static async Task<IReadOnlyDictionary<ulong, string>> RunInternalAsync(
         RunState runState,
-        IReadOnlyList<RelicAuctionSubmission> submissions)
+        IReadOnlyList<RelicAppraisalFairSubmission> submissions)
     {
-        List<RelicAuctionSubmission> orderedSubmissions = submissions
+        List<RelicAppraisalFairSubmission> orderedSubmissions = submissions
             .OrderBy(submission => submission.OwnerId)
             .ToList();
         List<RelicModel> relics = orderedSubmissions
             .Select(submission => FindRelic(submission.TargetRelicId))
             .ToList();
-        RelicAuctionArtworkStore.InstallPresentations(orderedSubmissions);
+        RelicAppraisalFairArtworkStore.InstallPresentations(orderedSubmissions);
 
         TreasureRoomRelicSynchronizer synchronizer =
             RunManager.Instance.TreasureRoomRelicSynchronizer;
@@ -67,7 +67,7 @@ internal static class RelicAuctionTreasureFlow
                 if (result.player != null &&
                     result.type != RelicPickingResultType.Skipped)
                 {
-                    RelicAuctionArtworkStore.MarkAwarded(result.relic);
+                    RelicAppraisalFairArtworkStore.MarkAwarded(result.relic);
                 }
             }
 
@@ -110,7 +110,7 @@ internal static class RelicAuctionTreasureFlow
 
             overlay = new Control
             {
-                Name = "DrawAndGuessMod_RelicAuctionTreasureOverlay",
+                Name = "DrawAndGuessMod_RelicAppraisalFairTreasureOverlay",
                 MouseFilter = Control.MouseFilterEnum.Stop,
                 ZIndex = 0
             };
@@ -145,7 +145,7 @@ internal static class RelicAuctionTreasureFlow
             parent.AddChild(overlay);
 
             collection.Initialize(runState);
-            RelicAuctionArtworkStore.SetPickingActive(true);
+            RelicAppraisalFairArtworkStore.SetPickingActive(true);
             collection.InitializeRelics();
             collection.AnimIn(dummyChest);
             collection.DefaultFocusedControl?.TryGrabFocus();
@@ -161,7 +161,7 @@ internal static class RelicAuctionTreasureFlow
         }
         finally
         {
-            RelicAuctionArtworkStore.SetPickingActive(false);
+            RelicAppraisalFairArtworkStore.SetPickingActive(false);
             synchronizer.RelicsAwarded -= OnRelicsAwarded;
             if (synchronizerPrepared && synchronizer.CurrentRelics != null)
             {
@@ -198,7 +198,7 @@ internal static class RelicAuctionTreasureFlow
         if (synchronizer.CurrentRelics != null)
         {
             throw new InvalidOperationException(
-                "Cannot start the relic auction while another relic picking session is active.");
+                "Cannot start the relic appraisal fair while another relic picking session is active.");
         }
 
         CurrentRelicsField.SetValue(synchronizer, relics);
@@ -231,7 +231,7 @@ internal static class RelicAuctionTreasureFlow
         return ModelDb.AllRelics.FirstOrDefault(relic =>
                    string.Equals(relic.Id.Entry, relicId, StringComparison.Ordinal))
                ?? throw new InvalidOperationException(
-                   $"The relic auction references missing relic '{relicId}'.");
+                   $"The relic appraisal fair references missing relic '{relicId}'.");
     }
 
     private static FieldInfo GetField(string name)

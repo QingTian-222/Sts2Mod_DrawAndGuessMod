@@ -12,9 +12,9 @@ public partial class DrawingCanvas : Control
     public const int AncientCanvasHeight = 422;
     private const int AncientCanvasDisplayWidth = 360;
     private const int AncientCanvasDisplayHeight = 506;
-    public const int RelicCanvasWidth = 420;
-    public const int RelicCanvasHeight = 420;
-    private const int RelicCanvasDisplaySize = 460;
+    public const int RelicCanvasWidth = 300;
+    public const int RelicCanvasHeight = 300;
+    private const int RelicCanvasDisplaySize = 300;
     private const int TransparencyGridSize = 20;
     public const int MinBrushSize = 4;
     public const int MaxBrushSize = 48;
@@ -46,6 +46,7 @@ public partial class DrawingCanvas : Control
     private uint _nextOperationId = 1u;
     private uint _activeStrokeOperationId;
     private MouseButton? _activeStrokeButton;
+    private bool _activeStrokeErasing;
     private readonly Dictionary<byte, Image> _stampImages = new();
     private readonly Dictionary<(byte StampIndex, byte StampSize), Image> _scaledStampImages = new();
     private bool _drawing;
@@ -143,6 +144,9 @@ public partial class DrawingCanvas : Control
                 _activeStrokeOperationId = NextOperationId();
                 _activeStrokeButton = button.ButtonIndex;
                 _activeStrokeColor = inputColor;
+                _activeStrokeErasing =
+                    CanvasMode == DrawingCanvasMode.Relic &&
+                    button.ButtonIndex == MouseButton.Right;
                 _drawing = true;
                 PaintLineLocal(_lastPixel, _lastPixel);
             }
@@ -368,6 +372,7 @@ public partial class DrawingCanvas : Control
         _drawing = false;
         _activeStrokeOperationId = 0u;
         _activeStrokeButton = null;
+        _activeStrokeErasing = false;
         if (HasPointerPreview())
         {
             QueueRedraw();
@@ -408,14 +413,14 @@ public partial class DrawingCanvas : Control
 
     private void PaintLineLocal(Vector2 from, Vector2 to)
     {
-        ApplyLine(from, to, _activeStrokeColor, false, _brushSize);
+        ApplyLine(from, to, _activeStrokeColor, _activeStrokeErasing, _brushSize);
         LocalCommandGenerated?.Invoke(DrawingCommand.Line(
             ToUShort(from.X),
             ToUShort(from.Y),
             ToUShort(to.X),
             ToUShort(to.Y),
             _activeStrokeColor,
-            false,
+            _activeStrokeErasing,
             _brushSize,
             _activeStrokeOperationId));
     }
@@ -449,7 +454,7 @@ public partial class DrawingCanvas : Control
                 int py = centerY + y;
                 if (px >= 0 && py >= 0 && px < _canvasWidth && py < _canvasHeight)
                 {
-                    _image.SetPixel(px, py, color);
+                    PaintPixel(px, py, color, erasing);
                 }
             }
         }
@@ -486,7 +491,11 @@ public partial class DrawingCanvas : Control
                 continue;
             }
 
-            _image.SetPixel(point.X, point.Y, fillColor);
+            PaintPixel(
+                point.X,
+                point.Y,
+                fillColor,
+                CanvasMode == DrawingCanvasMode.Relic && fillColor.A <= 0.001f);
             EnqueueFillPoint(pending, visited, point.X - 1, point.Y);
             EnqueueFillPoint(pending, visited, point.X + 1, point.Y);
             EnqueueFillPoint(pending, visited, point.X, point.Y - 1);
@@ -495,6 +504,35 @@ public partial class DrawingCanvas : Control
 
         RefreshTexture();
         return true;
+    }
+
+    private void PaintPixel(int x, int y, Color color, bool erasing)
+    {
+        if (CanvasMode != DrawingCanvasMode.Relic || erasing)
+        {
+            _image.SetPixel(x, y, erasing ? CanvasBackgroundColor : color);
+            return;
+        }
+
+        Color destination = _image.GetPixel(x, y);
+        float sourceAlpha = Mathf.Clamp(color.A, 0f, 1f);
+        float destinationAlpha = Mathf.Clamp(destination.A, 0f, 1f);
+        float outputAlpha = sourceAlpha + destinationAlpha * (1f - sourceAlpha);
+        if (outputAlpha <= 0.0001f)
+        {
+            _image.SetPixel(x, y, Colors.Transparent);
+            return;
+        }
+
+        float destinationContribution = destinationAlpha * (1f - sourceAlpha);
+        _image.SetPixel(
+            x,
+            y,
+            new Color(
+                (color.R * sourceAlpha + destination.R * destinationContribution) / outputAlpha,
+                (color.G * sourceAlpha + destination.G * destinationContribution) / outputAlpha,
+                (color.B * sourceAlpha + destination.B * destinationContribution) / outputAlpha,
+                outputAlpha));
     }
 
     private void EnqueueFillPoint(Queue<Vector2I> pending, bool[] visited, int x, int y)
@@ -700,6 +738,7 @@ public partial class DrawingCanvas : Control
         _drawing = false;
         _activeStrokeOperationId = 0u;
         _activeStrokeButton = null;
+        _activeStrokeErasing = false;
         if (HasPointerPreview())
         {
             QueueRedraw();

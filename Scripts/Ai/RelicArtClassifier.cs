@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using Godot;
-using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Models;
 
 namespace DrawAndGuessMod.Scripts.Ai;
@@ -13,8 +14,22 @@ internal static class RelicArtClassifier
 {
     private const int RecognitionSize = 224;
     private const int ArtworkSize = 192;
+    private const int ModelVersion = 2;
+    private const int BaseFeatureCount = 384;
+    private const int FeatureCount = BaseFeatureCount * 3;
+    private const double WhiteBackgroundWeight = 0.45d;
+    private const double DarkBackgroundWeight = 0.30d;
+    private const double AlphaMaskWeight = 0.25d;
+    private static readonly Color DarkRecognitionBackground =
+        new(0.12f, 0.14f, 0.18f, 1f);
     private static readonly object SamplesLock = new();
     private static List<RelicSample>? _samples;
+    private static Dictionary<string, double[]>? _pretrainedFeatures;
+
+    public static void Preload()
+    {
+        _pretrainedFeatures ??= LoadPretrainedFeatures();
+    }
 
     public static IReadOnlyList<RelicModel> GetEligibleRelics()
     {
@@ -25,12 +40,7 @@ internal static class RelicArtClassifier
     private static IReadOnlyList<RelicModel> GetRawEligibleRelics()
     {
         return ModelDb.AllRelics
-            .Where(relic => relic.IsTradable)
-            .Where(relic => relic.Rarity is
-                RelicRarity.Common or
-                RelicRarity.Uncommon or
-                RelicRarity.Rare or
-                RelicRarity.Shop)
+            .Where(relic => !relic.IsMock)
             .OrderBy(relic => relic.Id.Entry, StringComparer.Ordinal)
             .ToList();
     }
@@ -43,8 +53,8 @@ internal static class RelicArtClassifier
             return null;
         }
 
-        Image normalized = NormalizeTransparentArtwork(drawing);
-        double[] drawingFeatures = CardArtClassifier.ExtractFeatures(normalized, treatAsSketch: true);
+        double[] drawingFeatures =
+            ExtractRelicFeatures(drawing, treatAsSketch: true);
         RelicSample? nearest = null;
         double nearestDistance = double.MaxValue;
         foreach (RelicSample sample in _samples)
@@ -79,35 +89,202 @@ internal static class RelicArtClassifier
                 return;
             }
 
+            Preload();
             List<RelicSample> samples = new();
+            int pretrained = 0;
+            int dynamic = 0;
             foreach (RelicModel relic in GetRawEligibleRelics())
             {
+                double[]? features = null;
+                if (_pretrainedFeatures != null &&
+                    _pretrainedFeatures.TryGetValue(
+                        relic.Id.Entry,
+                        out double[]? cachedFeatures))
+                {
+                    features = cachedFeatures;
+                    pretrained++;
+                }
+
                 try
                 {
-                    Image source = relic.BigIcon.GetImage();
-                    if (source.IsEmpty())
+                    if (features == null)
                     {
-                        continue;
+                        Image source = relic.BigIcon.GetImage();
+                        if (!source.IsEmpty())
+                        {
+                            features = ExtractRelicFeatures(
+                                source,
+                                treatAsSketch: false);
+                            dynamic++;
+                        }
                     }
-
-                    Image normalized = NormalizeTransparentArtwork(source);
-                    samples.Add(new RelicSample(
-                        relic,
-                        CardArtClassifier.ExtractFeatures(normalized, treatAsSketch: false)));
                 }
                 catch (Exception ex)
                 {
                     Entry.Logger.Debug(
                         $"[DrawAndGuessMod] Could not extract relic artwork {relic.Id.Entry}: {ex.Message}");
                 }
+
+                if (features != null)
+                {
+                    samples.Add(new RelicSample(relic, features));
+                }
             }
 
             _samples = samples;
-            Entry.Logger.Info($"[DrawAndGuessMod] Relic artwork classifier ready with {samples.Count} relics.");
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Relic artwork classifier ready with {samples.Count} relics " +
+                $"(preprocessed={pretrained}, dynamic={dynamic}).");
         }
     }
 
-    private static Image NormalizeTransparentArtwork(Image source)
+    private static Dictionary<string, double[]> LoadPretrainedFeatures()
+    {
+        foreach (string path in CandidateModelPaths())
+        {
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                using FileStream stream = File.OpenRead(path);
+                using BinaryReader reader = new(
+                    stream,
+                    Encoding.UTF8,
+                    leaveOpen: false);
+                if (!reader.ReadBytes(4).SequenceEqual("DAGR"u8.ToArray()))
+                {
+                    throw new InvalidDataException("invalid magic");
+                }
+
+                int version = reader.ReadInt32();
+                int featureCount = reader.ReadInt32();
+                int sampleCount = reader.ReadInt32();
+                if (version != ModelVersion ||
+                    featureCount != FeatureCount ||
+                    sampleCount < 0 ||
+                    sampleCount > 10000)
+                {
+                    throw new InvalidDataException(
+                        $"unsupported header version={version}, " +
+                        $"features={featureCount}, samples={sampleCount}");
+                }
+
+                Dictionary<string, double[]> result =
+                    new(sampleCount, StringComparer.Ordinal);
+                for (int sampleIndex = 0;
+                     sampleIndex < sampleCount;
+                     sampleIndex++)
+                {
+                    ushort idLength = reader.ReadUInt16();
+                    string relicId = Encoding.UTF8.GetString(
+                        reader.ReadBytes(idLength));
+                    double[] features = new double[featureCount];
+                    for (int featureIndex = 0;
+                         featureIndex < featureCount;
+                         featureIndex++)
+                    {
+                        features[featureIndex] = reader.ReadSingle();
+                    }
+                    result[relicId] = features;
+                }
+
+                Entry.Logger.Info(
+                    $"[DrawAndGuessMod] Preloaded {result.Count} relic-art feature records.");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Entry.Logger.Warn(
+                    $"[DrawAndGuessMod] Failed to load preprocessed relic model " +
+                    $"'{path}': {ex.Message}");
+            }
+        }
+
+        Entry.Logger.Warn(
+            "[DrawAndGuessMod] Preprocessed relic model was not found; " +
+            "falling back to runtime feature extraction.");
+        return new Dictionary<string, double[]>(StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> CandidateModelPaths()
+    {
+        string? assemblyDirectory = Path.GetDirectoryName(
+            typeof(RelicArtClassifier).Assembly.Location);
+        if (!string.IsNullOrWhiteSpace(assemblyDirectory))
+        {
+            yield return Path.Combine(
+                assemblyDirectory,
+                "Models",
+                "relic_features.bin");
+        }
+        yield return Path.Combine(
+            "mods",
+            Entry.ModId,
+            "Models",
+            "relic_features.bin");
+    }
+
+    private static double[] ExtractRelicFeatures(
+        Image source,
+        bool treatAsSketch)
+    {
+        NormalizedRelicArtwork normalized =
+            NormalizeTransparentArtwork(source);
+        double[] whiteFeatures = CardArtClassifier.ExtractFeatures(
+            normalized.WhiteBackground,
+            treatAsSketch);
+        double[] darkFeatures = CardArtClassifier.ExtractFeatures(
+            normalized.DarkBackground,
+            treatAsSketch);
+        double[] alphaFeatures = CardArtClassifier.ExtractFeatures(
+            normalized.AlphaMask,
+            treatAsSketch: false);
+
+        double[] combined = new double[FeatureCount];
+        CopyWeightedFeatures(
+            whiteFeatures,
+            combined,
+            0,
+            WhiteBackgroundWeight);
+        CopyWeightedFeatures(
+            darkFeatures,
+            combined,
+            BaseFeatureCount,
+            DarkBackgroundWeight);
+        CopyWeightedFeatures(
+            alphaFeatures,
+            combined,
+            BaseFeatureCount * 2,
+            AlphaMaskWeight);
+        return combined;
+    }
+
+    private static void CopyWeightedFeatures(
+        IReadOnlyList<double> source,
+        double[] destination,
+        int destinationOffset,
+        double weight)
+    {
+        if (source.Count != BaseFeatureCount)
+        {
+            throw new InvalidDataException(
+                $"Unexpected relic feature count {source.Count}; " +
+                $"expected {BaseFeatureCount}.");
+        }
+
+        double scale = Math.Sqrt(weight);
+        for (int index = 0; index < source.Count; index++)
+        {
+            destination[destinationOffset + index] =
+                source[index] * scale;
+        }
+    }
+
+    private static NormalizedRelicArtwork NormalizeTransparentArtwork(
+        Image source)
     {
         Image image = Image.CreateFromData(
             source.GetWidth(),
@@ -117,14 +294,14 @@ internal static class RelicArtClassifier
             source.GetData());
         if (image.IsCompressed() && image.Decompress() != Error.Ok)
         {
-            return CreateWhiteRecognitionImage();
+            return CreateBlankNormalizedArtwork();
         }
 
         image.Convert(Image.Format.Rgba8);
         Rect2I contentBounds = FindContentBounds(image);
         if (contentBounds.Size.X <= 0 || contentBounds.Size.Y <= 0)
         {
-            return CreateWhiteRecognitionImage();
+            return CreateBlankNormalizedArtwork();
         }
 
         Image artwork = image.GetRegion(contentBounds);
@@ -133,12 +310,44 @@ internal static class RelicArtClassifier
         int height = Math.Max(1, Mathf.RoundToInt(artwork.GetHeight() * scale));
         artwork.Resize(width, height, Image.Interpolation.Lanczos);
 
-        Image normalized = CreateWhiteRecognitionImage();
-        normalized.BlendRect(
+        Vector2I destination =
+            new(
+                (RecognitionSize - width) / 2,
+                (RecognitionSize - height) / 2);
+        Rect2I sourceRect = new(0, 0, width, height);
+
+        Image whiteBackground =
+            CreateRecognitionImage(Colors.White);
+        whiteBackground.BlendRect(
             artwork,
-            new Rect2I(0, 0, width, height),
-            new Vector2I((RecognitionSize - width) / 2, (RecognitionSize - height) / 2));
-        return normalized;
+            sourceRect,
+            destination);
+
+        Image darkBackground =
+            CreateRecognitionImage(DarkRecognitionBackground);
+        darkBackground.BlendRect(
+            artwork,
+            sourceRect,
+            destination);
+
+        Image alphaMask = CreateRecognitionImage(Colors.White);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float alpha = artwork.GetPixel(x, y).A;
+                float value = 1f - alpha;
+                alphaMask.SetPixel(
+                    destination.X + x,
+                    destination.Y + y,
+                    new Color(value, value, value, 1f));
+            }
+        }
+
+        return new NormalizedRelicArtwork(
+            whiteBackground,
+            darkBackground,
+            alphaMask);
     }
 
     private static Rect2I FindContentBounds(Image image)
@@ -170,12 +379,25 @@ internal static class RelicArtClassifier
             : new Rect2I(minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
-    private static Image CreateWhiteRecognitionImage()
+    private static NormalizedRelicArtwork CreateBlankNormalizedArtwork()
+    {
+        return new NormalizedRelicArtwork(
+            CreateRecognitionImage(Colors.White),
+            CreateRecognitionImage(DarkRecognitionBackground),
+            CreateRecognitionImage(Colors.White));
+    }
+
+    private static Image CreateRecognitionImage(Color background)
     {
         Image image = Image.CreateEmpty(RecognitionSize, RecognitionSize, false, Image.Format.Rgba8);
-        image.Fill(Colors.White);
+        image.Fill(background);
         return image;
     }
+
+    private sealed record NormalizedRelicArtwork(
+        Image WhiteBackground,
+        Image DarkBackground,
+        Image AlphaMask);
 
     private sealed record RelicSample(RelicModel Relic, double[] Features);
 }

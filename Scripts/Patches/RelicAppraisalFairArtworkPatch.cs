@@ -1,3 +1,4 @@
+using DrawAndGuessMod.Scripts.Events;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.State;
 using Godot;
@@ -6,6 +7,7 @@ using MegaCrit.Sts2.addons.mega_text;
 using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Nodes.Events;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens.InspectScreens;
@@ -17,8 +19,31 @@ using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Patches;
 
+[HarmonyPatch(typeof(NEventLayout), nameof(NEventLayout.SetEvent))]
+internal static class RelicAppraisalFairPortraitLayoutPatch
+{
+    private static void Postfix(NEventLayout __instance, EventModel eventModel)
+    {
+        if (eventModel is not RelicAppraisalFair)
+        {
+            return;
+        }
+
+        TextureRect? portrait =
+            __instance.GetNodeOrNull<TextureRect>("%Portrait");
+        if (portrait == null)
+        {
+            return;
+        }
+
+        portrait.Scale = Vector2.One;
+        portrait.StretchMode =
+            TextureRect.StretchModeEnum.KeepAspectCentered;
+    }
+}
+
 [HarmonyPatch(typeof(NRelic), "Reload")]
-internal static class RelicAuctionRelicIconPatch
+internal static class RelicAppraisalFairRelicIconPatch
 {
     private static void Postfix(NRelic __instance)
     {
@@ -38,23 +63,23 @@ internal static class RelicAuctionRelicIconPatch
             return;
         }
 
-        bool isAuctionStand =
-            RelicAuctionArtworkStore.IsPickingActive &&
+        bool isAppraisalStand =
+            RelicAppraisalFairArtworkStore.IsPickingActive &&
             HasAncestor<NTreasureRoomRelicHolder>(__instance);
         bool isAwarded =
-            RelicAuctionArtworkStore.TryGetAwarded(
+            RelicAppraisalFairArtworkStore.TryGetAwarded(
                 model,
-                out RelicAuctionPresentation? awardedPresentation);
-        if (!isAuctionStand &&
+                out RelicAppraisalFairPresentation? awardedPresentation);
+        if (!isAppraisalStand &&
             !isAwarded)
         {
             return;
         }
 
-        RelicAuctionPresentation? presentation =
+        RelicAppraisalFairPresentation? presentation =
             awardedPresentation;
         if (presentation == null &&
-            !RelicAuctionArtworkStore.TryGet(
+            !RelicAppraisalFairArtworkStore.TryGet(
                 model,
                 out presentation))
         {
@@ -84,13 +109,13 @@ internal static class RelicAuctionRelicIconPatch
     typeof(RelicModel),
     nameof(RelicModel.Icon),
     MethodType.Getter)]
-internal static class RelicAuctionRelicTriggerIconPatch
+internal static class RelicAppraisalFairRelicTriggerIconPatch
 {
     private static void Postfix(
         RelicModel __instance,
         ref Texture2D __result)
     {
-        if (RelicAuctionArtworkStore.TryGetTriggerArtwork(
+        if (RelicAppraisalFairArtworkStore.TryGetTriggerArtwork(
                 __instance,
                 out Texture2D? triggerArtwork))
         {
@@ -100,7 +125,7 @@ internal static class RelicAuctionRelicTriggerIconPatch
 }
 
 [HarmonyPatch(typeof(NRelicInventoryHolder), "DoFlash")]
-internal static class RelicAuctionInventoryFlashPatch
+internal static class RelicAppraisalFairInventoryFlashPatch
 {
     private static readonly AccessTools.FieldRef<
         NRelicInventoryHolder,
@@ -111,7 +136,7 @@ internal static class RelicAuctionInventoryFlashPatch
         NRelicInventoryHolder __instance,
         ref RelicModel? __state)
     {
-        __state = RelicAuctionArtworkStore.PushTriggerIconContext(
+        __state = RelicAppraisalFairArtworkStore.PushTriggerIconContext(
             Relic(__instance).Model);
     }
 
@@ -119,13 +144,13 @@ internal static class RelicAuctionInventoryFlashPatch
         System.Exception? __exception,
         RelicModel? __state)
     {
-        RelicAuctionArtworkStore.RestoreTriggerIconContext(__state);
+        RelicAppraisalFairArtworkStore.RestoreTriggerIconContext(__state);
         return __exception;
     }
 }
 
 [HarmonyPatch(typeof(NRelicFlashVfx), "StartVfx")]
-internal static class RelicAuctionCombatFlashPatch
+internal static class RelicAppraisalFairCombatFlashPatch
 {
     private static readonly AccessTools.FieldRef<
         NRelicFlashVfx,
@@ -136,7 +161,7 @@ internal static class RelicAuctionCombatFlashPatch
         NRelicFlashVfx __instance,
         ref RelicModel? __state)
     {
-        __state = RelicAuctionArtworkStore.PushTriggerIconContext(
+        __state = RelicAppraisalFairArtworkStore.PushTriggerIconContext(
             Relic(__instance));
     }
 
@@ -144,7 +169,7 @@ internal static class RelicAuctionCombatFlashPatch
         System.Exception? __exception,
         RelicModel? __state)
     {
-        RelicAuctionArtworkStore.RestoreTriggerIconContext(__state);
+        RelicAppraisalFairArtworkStore.RestoreTriggerIconContext(__state);
         return __exception;
     }
 }
@@ -153,16 +178,16 @@ internal static class RelicAuctionCombatFlashPatch
     typeof(RelicModel),
     nameof(RelicModel.HoverTip),
     MethodType.Getter)]
-internal static class RelicAuctionRelicNamePatch
+internal static class RelicAppraisalFairRelicNamePatch
 {
     private static void Postfix(
         RelicModel __instance,
         ref HoverTip __result)
     {
         if (!__instance.IsMutable ||
-            !RelicAuctionArtworkStore.TryGetAwarded(
+            !RelicAppraisalFairArtworkStore.TryGetAwarded(
                 __instance,
-                out RelicAuctionPresentation? presentation))
+                out RelicAppraisalFairPresentation? presentation))
         {
             return;
         }
@@ -179,14 +204,14 @@ internal static class RelicAuctionRelicNamePatch
     {
         LocString title = new(
             "events",
-            "DRAW_AND_GUESS_MOD_EVENT_RELIC_AUCTION.work.title");
+            "DRAW_AND_GUESS_MOD_EVENT_RELIC_APPRAISAL_FAIR.work.title");
         title.Add("Title", workTitle);
         return title;
     }
 }
 
 [HarmonyPatch(typeof(NInspectRelicScreen), "UpdateRelicDisplay")]
-internal static class RelicAuctionInspectRelicPatch
+internal static class RelicAppraisalFairInspectRelicPatch
 {
     private static readonly AccessTools.FieldRef<
         NInspectRelicScreen,
@@ -215,9 +240,9 @@ internal static class RelicAuctionInspectRelicPatch
             index < 0 ||
             index >= relics.Count ||
             !relics[index].IsMutable ||
-            !RelicAuctionArtworkStore.TryGetAwarded(
+            !RelicAppraisalFairArtworkStore.TryGetAwarded(
                 relics[index],
-                out RelicAuctionPresentation? presentation))
+                out RelicAppraisalFairPresentation? presentation))
         {
             return;
         }
@@ -230,12 +255,12 @@ internal static class RelicAuctionInspectRelicPatch
 [HarmonyPatch(
     typeof(NTreasureRoomRelicHolder),
     nameof(NTreasureRoomRelicHolder.Initialize))]
-internal static class RelicAuctionRelicGlowPatch
+internal static class RelicAppraisalFairRelicGlowPatch
 {
     private static void Postfix(NTreasureRoomRelicHolder __instance)
     {
-        if (!RelicAuctionArtworkStore.IsPickingActive ||
-            !RelicAuctionArtworkStore.TryGet(
+        if (!RelicAppraisalFairArtworkStore.IsPickingActive ||
+            !RelicAppraisalFairArtworkStore.TryGet(
                 __instance.Relic.Model,
                 out _))
         {
@@ -243,7 +268,8 @@ internal static class RelicAuctionRelicGlowPatch
         }
 
         HideGlow(__instance.GetNodeOrNull<GpuParticles2D>("%UncommonGlow"));
-        HideGlow(__instance.GetNodeOrNull<GpuParticles2D>("%RareGlow"));
+        ShowAppraisalGlow(
+            __instance.GetNodeOrNull<GpuParticles2D>("%RareGlow"));
     }
 
     private static void HideGlow(GpuParticles2D? glow)
@@ -256,17 +282,40 @@ internal static class RelicAuctionRelicGlowPatch
         glow.Emitting = false;
         glow.Visible = false;
     }
+
+    private static void ShowAppraisalGlow(GpuParticles2D? glow)
+    {
+        if (glow == null)
+        {
+            return;
+        }
+
+        if (glow.ProcessMaterial is ParticleProcessMaterial source)
+        {
+            ParticleProcessMaterial material =
+                (ParticleProcessMaterial)source.Duplicate();
+            material.Color = new Color(0.48f, 0.72f, 1f, 0.48f);
+            material.HueVariationMin = -0.02f;
+            material.HueVariationMax = 0.04f;
+            glow.ProcessMaterial = material;
+        }
+
+        glow.Modulate = Colors.White;
+        glow.Visible = true;
+        glow.Emitting = true;
+        glow.Restart();
+    }
 }
 
 [HarmonyPatch(typeof(NTreasureRoomRelicHolder), "OnFocus")]
-internal static class RelicAuctionRelicHoverPatch
+internal static class RelicAppraisalFairRelicHoverPatch
 {
     private static void Postfix(NTreasureRoomRelicHolder __instance)
     {
-        if (!RelicAuctionArtworkStore.IsPickingActive ||
-            !RelicAuctionArtworkStore.TryGet(
+        if (!RelicAppraisalFairArtworkStore.IsPickingActive ||
+            !RelicAppraisalFairArtworkStore.TryGet(
                 __instance.Relic.Model,
-                out RelicAuctionPresentation? presentation))
+                out RelicAppraisalFairPresentation? presentation))
         {
             return;
         }
@@ -275,10 +324,10 @@ internal static class RelicAuctionRelicHoverPatch
             RunManager.Instance.NetService.Platform,
             presentation.ArtistId);
         string description = ModText.Get(
-            $"署名：{artist}\n帷幕后藏着什么，要等槌声落下才知道。",
-            $"Signed by: {artist}\nWhatever waits behind the curtain will be known when the hammer falls.");
+            $"署名：{artist}",
+            $"Signed by: {artist}");
         HoverTip hoverTip = new(
-            RelicAuctionRelicNamePatch.CreateWorkTitle(
+            RelicAppraisalFairRelicNamePatch.CreateWorkTitle(
                 presentation.WorkTitle),
             description,
             presentation.Artwork);

@@ -382,10 +382,10 @@ public sealed class DrawingFinalMessage : INetMessage, IPacketSerializable, IRun
     }
 }
 
-public sealed class RelicAuctionTargetMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+public sealed class RelicAppraisalFairTargetMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     public ulong OwnerId { get; set; }
-    public uint AuctionId { get; set; }
+    public uint AppraisalId { get; set; }
     public string TargetRelicId { get; set; } = "";
     public RunLocation LocationValue { get; set; }
 
@@ -398,7 +398,7 @@ public sealed class RelicAuctionTargetMessage : INetMessage, IPacketSerializable
     public void Serialize(PacketWriter writer)
     {
         writer.WriteULong(OwnerId);
-        writer.WriteUInt(AuctionId);
+        writer.WriteUInt(AppraisalId);
         writer.WriteString(TargetRelicId);
         writer.Write(LocationValue);
     }
@@ -406,17 +406,17 @@ public sealed class RelicAuctionTargetMessage : INetMessage, IPacketSerializable
     public void Deserialize(PacketReader reader)
     {
         OwnerId = reader.ReadULong();
-        AuctionId = reader.ReadUInt();
+        AppraisalId = reader.ReadUInt();
         TargetRelicId = reader.ReadString();
         LocationValue = reader.Read<RunLocation>();
     }
 }
 
-public sealed class RelicAuctionSubmissionMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+public sealed class RelicAppraisalFairSubmissionMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     private const int MaxPngBytes = 2 * 1024 * 1024;
     public ulong OwnerId { get; set; }
-    public uint AuctionId { get; set; }
+    public uint AppraisalId { get; set; }
     public string TargetRelicId { get; set; } = "";
     public string WorkTitle { get; set; } = "";
     public byte[] PngBytes { get; set; } = [];
@@ -431,7 +431,7 @@ public sealed class RelicAuctionSubmissionMessage : INetMessage, IPacketSerializ
     public void Serialize(PacketWriter writer)
     {
         writer.WriteULong(OwnerId);
-        writer.WriteUInt(AuctionId);
+        writer.WriteUInt(AppraisalId);
         writer.WriteString(TargetRelicId);
         writer.WriteString(WorkTitle);
         writer.WriteInt(PngBytes.Length);
@@ -442,13 +442,13 @@ public sealed class RelicAuctionSubmissionMessage : INetMessage, IPacketSerializ
     public void Deserialize(PacketReader reader)
     {
         OwnerId = reader.ReadULong();
-        AuctionId = reader.ReadUInt();
+        AppraisalId = reader.ReadUInt();
         TargetRelicId = reader.ReadString();
         WorkTitle = reader.ReadString();
         int pngLength = reader.ReadInt();
         if (pngLength < 0 || pngLength > MaxPngBytes)
         {
-            throw new InvalidDataException($"Invalid relic auction PNG size: {pngLength}");
+            throw new InvalidDataException($"Invalid relic appraisal PNG size: {pngLength}");
         }
         PngBytes = new byte[pngLength];
         reader.ReadBytes(PngBytes, pngLength);

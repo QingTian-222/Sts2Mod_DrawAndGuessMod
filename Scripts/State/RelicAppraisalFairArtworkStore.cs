@@ -6,15 +6,15 @@ using MegaCrit.Sts2.Core.Models;
 
 namespace DrawAndGuessMod.Scripts.State;
 
-internal sealed record RelicAuctionPresentation(
+internal sealed record RelicAppraisalFairPresentation(
     string WorkTitle,
     ulong ArtistId,
     Texture2D Artwork,
     Texture2D TriggerArtwork);
 
-internal static class RelicAuctionArtworkStore
+internal static class RelicAppraisalFairArtworkStore
 {
-    private static readonly Dictionary<ModelId, RelicAuctionPresentation> Presentations = new();
+    private static readonly Dictionary<ModelId, RelicAppraisalFairPresentation> Presentations = new();
     private static readonly HashSet<ModelId> AwardedPresentationIds = new();
     [ThreadStatic]
     private static RelicModel? _triggerIconContext;
@@ -29,9 +29,9 @@ internal static class RelicAuctionArtworkStore
         _triggerIconContext = null;
     }
 
-    public static void InstallPresentations(IEnumerable<RelicAuctionSubmission> submissions)
+    public static void InstallPresentations(IEnumerable<RelicAppraisalFairSubmission> submissions)
     {
-        foreach (RelicAuctionSubmission submission in submissions)
+        foreach (RelicAppraisalFairSubmission submission in submissions)
         {
             try
             {
@@ -55,7 +55,7 @@ internal static class RelicAuctionArtworkStore
                 Texture2D triggerTexture =
                     ImageTexture.CreateFromImage(triggerImage);
                 Presentations[new ModelId("RELIC", submission.TargetRelicId)] =
-                    new RelicAuctionPresentation(
+                    new RelicAppraisalFairPresentation(
                         submission.WorkTitle,
                         submission.OwnerId,
                         texture,
@@ -64,13 +64,13 @@ internal static class RelicAuctionArtworkStore
             catch (Exception ex)
             {
                 Entry.Logger.Warn(
-                    $"[DrawAndGuessMod] Failed to install relic auction artwork " +
+                    $"[DrawAndGuessMod] Failed to install relic appraisal artwork " +
                     $"{submission.TargetRelicId}: {ex.Message}");
             }
         }
     }
 
-    public static bool TryGet(RelicModel relic, out RelicAuctionPresentation presentation)
+    public static bool TryGet(RelicModel relic, out RelicAppraisalFairPresentation presentation)
     {
         return Presentations.TryGetValue(relic.Id, out presentation!);
     }
@@ -85,7 +85,7 @@ internal static class RelicAuctionArtworkStore
 
     public static bool TryGetAwarded(
         RelicModel relic,
-        out RelicAuctionPresentation presentation)
+        out RelicAppraisalFairPresentation presentation)
     {
         if (!AwardedPresentationIds.Contains(relic.Id))
         {
@@ -115,7 +115,7 @@ internal static class RelicAuctionArtworkStore
         if (_triggerIconContext?.Id != relic.Id ||
             !TryGetAwarded(
                 relic,
-                out RelicAuctionPresentation? presentation))
+                out RelicAppraisalFairPresentation? presentation))
         {
             texture = null!;
             return false;

@@ -8,7 +8,7 @@ using MegaCrit.Sts2.Core.Runs;
 
 namespace DrawAndGuessMod.Scripts.Networking;
 
-internal sealed record RelicAuctionSubmission(
+internal sealed record RelicAppraisalFairSubmission(
     ulong OwnerId,
     string TargetRelicId,
     string WorkTitle,
@@ -27,10 +27,10 @@ internal static class DrawingNetSync
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingTimerSyncMessage> PendingTimers = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingBlankSettingsMessage> PendingBlankSettings = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingFinalMessage> PendingFinals = new();
-    private static readonly Dictionary<(uint AuctionId, ulong OwnerId), string> AuctionTargets = new();
-    private static readonly Dictionary<(uint AuctionId, ulong OwnerId), TaskCompletionSource<string>> AuctionTargetWaiters = new();
-    private static readonly Dictionary<(uint AuctionId, ulong OwnerId), RelicAuctionSubmission> AuctionSubmissions = new();
-    private static readonly Dictionary<(uint AuctionId, ulong OwnerId), TaskCompletionSource<RelicAuctionSubmission>> AuctionSubmissionWaiters = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), string> AppraisalTargets = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), TaskCompletionSource<string>> AppraisalTargetWaiters = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), RelicAppraisalFairSubmission> AppraisalSubmissions = new();
+    private static readonly Dictionary<(uint AppraisalId, ulong OwnerId), TaskCompletionSource<RelicAppraisalFairSubmission>> AppraisalSubmissionWaiters = new();
 
     public static bool IsMultiplayer
     {
@@ -72,7 +72,7 @@ internal static class DrawingNetSync
         PendingTimers.Clear();
         PendingBlankSettings.Clear();
         PendingFinals.Clear();
-        ClearRelicAuctionState();
+        ClearRelicAppraisalFairState();
         EnsureRegistered();
     }
 
@@ -103,75 +103,75 @@ internal static class DrawingNetSync
         CardSelectionWaiters.Clear();
     }
 
-    public static void BeginRelicAuction()
+    public static void BeginRelicAppraisalFair()
     {
-        ClearRelicAuctionState();
+        ClearRelicAppraisalFairState();
         EnsureRegistered();
     }
 
-    private static void ClearRelicAuctionState()
+    private static void ClearRelicAppraisalFairState()
     {
-        foreach (TaskCompletionSource<string> waiter in AuctionTargetWaiters.Values)
+        foreach (TaskCompletionSource<string> waiter in AppraisalTargetWaiters.Values)
         {
             waiter.TrySetCanceled();
         }
-        foreach (TaskCompletionSource<RelicAuctionSubmission> waiter in AuctionSubmissionWaiters.Values)
+        foreach (TaskCompletionSource<RelicAppraisalFairSubmission> waiter in AppraisalSubmissionWaiters.Values)
         {
             waiter.TrySetCanceled();
         }
-        AuctionTargets.Clear();
-        AuctionTargetWaiters.Clear();
-        AuctionSubmissions.Clear();
-        AuctionSubmissionWaiters.Clear();
+        AppraisalTargets.Clear();
+        AppraisalTargetWaiters.Clear();
+        AppraisalSubmissions.Clear();
+        AppraisalSubmissionWaiters.Clear();
     }
 
-    public static void PublishAuctionTarget(uint auctionId, ulong ownerId, string targetRelicId)
+    public static void PublishAppraisalTarget(uint appraisalId, ulong ownerId, string targetRelicId)
     {
         EnsureRegistered();
-        AcceptAuctionTarget(auctionId, ownerId, targetRelicId);
+        AcceptAppraisalTarget(appraisalId, ownerId, targetRelicId);
         if (!IsMultiplayer)
         {
             return;
         }
 
-        RunManager.Instance.NetService.SendMessage(new RelicAuctionTargetMessage
+        RunManager.Instance.NetService.SendMessage(new RelicAppraisalFairTargetMessage
         {
-            AuctionId = auctionId,
+            AppraisalId = appraisalId,
             OwnerId = ownerId,
             TargetRelicId = targetRelicId,
             LocationValue = _registeredBuffer!.CurrentLocation
         });
     }
 
-    public static Task<string> WaitForAuctionTargetAsync(uint auctionId, ulong ownerId)
+    public static Task<string> WaitForAppraisalTargetAsync(uint appraisalId, ulong ownerId)
     {
         EnsureRegistered();
-        (uint AuctionId, ulong OwnerId) key = (auctionId, ownerId);
-        if (AuctionTargets.TryGetValue(key, out string? target))
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, ownerId);
+        if (AppraisalTargets.TryGetValue(key, out string? target))
         {
             return Task.FromResult(target);
         }
 
-        if (!AuctionTargetWaiters.TryGetValue(key, out TaskCompletionSource<string>? waiter))
+        if (!AppraisalTargetWaiters.TryGetValue(key, out TaskCompletionSource<string>? waiter))
         {
             waiter = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            AuctionTargetWaiters[key] = waiter;
+            AppraisalTargetWaiters[key] = waiter;
         }
         return waiter.Task;
     }
 
-    public static void PublishAuctionSubmission(uint auctionId, RelicAuctionSubmission submission)
+    public static void PublishAppraisalSubmission(uint appraisalId, RelicAppraisalFairSubmission submission)
     {
         EnsureRegistered();
-        AcceptAuctionSubmission(auctionId, submission);
+        AcceptAppraisalSubmission(appraisalId, submission);
         if (!IsMultiplayer)
         {
             return;
         }
 
-        RunManager.Instance.NetService.SendMessage(new RelicAuctionSubmissionMessage
+        RunManager.Instance.NetService.SendMessage(new RelicAppraisalFairSubmissionMessage
         {
-            AuctionId = auctionId,
+            AppraisalId = appraisalId,
             OwnerId = submission.OwnerId,
             TargetRelicId = submission.TargetRelicId,
             WorkTitle = submission.WorkTitle,
@@ -180,19 +180,19 @@ internal static class DrawingNetSync
         });
     }
 
-    public static Task<RelicAuctionSubmission> WaitForAuctionSubmissionAsync(uint auctionId, ulong ownerId)
+    public static Task<RelicAppraisalFairSubmission> WaitForAppraisalSubmissionAsync(uint appraisalId, ulong ownerId)
     {
         EnsureRegistered();
-        (uint AuctionId, ulong OwnerId) key = (auctionId, ownerId);
-        if (AuctionSubmissions.TryGetValue(key, out RelicAuctionSubmission? submission))
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, ownerId);
+        if (AppraisalSubmissions.TryGetValue(key, out RelicAppraisalFairSubmission? submission))
         {
             return Task.FromResult(submission);
         }
 
-        if (!AuctionSubmissionWaiters.TryGetValue(key, out TaskCompletionSource<RelicAuctionSubmission>? waiter))
+        if (!AppraisalSubmissionWaiters.TryGetValue(key, out TaskCompletionSource<RelicAppraisalFairSubmission>? waiter))
         {
-            waiter = new TaskCompletionSource<RelicAuctionSubmission>(TaskCreationOptions.RunContinuationsAsynchronously);
-            AuctionSubmissionWaiters[key] = waiter;
+            waiter = new TaskCompletionSource<RelicAppraisalFairSubmission>(TaskCreationOptions.RunContinuationsAsynchronously);
+            AppraisalSubmissionWaiters[key] = waiter;
         }
         return waiter.Task;
     }
@@ -418,8 +418,8 @@ internal static class DrawingNetSync
             _registeredBuffer.UnregisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingBlankSettingsMessage>(OnBlankSettingsReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
-            _registeredBuffer.UnregisterMessageHandler<RelicAuctionTargetMessage>(OnAuctionTargetReceived);
-            _registeredBuffer.UnregisterMessageHandler<RelicAuctionSubmissionMessage>(OnAuctionSubmissionReceived);
+            _registeredBuffer.UnregisterMessageHandler<RelicAppraisalFairTargetMessage>(OnAppraisalTargetReceived);
+            _registeredBuffer.UnregisterMessageHandler<RelicAppraisalFairSubmissionMessage>(OnAppraisalSubmissionReceived);
         }
 
         current.RegisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
@@ -430,8 +430,8 @@ internal static class DrawingNetSync
         current.RegisterMessageHandler<DrawingTimerSyncMessage>(OnTimerReceived);
         current.RegisterMessageHandler<DrawingBlankSettingsMessage>(OnBlankSettingsReceived);
         current.RegisterMessageHandler<DrawingFinalMessage>(OnFinalReceived);
-        current.RegisterMessageHandler<RelicAuctionTargetMessage>(OnAuctionTargetReceived);
-        current.RegisterMessageHandler<RelicAuctionSubmissionMessage>(OnAuctionSubmissionReceived);
+        current.RegisterMessageHandler<RelicAppraisalFairTargetMessage>(OnAppraisalTargetReceived);
+        current.RegisterMessageHandler<RelicAppraisalFairSubmissionMessage>(OnAppraisalSubmissionReceived);
         _registeredBuffer = current;
     }
 
@@ -580,50 +580,50 @@ internal static class DrawingNetSync
         }
     }
 
-    private static void OnAuctionTargetReceived(RelicAuctionTargetMessage message, ulong senderId)
+    private static void OnAppraisalTargetReceived(RelicAppraisalFairTargetMessage message, ulong senderId)
     {
         if (senderId != HostNetId)
         {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected relic auction target from non-host {senderId}.");
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected relic appraisal target from non-host {senderId}.");
             return;
         }
-        AcceptAuctionTarget(message.AuctionId, message.OwnerId, message.TargetRelicId);
+        AcceptAppraisalTarget(message.AppraisalId, message.OwnerId, message.TargetRelicId);
     }
 
-    private static void AcceptAuctionTarget(uint auctionId, ulong ownerId, string targetRelicId)
+    private static void AcceptAppraisalTarget(uint appraisalId, ulong ownerId, string targetRelicId)
     {
-        (uint AuctionId, ulong OwnerId) key = (auctionId, ownerId);
-        AuctionTargets[key] = targetRelicId;
-        if (AuctionTargetWaiters.Remove(key, out TaskCompletionSource<string>? waiter))
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, ownerId);
+        AppraisalTargets[key] = targetRelicId;
+        if (AppraisalTargetWaiters.Remove(key, out TaskCompletionSource<string>? waiter))
         {
             waiter.TrySetResult(targetRelicId);
         }
     }
 
-    private static void OnAuctionSubmissionReceived(RelicAuctionSubmissionMessage message, ulong senderId)
+    private static void OnAppraisalSubmissionReceived(RelicAppraisalFairSubmissionMessage message, ulong senderId)
     {
         if (senderId != message.OwnerId)
         {
             Entry.Logger.Warn(
-                $"[DrawAndGuessMod] Rejected relic auction submission from {senderId}; expected {message.OwnerId}.");
+                $"[DrawAndGuessMod] Rejected relic appraisal submission from {senderId}; expected {message.OwnerId}.");
             return;
         }
-        AcceptAuctionSubmission(
-            message.AuctionId,
-            new RelicAuctionSubmission(
+        AcceptAppraisalSubmission(
+            message.AppraisalId,
+            new RelicAppraisalFairSubmission(
                 message.OwnerId,
                 message.TargetRelicId,
                 message.WorkTitle,
                 message.PngBytes));
     }
 
-    private static void AcceptAuctionSubmission(uint auctionId, RelicAuctionSubmission submission)
+    private static void AcceptAppraisalSubmission(uint appraisalId, RelicAppraisalFairSubmission submission)
     {
-        (uint AuctionId, ulong OwnerId) key = (auctionId, submission.OwnerId);
-        AuctionSubmissions[key] = submission;
-        if (AuctionSubmissionWaiters.Remove(
+        (uint AppraisalId, ulong OwnerId) key = (appraisalId, submission.OwnerId);
+        AppraisalSubmissions[key] = submission;
+        if (AppraisalSubmissionWaiters.Remove(
                 key,
-                out TaskCompletionSource<RelicAuctionSubmission>? waiter))
+                out TaskCompletionSource<RelicAppraisalFairSubmission>? waiter))
         {
             waiter.TrySetResult(submission);
         }

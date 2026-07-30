@@ -51,6 +51,7 @@ public static class Entry
             EventLocalization.Install();
             RelicLocalization.Install();
             CardArtClassifier.Preload();
+            RelicArtClassifier.Preload();
 
             _harmony = new Harmony("sts2.qingtian.drawandguessmod");
             _harmony.PatchAll(assembly);
@@ -107,8 +108,8 @@ public static class Entry
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
-        RelicAuctionArtworkStore.Reset();
-        RelicAuctionTreasureFlow.Reset();
+        RelicAppraisalFairArtworkStore.Reset();
+        RelicAppraisalFairTreasureFlow.Reset();
         DeathNoteRestSiteOption.ResetSessions();
         DrawingNetSync.Reset();
     }

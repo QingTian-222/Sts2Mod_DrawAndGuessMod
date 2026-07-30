@@ -9,7 +9,7 @@ namespace DrawAndGuessMod.Scripts.Localization;
 internal static class EventLocalization
 {
     private const string GeneratedId = "DRAW_AND_GUESS_MOD_EVENT_VAKUUS_INFINITE_GALLERY";
-    private const string RelicAuctionGeneratedId = "DRAW_AND_GUESS_MOD_EVENT_RELIC_AUCTION";
+    private const string RelicAppraisalFairGeneratedId = "DRAW_AND_GUESS_MOD_EVENT_RELIC_APPRAISAL_FAIR";
     private static bool _subscribed;
 
     public static void Install()
@@ -35,7 +35,7 @@ internal static class EventLocalization
         {
             Dictionary<string, string> values = new();
             Add(values, GeneratedId);
-            AddRelicAuction(values, RelicAuctionGeneratedId);
+            AddRelicAppraisalFair(values, RelicAppraisalFairGeneratedId);
             try
             {
                 Add(values, ModelDb.GetId(typeof(VakuusInfiniteGallery)).Entry);
@@ -45,7 +45,7 @@ internal static class EventLocalization
             }
             try
             {
-                AddRelicAuction(values, ModelDb.GetId(typeof(RelicAuction)).Entry);
+                AddRelicAppraisalFair(values, ModelDb.GetId(typeof(RelicAppraisalFair)).Entry);
             }
             catch
             {
@@ -126,54 +126,60 @@ internal static class EventLocalization
             "You lift the final blank canvas and find a tiny line hidden on its back:\n\n[jitter][purple]\"You have drawn every card in the world. Now it is VAKUU's turn to guess who you are.\"[/purple][/jitter]\n\nVAKUU binds the drawings from your streak into a [gold]Memorial Sketchbook[/gold] and places it in your hands.");
     }
 
-    private static void AddRelicAuction(IDictionary<string, string> values, string id)
+    private static void AddRelicAppraisalFair(IDictionary<string, string> values, string id)
     {
-        values[$"{id}.title"] = ModText.Get("遗物拍卖会", "Relic Auction");
+        values[$"{id}.title"] = ModText.Get("鉴宝大会", "Relic Appraisal Fair");
         values[$"{id}.pages.INITIAL.description"] = ModText.Get(
-            "白手套的侍者推来一排空展台。主持人将写有遗物名的题签分别塞进你们手中，又铺开几张透明画布。\n\n“请照着题签留下它的模样，再替作品取个好名字。”\n\n槌声响起前，展台只认[gold]画作、作品名与署名[/gold]。帷幕后藏着什么，谁也不能明说。\n\n最后，每个人都能抱走一件作品。至于是不是自己心里那一件，就看落槌前的选择了。\n\n若一轮未尽兴，主持人也乐意再次递来题签——只是下一次入席，价码会更高。今夜的槌声，最多只会为你们响三轮。",
-            "White-gloved attendants wheel out a row of empty stands. The auctioneer slips each of you a sealed note bearing a relic's name, then unfurls several transparent canvases.\n\n\"Give the relic on your note a fitting likeness—and give the work a fine name.\"\n\nUntil the hammer falls, the stands acknowledge only the [gold]artwork, its title, and its signature[/gold]. Whatever waits behind the curtain must remain unspoken.\n\nIn the end, everyone leaves with one work. Whether it is the one you hoped for depends on where you place your claim.\n\nShould one round leave you wanting more, the auctioneer will gladly offer fresh commissions—though the next seat always costs a little more. Tonight, the hammer will fall for no more than three rounds.");
+            "白手套的侍者推来一排蒙着绸布的展台，并递给每个人一张密封题签。\n\n“请画出题签上的遗物。只有得到瓦库认可的作品，才有资格参加鉴宝——至于它叫什么，由你决定。”\n\n绘画结束后，所有作品只展示名字，每个人都可以挑走一件。\n\n你需要一双慧眼看清真正的价值。",
+            "White-gloved attendants wheel out a row of silk-covered stands and hand each of you a sealed prompt.\n\n\"Draw the relic named on your prompt. Only a work recognized by VAKUU may enter the appraisal—what you call it is entirely up to you.\"\n\nWhen the judging ends, only the works' titles will be shown. Each of you may claim one: see through the others' disguises, and conceal your own answer.");
         values[$"{id}.pages.INITIAL.options.ENTER.title"] = ModText.Get(
-            "支付[gold]{Cost}[/gold]金币：入席",
-            "Pay [gold]{Cost}[/gold] Gold: Take a Seat");
+            "支付[gold]{Cost}[/gold]金币：参加鉴宝",
+            "Pay [gold]{Cost}[/gold] Gold: Join the Appraisal");
         values[$"{id}.pages.INITIAL.options.ENTER.description"] = ModText.Get(
-            "每位参与者支付入场费，接过题签，完成一件送拍作品。",
-            "Each participant pays the entry fee, takes a sealed commission, and prepares a work for auction.");
+            "每位参与者支付入场费，领取题签并完成一幅鉴宝作品。",
+            "Each participant pays the entry fee, receives a prompt, and completes one work for appraisal.");
         values[$"{id}.pages.INITIAL.options.INSUFFICIENT.title"] = ModText.Get(
-            "金币不足（还差 [gold]{Remaining}[/gold]）",
-            "Not enough Gold ([gold]{Remaining}[/gold] more required)");
+            "金币不足：需要[gold]{Cost}[/gold]金币",
+            "Not enough Gold: [gold]{Cost}[/gold] required");
         values[$"{id}.pages.INITIAL.options.INSUFFICIENT.description"] = ModText.Get(
             "入场费必须由所有参与者支付。",
             "Every participant must be able to pay the entry fee.");
+        values[$"{id}.pages.INITIAL.options.LEAVE.title"] = ModText.Get(
+            "离开",
+            "Leave");
+        values[$"{id}.pages.INITIAL.options.LEAVE.description"] = ModText.Get(
+            "离开。",
+            "Leave");
         values[$"{id}.pages.DONE.description"] = ModText.Get(
-            "槌声落下，帷幕依次掀开。有人欢呼，也有人盯着手里的作品沉默不语。\n\n你抱走了[gold]{Awarded}[/gold]——至少，现在它叫这个名字。",
-            "The hammer falls and the curtains lift one by one. Someone cheers; someone else studies the work in their hands in silence.\n\nYou leave carrying [gold]{Awarded}[/gold]—at least, that is what it is called now.");
+            "帷幕依次掀开。有人一眼看穿了伪装，也有人对着到手的作品陷入沉思。\n\n你挑中了[gold]{Awarded}[/gold]——至少，展签上是这样写的。",
+            "The curtains lift one by one. Some disguises are seen through at once; other works leave their new owners staring in silence.\n\nYou chose [gold]{Awarded}[/gold]—at least, that is what its display card claims.");
         values[$"{id}.pages.DONE.options.CONTINUE.title"] = ModText.Get(
-            "支付[gold]{Cost}[/gold]金币：再来一轮",
-            "Pay [gold]{Cost}[/gold] Gold: Another Round");
+            "支付[gold]{Cost}[/gold]金币：再鉴一轮",
+            "Pay [gold]{Cost}[/gold] Gold: Appraise Again");
         values[$"{id}.pages.DONE.options.CONTINUE.description"] = ModText.Get(
-            "展台重新清空，每位参与者领取一张新的题签。",
-            "The stands are cleared, and each participant receives a fresh commission.");
+            "侍者换上新的题签与空白展台。",
+            "The attendants prepare fresh prompts and empty stands.");
         values[$"{id}.pages.DONE.options.INSUFFICIENT.title"] = ModText.Get(
-            "金币不足（还差[gold]{Remaining}[/gold]）",
-            "Not enough Gold ([gold]{Remaining}[/gold] more required)");
+            "金币不足：需要[gold]{Cost}[/gold]金币",
+            "Not enough Gold: [gold]{Cost}[/gold] required");
         values[$"{id}.pages.DONE.options.INSUFFICIENT.description"] = ModText.Get(
-            "所有参与者都付得起下一轮入场费时，拍卖才会继续。",
-            "The auction continues only if every participant can pay the next entry fee.");
+            "只有所有参与者都付得起下一轮入场费，鉴宝才会继续。",
+            "The appraisal continues only if every participant can pay the next entry fee.");
         values[$"{id}.pages.DONE.options.SOLD_OUT.title"] = ModText.Get(
             "展台已经空了",
             "The Stands Are Empty");
         values[$"{id}.pages.DONE.options.SOLD_OUT.description"] = ModText.Get(
             "主持人已经拿不出足够的新题签。",
-            "The auctioneer has no more commissions to offer everyone.");
+            "The host has no more prompts to offer everyone.");
         values[$"{id}.pages.DONE.options.LEAVE.title"] = ModText.Get(
-            "离席",
-            "Leave the Auction");
+            "离开会场",
+            "Leave the Fair");
         values[$"{id}.pages.DONE.options.LEAVE.description"] = ModText.Get(
-            "带着拍得的作品离开。",
-            "Leave with the works you won.");
+            "带着挑中的作品离开。",
+            "Leave with the work you chose.");
         values[$"{id}.pages.LEAVE.description"] = ModText.Get(
-            "身后的槌声渐渐安静。主持人收起最后一张题签，向你们欠身致意。",
-            "The hammering fades behind you. The auctioneer gathers the final commission and bows as you depart.");
+            "身后的灯光渐渐熄灭。主持人收起最后一张题签，向你们欠身致意。",
+            "The lights dim behind you. The host gathers the final prompt and bows as you depart.");
         values[$"{id}.work.title"] = "{Title}";
     }
 }

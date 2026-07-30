@@ -44,7 +44,8 @@ public partial class DrawingScreen : Control
         "res://images/atlases/relic_atlas.sprites/ink_bottle.tres";
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
-    private readonly TaskCompletionSource<RelicDrawingResult?> _relicCompletion = new();
+    private readonly TaskCompletionSource<RelicDrawingResult?> _relicCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<DrawingCommand> _pendingCommands = new();
     private readonly List<RecordedDrawingCommand> _historyCommands = new();
     private readonly LinkedList<DrawingOperationKey> _undoableOperations = new();
@@ -90,7 +91,6 @@ public partial class DrawingScreen : Control
     private SpinBox _redInput = null!;
     private SpinBox _greenInput = null!;
     private SpinBox _blueInput = null!;
-    private SpinBox _alphaInput = null!;
     private Tween? _peekTween;
     private Color _leftColor = new("1B1A18");
     private Color _rightColor = DrawingCanvas.PaperColor;
@@ -112,13 +112,16 @@ public partial class DrawingScreen : Control
     private bool _receivedAuthoritativeTimer;
     private bool _privateDrawing;
     private RelicModel? _relicTarget;
+    private IReadOnlySet<ModelId>? _relicCandidateIds;
     private RelicArtGuess? _currentRelicGuess;
     private TextureRect? _relicGuessImage;
     private TextureRect? _relicTargetImage;
     private Label? _relicWorkTitleLabel;
     private LineEdit? _relicWorkTitleInput;
-    private Button? _relicWorkTitleEditButton;
+    private Control? _relicWorkTitleOverlay;
+    private Control? _relicWaitingOverlay;
     private bool _editingRelicWorkTitle;
+    private bool _relicDrawingConfirmed;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
@@ -170,14 +173,21 @@ public partial class DrawingScreen : Control
             _remainingSeconds = effectiveTimeLimit,
             _timerDurationSeconds = effectiveTimeLimit
         };
-        screen._customColors.AddRange(DrawingPaletteStore.GetColors(paletteOwner));
+        screen._customColors.AddRange(
+            DrawingPaletteStore.GetColors(paletteOwner)
+                .Select(color => new Color(color.R, color.G, color.B, 1f)));
         DrawingNetSync.BeginSession(owner.NetId, sessionId);
         _active = screen;
         tree.Root.AddChild(screen);
         return screen._completion.Task;
     }
 
-    public static Task<RelicDrawingResult?> ShowRelicAsync(Player owner, uint sessionId, RelicModel target, DrawingScreenOptions options)
+    public static Task<RelicDrawingResult?> ShowRelicAsync(
+        Player owner,
+        uint sessionId,
+        RelicModel target,
+        DrawingScreenOptions options,
+        IReadOnlySet<ModelId>? candidateIds = null)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
@@ -209,12 +219,30 @@ public partial class DrawingScreen : Control
             _canvasMode = DrawingCanvasMode.Relic,
             _rightColor = Colors.Transparent,
             _privateDrawing = true,
-            _relicTarget = target
+            _relicTarget = target,
+            _relicCandidateIds = candidateIds == null
+                ? null
+                : new HashSet<ModelId>(candidateIds)
         };
-        screen._customColors.AddRange(DrawingPaletteStore.GetColors(paletteOwner));
+        screen._customColors.AddRange(
+            DrawingPaletteStore.GetColors(paletteOwner)
+                .Select(color => new Color(color.R, color.G, color.B, 1f)));
         _active = screen;
         tree.Root.AddChild(screen);
         return screen._relicCompletion.Task;
+    }
+
+    public static void CloseCompletedRelicScreen()
+    {
+        if (_active == null ||
+            !GodotObject.IsInstanceValid(_active) ||
+            _active._relicTarget == null ||
+            !_active._relicCompletion.Task.IsCompleted)
+        {
+            return;
+        }
+
+        _active.QueueFree();
     }
 
     public override void _Ready()
@@ -497,9 +525,14 @@ public partial class DrawingScreen : Control
                 "Current left mouse button color; left-click a swatch to replace it"));
         _rightColorButton = CreateMouseColorButton(
             Localized("右键", "RMB"),
-            Localized(
-                "当前右键颜色；右键点击右侧色块即可替换",
-                "Current right mouse button color; right-click a swatch to replace it"));
+            _relicTarget != null
+                ? Localized(
+                    "固定为透明；右键可擦除画布内容",
+                    "Locked to transparent; use the right mouse button to erase")
+                : Localized(
+                    "当前右键颜色；右键点击右侧色块即可替换",
+                    "Current right mouse button color; right-click a swatch to replace it"));
+        _rightColorButton.Disabled = _relicTarget != null;
         colorAssignments.AddChild(_leftColorButton);
         colorAssignments.AddChild(_rightColorButton);
 
@@ -526,8 +559,8 @@ public partial class DrawingScreen : Control
         {
             Text = "🎨",
             TooltipText = Localized(
-                "调色盘：从色图选择或输入 RGBA",
-                "Color palette: choose from the color field or enter RGBA values"),
+                "调色盘：从色图选择或输入 RGB",
+                "Color palette: choose from the color field or enter RGB values"),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             ClipText = true,
             FocusMode = FocusModeEnum.None
@@ -548,7 +581,8 @@ public partial class DrawingScreen : Control
             customColor.Pressed += () => SelectCustomColor(slotIndex);
             customColor.GuiInput += @event =>
             {
-                if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } &&
+                if (_relicTarget == null &&
+                    @event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } &&
                     slotIndex < _customColors.Count)
                 {
                     SelectRightColor(_customColors[slotIndex]);
@@ -676,14 +710,12 @@ public partial class DrawingScreen : Control
 
         _status = new Label
         {
-            Text = _relicTarget != null
-                ? Localized("当前识别：尚未作画", "Current guess: no drawing yet")
-                : _isChooser
+            Text = _isChooser
                 ? Localized("完成后由你确认。", "Confirm the drawing when everyone is finished.")
                 : Localized(
                     "正在共同绘制，等待出牌者确认。",
                     "Drawing together. Waiting for the player who played the card to confirm."),
-            Visible = _relicTarget != null,
+            Visible = false,
             MouseFilter = MouseFilterEnum.Ignore
         };
         column.AddChild(_status);
@@ -730,6 +762,10 @@ public partial class DrawingScreen : Control
         AddPeekButton(backdrop, center);
         AddCanvasModeButton();
         BuildColorPickerOverlay();
+        if (_relicTarget != null)
+        {
+            BuildRelicWorkTitleOverlay();
+        }
     }
 
     private static Button CreateActionButton(string text, Color fill, Color border, bool primary = false)
@@ -948,6 +984,26 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        if (_relicTarget != null && !_relicDrawingConfirmed)
+        {
+            RelicArtGuess? confirmedGuess =
+                RelicArtClassifier.GuessTopOne(
+                    _canvas.Snapshot(),
+                    _relicCandidateIds);
+            if (confirmedGuess?.Relic.Id != _relicTarget.Id)
+            {
+                _currentRelicGuess = confirmedGuess;
+                UpdateRelicGuessStatus();
+                return;
+            }
+
+            _currentRelicGuess = confirmedGuess;
+            _relicDrawingConfirmed = true;
+            UpdateRelicGuessStatus();
+            OpenRelicWorkTitleEditor();
+            return;
+        }
+
         _finishing = true;
         _guessButton.Disabled = true;
         RefreshCanvasModeButton();
@@ -958,7 +1014,9 @@ public partial class DrawingScreen : Control
         {
             if (_relicTarget != null)
             {
-                RelicArtGuess? finalGuess = RelicArtClassifier.GuessTopOne(_canvas.Snapshot());
+                RelicArtGuess? finalGuess = RelicArtClassifier.GuessTopOne(
+                    _canvas.Snapshot(),
+                    _relicCandidateIds);
                 if (finalGuess?.Relic.Id != _relicTarget.Id)
                 {
                     _currentRelicGuess = finalGuess;
@@ -1097,9 +1155,11 @@ public partial class DrawingScreen : Control
         Button button = new()
         {
             Text = string.Empty,
-            TooltipText = colorName + Localized(
-                "\n右键：设为右键颜色",
-                "\nRight-click: set as the right mouse button color"),
+            TooltipText = colorName + (_relicTarget == null
+                ? Localized(
+                    "\n右键：设为右键颜色",
+                    "\nRight-click: set as the right mouse button color")
+                : string.Empty),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             FocusMode = FocusModeEnum.None
         };
@@ -1107,7 +1167,8 @@ public partial class DrawingScreen : Control
         button.Pressed += () => SelectColor(color);
         button.GuiInput += @event =>
         {
-            if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true })
+            if (_relicTarget == null &&
+                @event is InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true })
             {
                 SelectRightColor(color);
                 button.AcceptEvent();
@@ -1129,6 +1190,7 @@ public partial class DrawingScreen : Control
 
     private void SelectColor(Color color)
     {
+        color.A = 1f;
         _leftColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
         _canvas.SetMouseColors(_leftColor, _rightColor);
         RefreshMouseColorButtons();
@@ -1140,6 +1202,10 @@ public partial class DrawingScreen : Control
 
     private void SelectRightColor(Color color)
     {
+        if (_relicTarget != null)
+        {
+            return;
+        }
         _rightColor = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
         _canvas.SetMouseColors(_leftColor, _rightColor);
         RefreshMouseColorButtons();
@@ -1170,7 +1236,14 @@ public partial class DrawingScreen : Control
     private void RefreshMouseColorButtons()
     {
         ApplyMouseColorButtonStyle(_leftColorButton, _leftColor);
-        ApplyMouseColorButtonStyle(_rightColorButton, _rightColor);
+        if (_relicTarget != null)
+        {
+            ApplyTransparencyMouseColorButtonStyle(_rightColorButton);
+        }
+        else
+        {
+            ApplyMouseColorButtonStyle(_rightColorButton, _rightColor);
+        }
     }
 
     private static void ApplyMouseColorButtonStyle(Button button, Color color)
@@ -1186,6 +1259,50 @@ public partial class DrawingScreen : Control
         button.AddThemeStyleboxOverride("normal", CreateMouseColorButtonStyle(color, border, 2));
         button.AddThemeStyleboxOverride("hover", CreateMouseColorButtonStyle(color, border, 2));
         button.AddThemeStyleboxOverride("pressed", CreateMouseColorButtonStyle(color, border, 2));
+        button.AddThemeStyleboxOverride("disabled", CreateMouseColorButtonStyle(color, border, 2));
+    }
+
+    private static void ApplyTransparencyMouseColorButtonStyle(Button button)
+    {
+        const int width = 66;
+        const int height = 47;
+        const int cellSize = 8;
+        const int borderWidth = 2;
+        Color light = new("D8D8D8");
+        Color dark = new("AFAFAF");
+        Color border = new("8C938F");
+        Image image = Image.CreateEmpty(width, height, false, Image.Format.Rgba8);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                bool isBorder =
+                    x < borderWidth ||
+                    y < borderWidth ||
+                    x >= width - borderWidth ||
+                    y >= height - borderWidth;
+                image.SetPixel(
+                    x,
+                    y,
+                    isBorder
+                        ? border
+                        : ((x / cellSize + y / cellSize) % 2 == 0 ? light : dark));
+            }
+        }
+
+        StyleBoxTexture checker = new()
+        {
+            Texture = ImageTexture.CreateFromImage(image)
+        };
+        button.AddThemeFontSizeOverride("font_size", 15);
+        button.AddThemeColorOverride("font_color", new Color("171B20"));
+        button.AddThemeColorOverride("font_hover_color", new Color("171B20"));
+        button.AddThemeColorOverride("font_pressed_color", new Color("171B20"));
+        button.AddThemeColorOverride("font_disabled_color", new Color("171B20"));
+        button.AddThemeStyleboxOverride("normal", checker);
+        button.AddThemeStyleboxOverride("hover", checker);
+        button.AddThemeStyleboxOverride("pressed", checker);
+        button.AddThemeStyleboxOverride("disabled", checker);
     }
 
     private static StyleBoxFlat CreateMouseColorButtonStyle(Color fill, Color border, int borderWidth)
@@ -1244,9 +1361,11 @@ public partial class DrawingScreen : Control
                 button.TooltipText =
                     Localized("自定义 #", "Custom #") +
                     color.ToHtml(true).ToUpperInvariant() +
-                    Localized(
-                        "\n右键：设为右键颜色",
-                        "\nRight-click: set as the right mouse button color");
+                    (_relicTarget == null
+                        ? Localized(
+                            "\n右键：设为右键颜色",
+                            "\nRight-click: set as the right mouse button color")
+                        : string.Empty);
                 ApplyColorButtonStyle(button, color);
             }
             else
@@ -1317,7 +1436,7 @@ public partial class DrawingScreen : Control
 
         _colorPicker = new ColorPicker
         {
-            EditAlpha = true,
+            EditAlpha = false,
             EditIntensity = false,
             PickerShape = ColorPicker.PickerShapeType.HsvRectangle,
             CanAddSwatches = false,
@@ -1343,7 +1462,7 @@ public partial class DrawingScreen : Control
         pickerBody.AddChild(rgbColumn);
         Label rgbTitle = new()
         {
-            Text = "RGBA",
+            Text = "RGB",
             HorizontalAlignment = HorizontalAlignment.Center
         };
         rgbTitle.AddThemeFontSizeOverride("font_size", 20);
@@ -1351,11 +1470,9 @@ public partial class DrawingScreen : Control
         _redInput = AddRgbInput(rgbColumn, "R");
         _greenInput = AddRgbInput(rgbColumn, "G");
         _blueInput = AddRgbInput(rgbColumn, "B");
-        _alphaInput = AddRgbInput(rgbColumn, "A");
         _redInput.ValueChanged += OnRgbInputChanged;
         _greenInput.ValueChanged += OnRgbInputChanged;
         _blueInput.ValueChanged += OnRgbInputChanged;
-        _alphaInput.ValueChanged += OnRgbInputChanged;
 
         Control spacer = new()
         {
@@ -1473,7 +1590,7 @@ public partial class DrawingScreen : Control
             (float)(_redInput.Value / 255d),
             (float)(_greenInput.Value / 255d),
             (float)(_blueInput.Value / 255d),
-            (float)(_alphaInput.Value / 255d));
+            1f);
         _colorPicker.Color = color;
         UpdateConfirmColorButton(color);
         _syncingColorInputs = false;
@@ -1482,12 +1599,12 @@ public partial class DrawingScreen : Control
     private void SyncColorInputs(Color color)
     {
         _syncingColorInputs = true;
+        color.A = 1f;
         Color normalized = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(color));
         _colorPicker.Color = normalized;
         _redInput.Value = Mathf.RoundToInt(normalized.R * 255f);
         _greenInput.Value = Mathf.RoundToInt(normalized.G * 255f);
         _blueInput.Value = Mathf.RoundToInt(normalized.B * 255f);
-        _alphaInput.Value = Mathf.RoundToInt(normalized.A * 255f);
         UpdateConfirmColorButton(normalized);
         _syncingColorInputs = false;
     }
@@ -1516,10 +1633,14 @@ public partial class DrawingScreen : Control
     private void ConfirmCustomColor()
     {
         Color color = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(_colorPicker.Color));
+        color.A = 1f;
         if (DrawingPaletteStore.TryRemember(_paletteOwner, color))
         {
             _customColors.Clear();
-            _customColors.AddRange(DrawingPaletteStore.GetColors(_paletteOwner));
+            _customColors.AddRange(
+                DrawingPaletteStore.GetColors(_paletteOwner)
+                    .Select(stored =>
+                        new Color(stored.R, stored.G, stored.B, 1f)));
         }
         else
         {
@@ -2440,7 +2561,14 @@ public partial class DrawingScreen : Control
     {
         if (_relicCompletion.TrySetResult(result))
         {
-            QueueFree();
+            if (result != null && DrawingNetSync.IsMultiplayer)
+            {
+                ShowRelicWaitingState();
+            }
+            else
+            {
+                QueueFree();
+            }
         }
     }
 
@@ -2448,74 +2576,134 @@ public partial class DrawingScreen : Control
 
     private void BuildRelicTitleEditor(Container column)
     {
-        HBoxContainer titleRow = new()
-        {
-            Alignment = BoxContainer.AlignmentMode.Center
-        };
-        titleRow.AddThemeConstantOverride("separation", 12);
-        column.AddChild(titleRow);
-
         _relicWorkTitleLabel = new Label
         {
-            Text = Localized("无题作品", "Untitled Work"),
+            Text = _relicTarget?.Title.GetFormattedText() ??
+                   Localized("无题作品", "Untitled Work"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
         _relicWorkTitleLabel.AddThemeFontSizeOverride("font_size", 30);
-        titleRow.AddChild(_relicWorkTitleLabel);
+        column.AddChild(_relicWorkTitleLabel);
+    }
+
+    private void BuildRelicWorkTitleOverlay()
+    {
+        _relicWorkTitleOverlay = new Control
+        {
+            Name = "RelicWorkTitleOverlay",
+            Visible = false,
+            MouseFilter = MouseFilterEnum.Stop,
+            ZIndex = 30
+        };
+        _relicWorkTitleOverlay.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_relicWorkTitleOverlay);
+
+        CenterContainer center = new();
+        center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicWorkTitleOverlay.AddChild(center);
+
+        PanelContainer panel = new()
+        {
+            CustomMinimumSize = new Vector2(520f, 190f)
+        };
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.045f, 0.06f, 0.085f, 0.86f),
+            BorderColor = new Color("79BCE8"),
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 12,
+            CornerRadiusTopRight = 12,
+            CornerRadiusBottomLeft = 12,
+            CornerRadiusBottomRight = 12,
+            ShadowColor = new Color(0f, 0f, 0f, 0.45f),
+            ShadowSize = 10,
+            ShadowOffset = new Vector2(0f, 5f)
+        });
+        center.AddChild(panel);
+
+        MarginContainer margin = new();
+        margin.AddThemeConstantOverride("margin_left", 24);
+        margin.AddThemeConstantOverride("margin_right", 24);
+        margin.AddThemeConstantOverride("margin_top", 20);
+        margin.AddThemeConstantOverride("margin_bottom", 20);
+        panel.AddChild(margin);
+
+        VBoxContainer content = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        content.AddThemeConstantOverride("separation", 14);
+        margin.AddChild(content);
+
+        Label title = new()
+        {
+            Text = Localized("为作品命名", "Title Your Work"),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        title.AddThemeFontSizeOverride("font_size", 26);
+        content.AddChild(title);
 
         _relicWorkTitleInput = new LineEdit
         {
-            Text = _relicWorkTitleLabel.Text,
+            Text = _relicWorkTitleLabel?.Text ?? string.Empty,
             MaxLength = 32,
-            CustomMinimumSize = new Vector2(360f, 46f),
-            Visible = false,
+            CustomMinimumSize = new Vector2(440f, 48f),
+            Alignment = HorizontalAlignment.Center,
             TooltipText = Localized(
-                "拍卖时会显示这个名字；你可以用它伪装遗物。",
-                "This title is shown at auction; you may use it to disguise the relic.")
+                "鉴宝时只会显示这个名字；你可以用它伪装遗物。",
+                "Only this title is shown during appraisal; you may use it to disguise the relic.")
         };
         _relicWorkTitleInput.AddThemeFontSizeOverride("font_size", 26);
         _relicWorkTitleInput.TextChanged += _ => UpdateRelicGuessStatus();
-        titleRow.AddChild(_relicWorkTitleInput);
+        _relicWorkTitleInput.TextSubmitted += _ => ConfirmRelicWorkTitleEditing();
+        content.AddChild(_relicWorkTitleInput);
 
-        _relicWorkTitleEditButton = CreateActionButton(
-            Localized("修改", "Edit"),
-            new Color("253D58"),
-            new Color("79BCE8"));
-        _relicWorkTitleEditButton.TooltipText = Localized(
-            "修改拍卖时显示的作品名称",
-            "Edit the work title shown during the auction");
-        _relicWorkTitleEditButton.Pressed += ToggleRelicWorkTitleEditing;
-        titleRow.AddChild(_relicWorkTitleEditButton);
+        Button confirm = CreateActionButton(
+            Localized("确认并提交", "Confirm and Submit"),
+            new Color("176B72"),
+            new Color("75F0E6"),
+            primary: true);
+        confirm.CustomMinimumSize = new Vector2(220f, 48f);
+        confirm.Pressed += ConfirmRelicWorkTitleEditing;
+        content.AddChild(confirm);
     }
 
-    private void ToggleRelicWorkTitleEditing()
+    private void OpenRelicWorkTitleEditor()
     {
         if (_relicWorkTitleInput == null ||
             _relicWorkTitleLabel == null ||
-            _relicWorkTitleEditButton == null)
+            _relicWorkTitleOverlay == null ||
+            _editingRelicWorkTitle)
         {
             return;
         }
 
-        if (!_editingRelicWorkTitle)
+        if (_gFillHeld)
         {
-            if (_gFillHeld)
-            {
-                _gFillHeld = false;
-                ActivateBrushTool();
-            }
-            _editingRelicWorkTitle = true;
-            _relicWorkTitleInput.Text = _relicWorkTitleLabel.Text;
-            _relicWorkTitleLabel.Visible = false;
-            _relicWorkTitleInput.Visible = true;
-            _relicWorkTitleEditButton.Text = Localized("确认", "Confirm");
-            _relicWorkTitleInput.GrabFocus();
-            _relicWorkTitleInput.SelectAll();
-            UpdateRelicGuessStatus();
+            _gFillHeld = false;
+            ActivateBrushTool();
+        }
+        _editingRelicWorkTitle = true;
+        _relicWorkTitleInput.Text = _relicWorkTitleLabel.Text;
+        _relicWorkTitleOverlay.Visible = true;
+        _relicWorkTitleInput.GrabFocus();
+        _relicWorkTitleInput.SelectAll();
+        UpdateRelicGuessStatus();
+    }
+
+    private void ConfirmRelicWorkTitleEditing()
+    {
+        if (_relicWorkTitleInput == null ||
+            _relicWorkTitleLabel == null ||
+            _relicWorkTitleOverlay == null ||
+            !_editingRelicWorkTitle)
+        {
             return;
         }
-
         string editedTitle = _relicWorkTitleInput.Text.Trim();
         if (string.IsNullOrWhiteSpace(editedTitle))
         {
@@ -2524,11 +2712,79 @@ public partial class DrawingScreen : Control
 
         _relicWorkTitleLabel.Text = editedTitle;
         _relicWorkTitleInput.ReleaseFocus();
-        _relicWorkTitleInput.Visible = false;
-        _relicWorkTitleLabel.Visible = true;
-        _relicWorkTitleEditButton.Text = Localized("修改", "Edit");
+        _relicWorkTitleOverlay.Visible = false;
         _editingRelicWorkTitle = false;
         UpdateRelicGuessStatus();
+        OnGuessPressed();
+    }
+
+    private void ShowRelicWaitingState()
+    {
+        if (_relicWaitingOverlay != null &&
+            GodotObject.IsInstanceValid(_relicWaitingOverlay))
+        {
+            return;
+        }
+
+        if (_relicWorkTitleOverlay != null)
+        {
+            _relicWorkTitleOverlay.Visible = false;
+        }
+        _editingRelicWorkTitle = false;
+        _guessButton.Disabled = true;
+
+        _relicWaitingOverlay = new Control
+        {
+            Name = "RelicWaitingOverlay",
+            MouseFilter = MouseFilterEnum.Stop,
+            ZIndex = 40
+        };
+        _relicWaitingOverlay.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_relicWaitingOverlay);
+
+        ColorRect dimmer = new()
+        {
+            Color = new Color(0.01f, 0.015f, 0.025f, 0.34f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        dimmer.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicWaitingOverlay.AddChild(dimmer);
+
+        CenterContainer center = new();
+        center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicWaitingOverlay.AddChild(center);
+
+        PanelContainer panel = new()
+        {
+            CustomMinimumSize = new Vector2(420f, 108f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.045f, 0.06f, 0.085f, 0.94f),
+            BorderColor = new Color("79BCE8"),
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 12,
+            CornerRadiusTopRight = 12,
+            CornerRadiusBottomLeft = 12,
+            CornerRadiusBottomRight = 12,
+            ShadowColor = new Color(0f, 0f, 0f, 0.5f),
+            ShadowSize = 10,
+            ShadowOffset = new Vector2(0f, 5f)
+        });
+        center.AddChild(panel);
+
+        Label waiting = new()
+        {
+            Text = Localized("等待其他玩家", "Waiting for other players"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        waiting.AddThemeFontSizeOverride("font_size", 30);
+        panel.AddChild(waiting);
     }
 
     private bool IsEditingRelicWorkTitle()
@@ -2541,7 +2797,8 @@ public partial class DrawingScreen : Control
     {
         string? title = _relicWorkTitleLabel?.Text;
         return string.IsNullOrWhiteSpace(title)
-            ? Localized("无题作品", "Untitled Work")
+            ? _relicTarget?.Title.GetFormattedText() ??
+              Localized("无题作品", "Untitled Work")
             : title.Trim();
     }
 
@@ -2554,7 +2811,9 @@ public partial class DrawingScreen : Control
 
         _currentRelicGuess = _canvas.IsBlank()
             ? null
-            : RelicArtClassifier.GuessTopOne(_canvas.Snapshot());
+            : RelicArtClassifier.GuessTopOne(
+                _canvas.Snapshot(),
+                _relicCandidateIds);
         UpdateRelicGuessStatus();
     }
 

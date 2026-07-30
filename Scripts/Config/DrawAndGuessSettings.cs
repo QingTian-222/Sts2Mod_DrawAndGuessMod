@@ -137,7 +137,7 @@ internal static class DrawAndGuessSettings
             }
             catch
             {
-                return false;
+                return true;
             }
         }
     }
@@ -304,8 +304,8 @@ internal static class DrawAndGuessSettings
                         "Exclude Cards Previously Selected by Blank"),
                     ExcludePreviouslySelectedBlankCardsBinding,
                     LocalizedText(
-                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置；不影响死亡绘本、无限画廊或其他绘画。默认关闭。",
-                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Death Sketchbook, Infinite Gallery, and other drawing modes are unaffected. Disabled by default."),
+                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认开启。",
+                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Enabled by default."),
                     () => true)
                 .AddToggle(
                     "blank_generated_card_skips_deck",
@@ -341,8 +341,8 @@ internal static class DrawAndGuessSettings
                         new ModSettingsChoiceOption<int>(-1, LocalizedText("自定义", "Custom"))
                     },
                     LocalizedText(
-                        "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。无限画廊事件使用自己的时间规则。",
-                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default. Infinite Gallery uses its own timer."),
+                        "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。",
+                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default. "),
                     ModSettingsChoicePresentation.Dropdown)
                 .AddIntSlider(
                     "custom_drawing_time_limit_seconds",
@@ -817,7 +817,7 @@ internal static class DrawAndGuessSettings
     {
         public int CardPoolScope { get; set; } = (int)GuessCardPoolScope.AllCards;
         public bool IncludeMultiplayerCards { get; set; } = true;
-        public bool ExcludePreviouslySelectedBlankCards { get; set; }
+        public bool ExcludePreviouslySelectedBlankCards { get; set; } = true;
         public bool BlankGeneratedCardSkipsDeck { get; set; }
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;
