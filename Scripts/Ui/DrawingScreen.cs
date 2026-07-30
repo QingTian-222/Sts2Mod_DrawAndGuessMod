@@ -92,6 +92,7 @@ public partial class DrawingScreen : Control
     private bool _canvasModeLocked;
     private DrawingCanvasMode _canvasMode;
     private bool _gFillHeld;
+    private bool _eEraserHeld;
     private bool _syncingSizeSlider;
     private bool _showingStampSize;
     private int _brushSize = DrawingCanvas.DefaultBrushSize;
@@ -248,18 +249,22 @@ public partial class DrawingScreen : Control
             }
         }
 
-        if (@event is InputEventKey
-            {
-                Pressed: true,
-                Echo: false,
-                Keycode: Key.E
-            } &&
-            !_finishing &&
-            !_colorPickerOverlay.Visible)
+        if (@event is InputEventKey { Echo: false, Keycode: Key.E } eraserKey)
         {
-            ActivateEraserTool();
-            GetViewport().SetInputAsHandled();
-            return;
+            if (eraserKey.Pressed && !_eEraserHeld && !_finishing && !_colorPickerOverlay.Visible)
+            {
+                _eEraserHeld = true;
+                ActivateEraserTool();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            if (!eraserKey.Pressed && _eEraserHeld)
+            {
+                _eEraserHeld = false;
+                ActivateBrushTool();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
         }
 
         if (@event is InputEventKey
@@ -504,8 +509,8 @@ public partial class DrawingScreen : Control
             null,
             Localized("橡皮擦", "Eraser"),
             Localized(
-                "擦除已有笔迹（快捷键 E）；使用与画笔相同的粗细",
-                "Erase existing strokes (shortcut: E); uses the brush size"),
+                "按住 E 临时切换，松开回到画笔；使用与画笔相同的粗细",
+                "Hold E temporarily and release to return to the brush; uses the brush size"),
             drawingToolGroup);
         _brushToolButton.Pressed += ActivateBrushTool;
         _eraserToolButton.Pressed += ActivateEraserTool;
@@ -782,9 +787,10 @@ public partial class DrawingScreen : Control
             return;
         }
 
-        if (peeking && _gFillHeld)
+        if (peeking && (_gFillHeld || _eEraserHeld))
         {
             _gFillHeld = false;
+            _eEraserHeld = false;
             ActivateBrushTool();
         }
 
