@@ -138,7 +138,7 @@ internal static class DrawAndGuessSettings
             }
             catch
             {
-                return true;
+                return false;
             }
         }
     }
@@ -305,8 +305,8 @@ internal static class DrawAndGuessSettings
                         "Exclude Cards Previously Selected by Blank"),
                     ExcludePreviouslySelectedBlankCardsBinding,
                     LocalizedText(
-                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认开启。",
-                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Enabled by default."),
+                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认关闭。",
+                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Disabled by default."),
                     () => true)
                 .AddToggle(
                     "blank_generated_card_skips_deck",
@@ -372,8 +372,8 @@ internal static class DrawAndGuessSettings
                             LocalizedText("自训练适配器（实验性）", "Trained Adapter (Experimental)"))
                     },
                     LocalizedText(
-                        "瓦库：手工视觉特征。鸡煲：手工特征与 DINOv2 各占 50%。自训练适配器：用合成手绘数据训练的 DINOv2 残差适配器，手工特征占 30%，适配后 DINOv2 占 70%。",
-                        "VAKUU: handcrafted features. Defect: a 50/50 handcrafted/DINOv2 fusion. Trained Adapter: a residual DINOv2 adapter trained on synthetic sketches, fused at 30% handcrafted and 70% adapted DINOv2."),
+                        "瓦库：基础模型。鸡煲：更加智能的神经网络。自训练适配器：或许对简笔画有更高识别性。",
+                        "VAKUU: basic model. Defect: better nn model. Trained Adapter: Higher recognition of simple drawings."),
                     ModSettingsChoicePresentation.Dropdown))
             .AddSection("advanced_candidate_pools", section => section
                 .WithTitle(LocalizedText("高级选项", "Advanced Options"))
@@ -821,7 +821,7 @@ internal static class DrawAndGuessSettings
     {
         public int CardPoolScope { get; set; } = (int)GuessCardPoolScope.AllCards;
         public bool IncludeMultiplayerCards { get; set; } = true;
-        public bool ExcludePreviouslySelectedBlankCards { get; set; } = true;
+        public bool ExcludePreviouslySelectedBlankCards { get; set; }
         public bool BlankGeneratedCardSkipsDeck { get; set; }
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;

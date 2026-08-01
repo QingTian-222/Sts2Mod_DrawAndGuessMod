@@ -125,7 +125,7 @@ internal static class ArtworkStore
         return error == Error.Ok ? ImageTexture.CreateFromImage(image) : null;
     }
 
-    private static byte[] AdaptToCardPortrait(CardModel card, byte[] pngBytes)
+    internal static byte[] AdaptToCardPortrait(CardModel card, byte[] pngBytes)
     {
         try
         {

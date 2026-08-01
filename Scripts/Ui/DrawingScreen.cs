@@ -112,10 +112,12 @@ public partial class DrawingScreen : Control
     private bool _receivedAuthoritativeTimer;
     private bool _privateDrawing;
     private RelicModel? _relicTarget;
-    private IReadOnlySet<ModelId>? _relicCandidateIds;
-    private RelicArtGuess? _currentRelicGuess;
-    private TextureRect? _relicGuessImage;
+    private RelicArtAssessment? _currentRelicAssessment;
     private TextureRect? _relicTargetImage;
+    private ProgressBar? _relicMatchBar;
+    private StyleBoxFlat? _relicMatchFillStyle;
+    private double _relicMatchTargetSimilarity;
+    private double _relicMatchDisplayedSimilarity;
     private Label? _relicWorkTitleLabel;
     private LineEdit? _relicWorkTitleInput;
     private Control? _relicWorkTitleOverlay;
@@ -186,8 +188,7 @@ public partial class DrawingScreen : Control
         Player owner,
         uint sessionId,
         RelicModel target,
-        DrawingScreenOptions options,
-        IReadOnlySet<ModelId>? candidateIds = null)
+        DrawingScreenOptions options)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
@@ -219,10 +220,7 @@ public partial class DrawingScreen : Control
             _canvasMode = DrawingCanvasMode.Relic,
             _rightColor = Colors.Transparent,
             _privateDrawing = true,
-            _relicTarget = target,
-            _relicCandidateIds = candidateIds == null
-                ? null
-                : new HashSet<ModelId>(candidateIds)
+            _relicTarget = target
         };
         screen._customColors.AddRange(
             DrawingPaletteStore.GetColors(paletteOwner)
@@ -270,6 +268,12 @@ public partial class DrawingScreen : Control
                 $"[DrawAndGuessMod] Closing drawing session {_sessionId} because the active run ended.");
             Complete(null);
             return;
+        }
+
+        if (_relicTarget != null && !_finishing)
+        {
+            UpdateRelicAssessment();
+            AnimateRelicMatchBar(delta);
         }
 
         if (_pendingCommands.Count > 0 && Time.GetTicksMsec() >= _lastCommandFlushMsec + 50)
@@ -986,20 +990,20 @@ public partial class DrawingScreen : Control
 
         if (_relicTarget != null && !_relicDrawingConfirmed)
         {
-            RelicArtGuess? confirmedGuess =
-                RelicArtClassifier.GuessTopOne(
+            RelicArtAssessment? confirmedAssessment =
+                RelicArtClassifier.AssessTarget(
                     _canvas.Snapshot(),
-                    _relicCandidateIds);
-            if (confirmedGuess?.Relic.Id != _relicTarget.Id)
+                    _relicTarget);
+            if (confirmedAssessment?.IsAccepted != true)
             {
-                _currentRelicGuess = confirmedGuess;
-                UpdateRelicGuessStatus();
+                _currentRelicAssessment = confirmedAssessment;
+                UpdateRelicAssessmentState();
                 return;
             }
 
-            _currentRelicGuess = confirmedGuess;
+            _currentRelicAssessment = confirmedAssessment;
             _relicDrawingConfirmed = true;
-            UpdateRelicGuessStatus();
+            UpdateRelicAssessmentState();
             OpenRelicWorkTitleEditor();
             return;
         }
@@ -1014,13 +1018,13 @@ public partial class DrawingScreen : Control
         {
             if (_relicTarget != null)
             {
-                RelicArtGuess? finalGuess = RelicArtClassifier.GuessTopOne(
+                RelicArtAssessment? finalAssessment = RelicArtClassifier.AssessTarget(
                     _canvas.Snapshot(),
-                    _relicCandidateIds);
-                if (finalGuess?.Relic.Id != _relicTarget.Id)
+                    _relicTarget);
+                if (finalAssessment?.IsAccepted != true)
                 {
-                    _currentRelicGuess = finalGuess;
-                    UpdateRelicGuessStatus();
+                    _currentRelicAssessment = finalAssessment;
+                    UpdateRelicAssessmentState();
                     _finishing = false;
                     RefreshCanvasModeButton();
                     return;
@@ -2053,10 +2057,6 @@ public partial class DrawingScreen : Control
     private void OnLocalCommand(DrawingCommand command)
     {
         UpdateCanvasModeLock(command);
-        if (_privateDrawing && command.CompletesOperation)
-        {
-            UpdateRelicGuess();
-        }
 
         if (UsesCollaborativeNetworking)
         {
@@ -2229,7 +2229,6 @@ public partial class DrawingScreen : Control
                 PngBytes = _canvas.ExportPng()
             });
         }
-        UpdateRelicGuess();
     }
 
     private void ApplyAuthoritativeRedo(ulong requesterId)
@@ -2290,7 +2289,6 @@ public partial class DrawingScreen : Control
                 PngBytes = _canvas.ExportPng()
             });
         }
-        UpdateRelicGuess();
     }
 
     private void TrackPendingMultiplayerCommand(ulong senderId, DrawingCommand command)
@@ -2658,7 +2656,7 @@ public partial class DrawingScreen : Control
                 "Only this title is shown during appraisal; you may use it to disguise the relic.")
         };
         _relicWorkTitleInput.AddThemeFontSizeOverride("font_size", 26);
-        _relicWorkTitleInput.TextChanged += _ => UpdateRelicGuessStatus();
+        _relicWorkTitleInput.TextChanged += _ => UpdateRelicAssessmentState();
         _relicWorkTitleInput.TextSubmitted += _ => ConfirmRelicWorkTitleEditing();
         content.AddChild(_relicWorkTitleInput);
 
@@ -2692,7 +2690,7 @@ public partial class DrawingScreen : Control
         _relicWorkTitleOverlay.Visible = true;
         _relicWorkTitleInput.GrabFocus();
         _relicWorkTitleInput.SelectAll();
-        UpdateRelicGuessStatus();
+        UpdateRelicAssessmentState();
     }
 
     private void ConfirmRelicWorkTitleEditing()
@@ -2714,7 +2712,7 @@ public partial class DrawingScreen : Control
         _relicWorkTitleInput.ReleaseFocus();
         _relicWorkTitleOverlay.Visible = false;
         _editingRelicWorkTitle = false;
-        UpdateRelicGuessStatus();
+        UpdateRelicAssessmentState();
         OnGuessPressed();
     }
 
@@ -2802,44 +2800,73 @@ public partial class DrawingScreen : Control
             : title.Trim();
     }
 
-    private void UpdateRelicGuess()
+    private void UpdateRelicAssessment()
     {
         if (_relicTarget == null || _finishing)
         {
             return;
         }
 
-        _currentRelicGuess = _canvas.IsBlank()
+        _currentRelicAssessment = _canvas.IsBlank()
             ? null
-            : RelicArtClassifier.GuessTopOne(
+            : RelicArtClassifier.AssessTarget(
                 _canvas.Snapshot(),
-                _relicCandidateIds);
-        UpdateRelicGuessStatus();
+                _relicTarget);
+        UpdateRelicAssessmentState();
     }
 
-    private void UpdateRelicGuessStatus()
+    private void UpdateRelicAssessmentState()
     {
         if (_relicTarget == null)
         {
             return;
         }
 
-        string guessName = _currentRelicGuess?.Relic.Title.GetFormattedText() ??
-                           Localized("尚未识别", "No guess");
-        bool matches = _currentRelicGuess?.Relic.Id == _relicTarget.Id;
-        if (_relicGuessImage != null)
-        {
-            _relicGuessImage.Texture = _currentRelicGuess?.Relic.BigIcon;
-        }
-        _status.Text = Localized(
-            $"当前识别：{guessName}" +
-            (matches ? "\n识别正确，可以提交作品。" : "\n必须与题目完全一致才能提交。"),
-            $"Current guess: {guessName}" +
-            (matches ? "\nExact match. You may submit the work." : "\nThe guess must exactly match the target before submission."));
+        double similarity = _currentRelicAssessment?.SimilarityPercent ?? 0d;
+        bool matches = _currentRelicAssessment?.IsAccepted == true;
+        _relicMatchTargetSimilarity = similarity;
+        _status.Text = string.Empty;
         _guessButton.Disabled =
             !matches ||
             _editingRelicWorkTitle ||
             string.IsNullOrWhiteSpace(_relicWorkTitleLabel?.Text);
+    }
+
+    private void AnimateRelicMatchBar(double delta)
+    {
+        if (_relicMatchBar == null)
+        {
+            return;
+        }
+
+        double animationWeight = 1d - Math.Exp(-Math.Max(0d, delta) * 10d);
+        _relicMatchDisplayedSimilarity +=
+            (_relicMatchTargetSimilarity - _relicMatchDisplayedSimilarity) *
+            animationWeight;
+        if (Math.Abs(
+                _relicMatchDisplayedSimilarity -
+                _relicMatchTargetSimilarity) < 0.05d)
+        {
+            _relicMatchDisplayedSimilarity = _relicMatchTargetSimilarity;
+        }
+
+        _relicMatchBar.Value = _relicMatchDisplayedSimilarity;
+        bool displayedAsAccepted =
+            _relicMatchDisplayedSimilarity >=
+            RelicArtClassifier.RequiredSimilarityPercent;
+        if (_relicMatchFillStyle != null)
+        {
+            float progressToThreshold = Mathf.Clamp(
+                (float)(_relicMatchDisplayedSimilarity /
+                        RelicArtClassifier.RequiredSimilarityPercent),
+                0f,
+                1f);
+            _relicMatchFillStyle.BgColor = displayedAsAccepted
+                ? new Color("58D68D")
+                : new Color("F05A55").Lerp(
+                    new Color("F4C95D"),
+                    progressToThreshold);
+        }
     }
 
     private void BuildRelicReferencePanel(Container canvasRow)
@@ -2856,20 +2883,6 @@ public partial class DrawingScreen : Control
         };
         references.AddThemeConstantOverride("separation", 6);
         canvasRow.AddChild(references);
-
-        Label guessLabel = new()
-        {
-            Text = Localized("瓦库的猜测", "VAKUU's Guess"),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        references.AddChild(guessLabel);
-        _relicGuessImage = new TextureRect
-        {
-            CustomMinimumSize = new Vector2(190f, 190f),
-            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
-        };
-        references.AddChild(_relicGuessImage);
 
         Label targetLabel = new()
         {
@@ -2889,6 +2902,52 @@ public partial class DrawingScreen : Control
         };
         references.AddChild(_relicTargetImage);
 
+        _relicMatchFillStyle = CreateTimerBarStyle(
+            new Color("F05A55"),
+            Colors.Transparent,
+            0);
+        _relicMatchBar = new ProgressBar
+        {
+            MinValue = 0d,
+            MaxValue = 100d,
+            Value = 0d,
+            ShowPercentage = false,
+            CustomMinimumSize = new Vector2(190f, 14f),
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        _relicMatchBar.AddThemeStyleboxOverride(
+            "background",
+            CreateTimerBarStyle(new Color("111722"), new Color("526070"), 2));
+        _relicMatchBar.AddThemeStyleboxOverride("fill", _relicMatchFillStyle);
+        references.AddChild(_relicMatchBar);
+
+        ColorRect thresholdOutline = CreateRelicMatchThresholdMarker(
+            new Color("291012"),
+            6f);
+        _relicMatchBar.AddChild(thresholdOutline);
+        ColorRect thresholdMarker = CreateRelicMatchThresholdMarker(
+            new Color("FF3038"),
+            3f);
+        _relicMatchBar.AddChild(thresholdMarker);
+    }
+
+    private static ColorRect CreateRelicMatchThresholdMarker(Color color, float width)
+    {
+        float threshold = (float)(
+            RelicArtClassifier.RequiredSimilarityPercent / 100d);
+        return new ColorRect
+        {
+            Color = color,
+            MouseFilter = MouseFilterEnum.Ignore,
+            AnchorLeft = threshold,
+            AnchorRight = threshold,
+            AnchorTop = 0f,
+            AnchorBottom = 1f,
+            OffsetLeft = -width * 0.5f,
+            OffsetRight = width * 0.5f,
+            OffsetTop = -3f,
+            OffsetBottom = 3f
+        };
     }
 
     private static string Localized(string simplifiedChinese, string english)

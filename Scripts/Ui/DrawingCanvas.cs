@@ -16,7 +16,7 @@ public partial class DrawingCanvas : Control
     public const int RelicCanvasHeight = 300;
     private const int RelicCanvasDisplaySize = 300;
     private const int TransparencyGridSize = 20;
-    public const int MinBrushSize = 4;
+    public const int MinBrushSize = 2;
     public const int MaxBrushSize = 48;
     public const int DefaultBrushSize = 14;
     public const int MinStampSize = 40;

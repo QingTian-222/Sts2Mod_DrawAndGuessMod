@@ -21,6 +21,31 @@ internal static class CardPortraitPatch
             return;
         }
 
+        if (MemorialArtworkPreviewRegistry.TryGet(
+                __instance,
+                out _,
+                out Texture2D previewTexture))
+        {
+            __result = previewTexture;
+            return;
+        }
+
+        bool hasPermanentArtwork = MemorialSketchbookStore.HasPermanentArtwork(__instance);
+        if (MemorialSketchbookStore.TryGetPermanentTexture(
+                __instance,
+                out Texture2D permanentTexture))
+        {
+            __result = permanentTexture;
+            return;
+        }
+
+        // A disabled permanent drawing must reveal the original card art rather
+        // than falling through to this run's temporary drawing for the same ID.
+        if (hasPermanentArtwork)
+        {
+            return;
+        }
+
         if (ArtworkStore.TryGetTexture(__instance, out Texture2D texture))
         {
             __result = texture;

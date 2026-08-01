@@ -4,13 +4,13 @@
   "author": "QingTian",
   "description": "你来画，瓦库来猜 / You draw, VAKUU guesses",
   "version": "0.8.0",
-  "min_game_version": "0.109.0",
+  "min_game_version": "0.110.0",
   "has_pck": true,
   "has_dll": true,
   "dependencies": [
     {
       "id": "STS2-RitsuLib",
-      "min_version": "0.4.60"
+      "min_version": "0.5.0"
     }
   ],
   "affects_gameplay": true

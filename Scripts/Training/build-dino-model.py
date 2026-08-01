@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import struct
 from pathlib import Path
 
@@ -23,10 +22,6 @@ MODEL_VERSION = 2
 MODEL_NAME = "vit_small_patch14_dinov2.lvd142m"
 EMBEDDING_SIZE = 384
 INPUT_SIZE = 224
-ATLAS_RE = re.compile(r'path="res://images/atlases/(card_atlas_\d+\.png)"')
-REGION_RE = re.compile(r"region\s*=\s*Rect2\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)")
-
-
 class NormalizedDino(torch.nn.Module):
     def __init__(self, backbone: torch.nn.Module):
         super().__init__()
@@ -38,33 +33,21 @@ class NormalizedDino(torch.nn.Module):
 
 
 def discover_portraits(sts_source: Path) -> list[tuple[str, Image.Image]]:
-    atlas_dir = sts_source / "images" / "atlases"
-    sprites_dir = atlas_dir / "card_atlas.sprites"
-    if not sprites_dir.is_dir():
-        raise FileNotFoundError(f"Card sprite directory not found: {sprites_dir}")
+    portraits_dir = sts_source / "images" / "packed" / "card_portraits"
+    if not portraits_dir.is_dir():
+        raise FileNotFoundError(f"Packed card portrait directory not found: {portraits_dir}")
 
-    atlases: dict[str, Image.Image] = {}
     portraits: dict[str, Image.Image] = {}
-    for tres_path in sorted(sprites_dir.rglob("*.tres")):
-        relative_parts = tres_path.relative_to(sprites_dir).parts
-        if "beta" in relative_parts or tres_path.stem == "beta":
+    for png_path in sorted(portraits_dir.rglob("*.png")):
+        relative_parts = png_path.relative_to(portraits_dir).parts
+        if "beta" in relative_parts or png_path.stem in {"beta", "ancient_beta"}:
             continue
-        text = tres_path.read_text(encoding="utf-8")
-        atlas_match = ATLAS_RE.search(text)
-        region_match = REGION_RE.search(text)
-        if atlas_match is None or region_match is None:
-            continue
-        card_id = tres_path.stem.upper()
+        card_id = png_path.stem.upper()
         if card_id in portraits:
             continue
-        atlas_name = atlas_match.group(1)
-        if atlas_name not in atlases:
-            atlases[atlas_name] = Image.open(atlas_dir / atlas_name).convert("RGB")
-        x, y, width, height = (int(round(float(value))) for value in region_match.groups())
-        portraits[card_id] = atlases[atlas_name].crop((x, y, x + width, y + height)).copy()
+        with Image.open(png_path) as portrait:
+            portraits[card_id] = portrait.convert("RGB").copy()
 
-    for atlas in atlases.values():
-        atlas.close()
     return sorted(portraits.items())
 
 
