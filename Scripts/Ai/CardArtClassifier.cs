@@ -266,7 +266,7 @@ internal static class CardArtClassifier
         string dinoMode = useDino
             ? adaptedDrawing ? "adapted" : "raw"
             : "unavailable";
-        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawAndGuessSettings.CardPoolScope}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, excludedPreviousBlank={excludedCardIds?.Count ?? 0}, model={recognitionModel}, dino={dinoMode}): {diagnostics}");
+        Entry.Logger.Info($"[DrawAndGuessMod] Guess candidates ({DrawingRunRules.GetCardRestriction(owner.RunState)}, multiplayer={DrawAndGuessSettings.IncludeMultiplayerCards}, excludedPreviousBlank={excludedCardIds?.Count ?? 0}, model={recognitionModel}, dino={dinoMode}): {diagnostics}");
         return new CardGuess(selected.Sample.Card, selectedRank, selected.CurrentDistance, nearest);
     }
 
@@ -305,10 +305,18 @@ internal static class CardArtClassifier
             }
             candidates = candidates.Where(sample => allowedCardIds.Contains(sample.Card.Id));
         }
-        else if (DrawAndGuessSettings.CardPoolScope == GuessCardPoolScope.CurrentCharacter)
+        else
         {
-            HashSet<ModelId> characterCardIds = owner.Character.CardPool.AllCardIds.ToHashSet();
-            candidates = candidates.Where(sample => characterCardIds.Contains(sample.Card.Id));
+            DrawingCardRestriction restriction = DrawingRunRules.GetCardRestriction(owner.RunState);
+            if (restriction == DrawingCardRestriction.ExcludeAncient)
+            {
+                candidates = candidates.Where(sample => sample.Card.Rarity != CardRarity.Ancient);
+            }
+            else if (restriction == DrawingCardRestriction.CurrentCharacter)
+            {
+                HashSet<ModelId> characterCardIds = owner.Character.CardPool.AllCardIds.ToHashSet();
+                candidates = candidates.Where(sample => characterCardIds.Contains(sample.Card.Id));
+            }
         }
 
         return candidates;

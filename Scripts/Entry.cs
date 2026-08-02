@@ -45,6 +45,7 @@ public static class Entry
             ArtworkStore.Register();
             DrawingPaletteStore.Register();
             BlankSelectionStore.Register();
+            DrawingRunRules.Register();
             ErasedCardStore.Register();
             GalleryChallengeStore.Register();
             MemorialSketchbookStore.Register();
@@ -109,6 +110,7 @@ public static class Entry
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
+        DrawingRunRules.ActivateRun(runState);
         MemorialSketchbookStore.ActivateRun(runState);
         RelicAppraisalFairArtworkStore.Reset();
         RelicAppraisalFairTreasureFlow.Reset();

@@ -165,7 +165,7 @@ public partial class DrawingScreen : Control
             _isRegularBlank = isRegularBlank,
             _excludePreviouslySelectedBlankCards = isRegularBlank &&
                                                        hasAuthoritativeBlankSettings &&
-                                                       DrawAndGuessSettings.ExcludePreviouslySelectedBlankCards,
+                                                       DrawingRunRules.GetExcludePreviouslySelectedCards(owner.RunState),
             _receivedAuthoritativeBlankSettings = hasAuthoritativeBlankSettings,
             _options = options,
             _canvasMode = options?.InitialCanvasMode ?? DrawingCanvasMode.Standard,
@@ -1050,7 +1050,7 @@ public partial class DrawingScreen : Control
                 _owner,
                 _options?.CandidateScope ?? GuessCandidateScope.Default,
                 excludedCardIds);
-            bool skipAddingToDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck;
+            bool skipAddingToDeck = DrawingRunRules.GetBlankGeneratedCardSkipsDeck(_owner.RunState);
             _status.Text = "";
             FlushCommands();
             DrawingNetSync.SendFinal(new DrawingFinalMessage
