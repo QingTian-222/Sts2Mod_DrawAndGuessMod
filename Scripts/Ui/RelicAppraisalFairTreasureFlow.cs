@@ -133,12 +133,6 @@ internal static class RelicAppraisalFairTreasureFlow
             }
             temporaryRoom.Free();
 
-            Control dummyChest = new()
-            {
-                Visible = false
-            };
-            overlay.AddChild(dummyChest);
-
             Node parent = NRun.Instance != null
                 ? NRun.Instance
                 : ((SceneTree)Engine.GetMainLoop()).Root;
@@ -147,13 +141,13 @@ internal static class RelicAppraisalFairTreasureFlow
             collection.Initialize(runState);
             RelicAppraisalFairArtworkStore.SetPickingActive(true);
             collection.InitializeRelics();
-            collection.AnimIn(dummyChest);
+            collection.AnimIn();
             collection.DefaultFocusedControl?.TryGrabFocus();
 
             await collection.RelicPickingFinished();
             IReadOnlyDictionary<ulong, string> awards =
                 await resultCompletion.Task;
-            collection.AnimOut(dummyChest);
+            collection.AnimOut();
             await collection.ToSignal(
                 collection.GetTree().CreateTimer(0.35d, processAlways: true),
                 SceneTreeTimer.SignalName.Timeout);

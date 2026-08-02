@@ -13,6 +13,7 @@ using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Gold;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Extensions;
@@ -84,7 +85,7 @@ public sealed class RelicAppraisalFair : ModEventTemplate
     public override bool IsAllowed(MegaCrit.Sts2.Core.Runs.IRunState runState)
     {
         if (runState.Players.Count <= 1 ||
-            runState.CurrentActIndex == 0)
+            runState.CurrentActIndex is not (1 or 2))
         {
             return false;
         }
@@ -94,7 +95,8 @@ public sealed class RelicAppraisalFair : ModEventTemplate
             return false;
         }
 
-        if (!runState.Players.All(player => player.Relics.Count(relic => relic.IsTradable) >= 5))
+        if (!runState.Players.All(player =>
+                player.Relics.Count(relic => relic.IsTradable) >= 5))
         {
             return false;
         }
@@ -118,11 +120,6 @@ public sealed class RelicAppraisalFair : ModEventTemplate
             _appraisalId,
             EventOwner.NetId);
         RelicModel target = FindRelic(targetRelicId);
-        HashSet<ModelId> candidateIds = GetAvailableAppraisalRelics(
-                EventOwner.RunState)
-            .Select(relic => relic.Id)
-            .ToHashSet();
-
         RelicAppraisalFairSubmission submission;
         if (LocalContext.IsMe(EventOwner))
         {
@@ -140,8 +137,7 @@ public sealed class RelicAppraisalFair : ModEventTemplate
                 EventOwner,
                 _appraisalId ^ (uint)EventOwner.NetId,
                 target,
-                options,
-                candidateIds);
+                options);
             if (drawing == null)
             {
                 throw new InvalidOperationException("The required relic drawing closed before submission.");
@@ -161,6 +157,9 @@ public sealed class RelicAppraisalFair : ModEventTemplate
                 EventOwner.NetId);
         }
 
+        await MemorialSketchbookStore.EnsureOwnedByAllPlayersAsync(
+            (MegaCrit.Sts2.Core.Runs.RunState)EventOwner.RunState);
+
         IReadOnlyList<RelicAppraisalFairSubmission> allSubmissions;
         try
         {
@@ -170,13 +169,9 @@ public sealed class RelicAppraisalFair : ModEventTemplate
         {
             DrawingScreen.CloseCompletedRelicScreen();
         }
-        HashSet<ModelId> validationCandidateIds = GetAvailableAppraisalRelics(
-                EventOwner.RunState)
-            .Select(relic => relic.Id)
-            .ToHashSet();
         foreach (RelicAppraisalFairSubmission candidate in allSubmissions)
         {
-            ValidateSubmission(candidate, validationCandidateIds);
+            ValidateSubmission(candidate);
         }
         IReadOnlyDictionary<ulong, string> results =
             await RelicAppraisalFairTreasureFlow.RunAsync(
@@ -342,9 +337,7 @@ public sealed class RelicAppraisalFair : ModEventTemplate
         return submissions;
     }
 
-    private void ValidateSubmission(
-        RelicAppraisalFairSubmission submission,
-        IReadOnlySet<ModelId> candidateIds)
+    private void ValidateSubmission(RelicAppraisalFairSubmission submission)
     {
         string expectedTarget = DrawingNetSync.WaitForAppraisalTargetAsync(
             _appraisalId,
@@ -364,14 +357,17 @@ public sealed class RelicAppraisalFair : ModEventTemplate
             throw new InvalidOperationException(
                 $"Relic appraisal submission from {submission.OwnerId} has an invalid PNG.");
         }
-        RelicArtGuess? guess = RelicArtClassifier.GuessTopOne(
+        RelicModel target = FindRelic(expectedTarget);
+        RelicArtAssessment? assessment = RelicArtClassifier.AssessTarget(
             image,
-            candidateIds);
-        if (guess?.Relic.Id.Entry != expectedTarget)
+            target);
+        if (assessment?.IsAccepted != true)
         {
             throw new InvalidOperationException(
                 $"Host rejected relic appraisal submission from {submission.OwnerId}: " +
-                $"expected {expectedTarget}, guessed {guess?.Relic.Id.Entry ?? "none"}.");
+                $"expected {expectedTarget}, similarity " +
+                $"{assessment?.SimilarityPercent ?? 0d:F1}% is below " +
+                $"{RelicArtClassifier.RequiredSimilarityPercent:F1}%.");
         }
     }
 
@@ -392,7 +388,9 @@ public sealed class RelicAppraisalFair : ModEventTemplate
             .ToHashSet();
 
         return RelicArtClassifier.GetEligibleRelics()
-            .Where(relic => !ownedIds.Contains(relic.Id))
+            .Where(relic =>
+                relic.Rarity != RelicRarity.Ancient &&
+                !ownedIds.Contains(relic.Id))
             .OrderBy(relic => relic.Id.Entry, StringComparer.Ordinal)
             .ToList();
     }

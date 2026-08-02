@@ -58,49 +58,51 @@ internal static class RelicLocalization
             }
 
             relicValues[DeathNoteCardViewer.InfoTextKey] = ModText.Get(
-                "被死亡绘本消除的卡牌",
+                "\u88ab\u6b7b\u4ea1\u7ed8\u672c\u6d88\u9664\u7684\u5361\u724c",
                 "Cards erased by Death Sketchbook");
             relicValues[MemorialSketchbookCardViewer.InfoTextKey] = ModText.Get(
-                "限时挑战连胜的卡牌",
-                "Cards from the timed challenge streak");
+                "\u5de6\u952e\u67e5\u770b\uff1b\u52fe\u9009\u300c\u8bbe\u4e3a\u6c38\u4e45\u5361\u9762\u300d\u540e\uff0c\u70b9\u51fb\u753b\u4f5c\u5373\u53ef\u66ff\u6362\u3002",
+                "Left-click to inspect. Enable Set as Permanent Artwork, then select a drawing to replace its card art.");
             LocManager.Instance.GetTable("relics").MergeWith(relicValues);
 
             Dictionary<string, string> optionValues = new()
             {
-                [DeathNoteRestSiteOption.TitleKey] =
-                    ModText.Get("绘画", "Draw"),
-                [DeathNoteRestSiteOption.DescriptionKey] =
-                    ModText.Get(
-                        "绘制一张卡面。它会从本局游戏中[red]彻底消失[/red]。（无论它在哪里。）",
-                        "Draw a card illustration. It vanishes from the game entirely. (No matter where it is.)")
+                [DeathNoteRestSiteOption.TitleKey] = ModText.Get(
+                    "\u7ed8\u753b",
+                    "Draw"),
+                [DeathNoteRestSiteOption.DescriptionKey] = ModText.Get(
+                    "\u7ed8\u5236\u4e00\u5f20\u5361\u9762\u3002\u5b83\u4f1a\u4ece\u672c\u5c40\u6e38\u620f\u4e2d[red]\u5f7b\u5e95\u6d88\u5931[/red]\u3002\uff08\u65e0\u8bba\u5b83\u5728\u54ea\u91cc\u3002\uff09",
+                    "Draw a card illustration. It vanishes from the game entirely. (No matter where it is.)")
             };
             LocManager.Instance.GetTable("rest_site_ui").MergeWith(optionValues);
         }
         catch (Exception ex)
         {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to install Death Sketchbook localization: {ex.Message}");
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to install relic localization: {ex.Message}");
         }
     }
 
     private static void AddDeathNote(IDictionary<string, string> values, string id)
     {
-        values[id + ".title"] = ModText.Get("死亡绘本", "Death Sketchbook");
+        values[id + ".title"] = ModText.Get(
+            "\u6b7b\u4ea1\u7ed8\u672c",
+            "Death Sketchbook");
         values[id + ".description"] = ModText.Get(
-            "你可以在火堆[gold]绘画[/gold]，[gold]绘画[/gold]的卡牌会从本局游戏中[jitter][red]彻底消失[/red][/jitter]。\n拾起时，获得一张随机[red]诅咒[/red]。",
+            "\u4f60\u53ef\u4ee5\u5728\u706b\u5806[gold]\u7ed8\u753b[/gold]\uff0c[gold]\u7ed8\u753b[/gold]\u7684\u5361\u724c\u4f1a\u4ece\u672c\u5c40\u6e38\u620f\u4e2d[jitter][red]\u5f7b\u5e95\u6d88\u5931[/red][/jitter]\u3002\n\u62fe\u8d77\u65f6\uff0c\u83b7\u5f97\u4e00\u5f20\u968f\u673a[red]\u8bc5\u5492[/red]\u3002",
             "You can [gold]Draw[/gold] at Rest Sites. Cards you draw disappear completely from this run. Upon pickup, obtain a random [red]Curse[/red].");
         values[id + ".flavor"] = ModText.Get(
-            "听说在另一个世界，也有一本类似的笔记本。",
+            "\u542c\u8bf4\u5728\u53e6\u4e00\u4e2a\u4e16\u754c\uff0c\u4e5f\u6709\u4e00\u672c\u7c7b\u4f3c\u7684\u7b14\u8bb0\u672c\u3002",
             "Heard that in another world, there is also a similar notebook.");
     }
 
-    private static void AddMemorialSketchbook(
-        IDictionary<string, string> values,
-        string id)
+    private static void AddMemorialSketchbook(IDictionary<string, string> values, string id)
     {
-        values[id + ".title"] = ModText.Get("纪念绘本", "Memorial Sketchbook");
+        values[id + ".title"] = ModText.Get(
+            "\u7eaa\u5ff5\u7ed8\u672c",
+            "Memorial Sketchbook");
         values[id + ".description"] = ModText.Get(
-            "这只是一本纪念册。",
-            "This is just a memorial album.");
+            "\u4fdd\u5b58\u672c\u5c40\u6240\u6709\u73a9\u5bb6\u7684\u6bcf\u4e00\u5e45\u5361\u724c\u753b\u4f5c\u3002\u7ffb\u9605\u65f6\u53ef\u5c06\u4efb\u610f\u4e00\u9875\u8bbe\u4e3a\u6c38\u4e45\u5361\u9762\u3002",
+            "Keeps every card drawing made by every player this run. Browse it to choose permanent card artwork.");
         values[id + ".flavor"] = "";
     }
 }

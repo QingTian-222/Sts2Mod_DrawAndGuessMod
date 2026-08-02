@@ -24,7 +24,7 @@ SCRIPT_PATH = Path(__file__).resolve()
 MOD_ROOT = SCRIPT_PATH.parents[2]
 WORKSPACE_ROOT = SCRIPT_PATH.parents[4]
 TRAINING_SCRIPT = MOD_ROOT / "Scripts" / "Training" / "train-card-model.py"
-DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts109"
+DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts110"
 DEFAULT_MODEL = MOD_ROOT / "Models" / "card_features.bin"
 DEFAULT_DINO_CACHE = MOD_ROOT / "Scripts" / "Preview" / ".semantic-cache" / "dinov2-vits14-lvd142m-224.npz"
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -45,41 +45,30 @@ TRAINING = load_training_module()
 
 class CardPortraitIndex:
     def __init__(self, sts_source: Path):
-        self._atlas_dir = sts_source / "images" / "atlases"
-        sprites_dir = self._atlas_dir / "card_atlas.sprites"
+        self._portraits_dir = sts_source / "images" / "packed" / "card_portraits"
+        sprites_dir = self._portraits_dir
         if not sprites_dir.is_dir():
             raise FileNotFoundError(f"找不到卡图索引目录：{sprites_dir}")
 
-        self._entries: dict[str, tuple[str, tuple[int, int, int, int]]] = {}
-        self._atlases: dict[str, Image.Image] = {}
+        self._entries: dict[str, Path] = {}
         self._lock = threading.Lock()
-        for tres_path in sorted(sprites_dir.rglob("*.tres")):
-            relative_parts = tres_path.relative_to(sprites_dir).parts
-            if "beta" in relative_parts or tres_path.stem == "beta":
+        for png_path in sorted(sprites_dir.rglob("*.png")):
+            relative_parts = png_path.relative_to(sprites_dir).parts
+            if "beta" in relative_parts or png_path.stem in {"beta", "ancient_beta"}:
                 continue
-            text = tres_path.read_text(encoding="utf-8")
-            atlas_match = TRAINING.ATLAS_RE.search(text)
-            region_match = TRAINING.REGION_RE.search(text)
-            if atlas_match is None or region_match is None:
-                continue
-            card_id = tres_path.stem.upper()
+            card_id = png_path.stem.upper()
             if card_id in self._entries:
                 continue
-            x, y, width, height = (int(round(float(value))) for value in region_match.groups())
-            self._entries[card_id] = (atlas_match.group(1), (x, y, width, height))
+            self._entries[card_id] = png_path
 
     @property
     def card_ids(self) -> set[str]:
         return set(self._entries)
 
     def get(self, card_id: str) -> Image.Image:
-        atlas_name, (x, y, width, height) = self._entries[card_id]
         with self._lock:
-            atlas = self._atlases.get(atlas_name)
-            if atlas is None:
-                atlas = Image.open(self._atlas_dir / atlas_name).convert("RGB")
-                self._atlases[atlas_name] = atlas
-            return atlas.crop((x, y, x + width, y + height)).copy()
+            with Image.open(self._entries[card_id]) as portrait:
+                return portrait.convert("RGB").copy()
 
 
 class FeatureModel:
@@ -530,7 +519,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DrawAndGuessMod 游戏外识别预览")
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="game-src/Sts109 路径")
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="game-src/Sts110 路径")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="card_features.bin 路径")
     parser.add_argument("--dino-model", default="vit_small_patch14_dinov2.lvd142m", help="timm DINOv2模型名")
     parser.add_argument("--dino-cache", type=Path, default=DEFAULT_DINO_CACHE, help="卡图DINOv2向量缓存")

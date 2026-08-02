@@ -69,6 +69,12 @@ public sealed class DeathNoteRestSiteOption : ModRestSiteOptionTemplate
             return false;
         }
 
+        string? memorialArtworkId = await MemorialSketchbookStore.CaptureCardDrawingAsync(
+            runState,
+            Owner.NetId,
+            sessionId,
+            drawing);
+
         List<CardModel> choices = drawing.Guess.NearestCards
             .Take(3)
             .Select(candidate => runState.CreateCard(candidate, Owner))
@@ -89,6 +95,11 @@ public sealed class DeathNoteRestSiteOption : ModRestSiteOptionTemplate
         }
 
         ModelId selectedId = selected.Id;
+        MemorialSketchbookStore.AssignCard(
+            runState,
+            memorialArtworkId,
+            selected,
+            drawing.PngBytes);
         ArtworkStore.Set(runState, selected, drawing.PngBytes);
         bool newlyErased = ErasedCardStore.Erase(runState, selectedId);
         RemoveChoiceModels(choices);
@@ -99,13 +110,11 @@ public sealed class DeathNoteRestSiteOption : ModRestSiteOptionTemplate
             return false;
         }
 
-        int removedMemorialEntries =
-            GalleryChallengeStore.RemoveMemorialCard(runState, selectedId);
         Owner.Relics.OfType<DeathNote>().FirstOrDefault()?.Flash();
         await ErasedCardStore.RemoveExistingCardsAsync(runState, selectedId);
         Entry.Logger.Info(
             $"[DrawAndGuessMod] Death Sketchbook erased {selectedId.Entry} from run at floor " +
-            $"{runState.TotalFloor} and removed {removedMemorialEntries} memorial entry/entries.");
+            $"{runState.TotalFloor}; its Memorial Sketchbook artwork was retained.");
         return true;
     }
 

@@ -89,8 +89,8 @@ internal static class EventLocalization
             "目标是[gold]{Target}[/gold]，你选择了[gold]{Chosen}[/gold]。这样不对！限时挑战到此结束。",
             "The target was [gold]{Target}[/gold], but you chose [gold]{Chosen}[/gold]. VAKUU shakes his head. The timed challenge is over.");
         values[$"{id}.pages.FAIL_TIMED_REWARD.description"] = ModText.Get(
-            "目标是[gold]{Target}[/gold]，你选择了[gold]{Chosen}[/gold]。这样不对！限时挑战到此结束。\n\n瓦库却没有立刻赶你走。他将本次连胜的画作装订成一本纪念绘本，递到你面前。",
-            "The target was [gold]{Target}[/gold], but you chose [gold]{Chosen}[/gold]. The timed challenge is over.\n\nYet VAKUU does not send you away. He binds the drawings from your winning streak into a Memorial Sketchbook and offers it to you.");
+            "目标是[gold]{Target}[/gold]，你选择了[gold]{Chosen}[/gold]。这样不对！限时挑战到此结束。\n\n瓦库却没有立刻赶你走。他将本次成功的画作逐一装订成书，整齐地摆到你面前。",
+            "The target was [gold]{Target}[/gold], but you chose [gold]{Chosen}[/gold]. The timed challenge is over.\n\nYet VAKUU does not send you away. He binds every successful drawing into a book and arranges the collection before you.");
         values[$"{id}.pages.FAIL_STANDARD.description"] = ModText.Get(
             "目标是[gold]{Target}[/gold]，你选择了[gold]{Chosen}[/gold]。这幅画没能命中目标，但瓦库允许你再试一次。",
             "The target was [gold]{Target}[/gold], but you chose [gold]{Chosen}[/gold]. The drawing missed its mark, but VAKUU allows another attempt.");
@@ -107,14 +107,17 @@ internal static class EventLocalization
             "离开无限画廊。",
             "Leave the Infinite Gallery.");
         values[$"{id}.pages.RESULT.options.TAKE_AND_LEAVE.title"] = ModText.Get(
-            "收下并离开",
-            "Take and Leave");
+            "阅读并离开",
+            "Read and Leave");
         values[$"{id}.pages.RESULT.options.TAKE_AND_LEAVE.description"] = ModText.Get(
-            "获得[gold]纪念绘本[/gold]。打开它可以查看本次限时挑战连胜的卡牌。",
-            "Obtain the [gold]Memorial Sketchbook[/gold]. Open it to view the cards from this timed challenge streak.");
+            "从本次成功画出的[gold]{SuccessCount}[/gold]张牌中选择一张加入牌组，也可以跳过。",
+            "Choose one of your [gold]{SuccessCount}[/gold] successful drawings to add to your deck, or skip the reward.");
+        values[$"{id}.selectionScreenPrompt"] = ModText.Get(
+            "从瓦库装订的画册中选择一本带走，或直接跳过。",
+            "Choose one of VAKUU's bound volumes to take with you, or skip.");
         values[$"{id}.pages.TAKE_REWARD.description"] = ModText.Get(
-            "你收下了[gold]纪念绘本[/gold]。那些仓促却珍贵的画作，被整齐地留在每一页中。",
-            "You take the [gold]Memorial Sketchbook[/gold]. Those hurried but precious drawings now rest neatly upon its pages.");
+            "你挑中一本，在画廊角落的椅子上坐下，安静地翻阅起来。\n\n你不禁思考，这么多画，仿佛能装下一个大图书馆。",
+            "You choose a volume, settle into a chair in the corner, and read in silence.\n\nYou begin to wonder whether the bond between pictures and cards exists elsewhere in the Spire.");
         values[$"{id}.pages.LEAVE.description"] = ModText.Get(
             "身后的画框渐渐隐入黑暗。瓦库没有挽留，只是继续端详着你留下的画。",
             "The frames behind you fade into darkness. VAKUU does not stop you; he simply keeps studying the drawings you left behind.");
@@ -122,8 +125,8 @@ internal static class EventLocalization
             "你掀开最后一块空白画布，发现背面藏着一行小字：\n\n[jitter][purple]“有个角色已经把世界上的牌都画完了。你猜他是谁。”[/purple][/jitter]",
             "You lift the final blank canvas and find a tiny line hidden on its back:\n\n[jitter][purple]\"You have drawn every card in the world. Now it is VAKUU's turn to guess who you are.\"[/purple][/jitter]\n\nFor the first time, VAKUU does not answer immediately.");
         values[$"{id}.pages.EXHAUSTED_REWARD.description"] = ModText.Get(
-            "你掀开最后一块空白画布，发现背面藏着一行小字：\n\n[jitter][purple]“有个角色已经把世界上的牌都画完了。你猜他是谁。”[/purple][/jitter]\n\n瓦库将本次连胜的画作装订成[gold]纪念绘本[/gold]，交到你的手中。",
-            "You lift the final blank canvas and find a tiny line hidden on its back:\n\n[jitter][purple]\"You have drawn every card in the world. Now it is VAKUU's turn to guess who you are.\"[/purple][/jitter]\n\nVAKUU binds the drawings from your streak into a [gold]Memorial Sketchbook[/gold] and places it in your hands.");
+            "你掀开最后一块空白画布，发现背面藏着一行小字：\n\n[jitter][purple]“有个角色已经把世界上的牌都画完了。你猜他是谁。”[/purple][/jitter]\n\n瓦库将本次成功的画作逐一装订成书。你从中挑选了一本带走。",
+            "You lift the final blank canvas and find a tiny line hidden on its back:\n\n[jitter][purple]\"You have drawn every card in the world. Now it is VAKUU's turn to guess who you are.\"[/purple][/jitter]\n\nVAKUU binds each successful drawing into a volume, and you choose one to take with you.");
     }
 
     private static void AddRelicAppraisalFair(IDictionary<string, string> values, string id)

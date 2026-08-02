@@ -211,7 +211,7 @@ def main() -> None:
     parser.add_argument(
         "sts_source",
         type=Path,
-        help="Path to game-src/Sts109",
+        help="Path to game-src/Sts110",
     )
     parser.add_argument(
         "output",

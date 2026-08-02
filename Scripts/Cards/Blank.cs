@@ -12,6 +12,7 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.CardPools;
+using MegaCrit.Sts2.Core.Runs;
 using STS2RitsuLib.Interop.AutoRegistration;
 
 namespace DrawAndGuessMod.Scripts.Cards;
@@ -43,6 +44,14 @@ public sealed class Blank : CardModel
         {
             return;
         }
+
+        string? memorialArtworkId = Owner.RunState is RunState runState
+            ? await MemorialSketchbookStore.CaptureCardDrawingAsync(
+                runState,
+                Owner.NetId,
+                sessionId,
+                drawing)
+            : null;
 
         ICombatState? combatState = CombatState;
         if (combatState == null)
@@ -77,6 +86,14 @@ public sealed class Blank : CardModel
             return;
         }
 
+        if (Owner.RunState is RunState selectedRunState)
+        {
+            MemorialSketchbookStore.AssignCard(
+                selectedRunState,
+                memorialArtworkId,
+                selectedCard,
+                drawing.PngBytes);
+        }
         ArtworkStore.Set(Owner.RunState, selectedCard, drawing.PngBytes);
         BlankSelectionStore.Remember(Owner.RunState, selectedCard.Id);
 

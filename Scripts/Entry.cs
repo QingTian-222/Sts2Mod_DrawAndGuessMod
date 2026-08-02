@@ -47,6 +47,7 @@ public static class Entry
             BlankSelectionStore.Register();
             ErasedCardStore.Register();
             GalleryChallengeStore.Register();
+            MemorialSketchbookStore.Register();
             CardLocalization.Install();
             EventLocalization.Install();
             RelicLocalization.Install();
@@ -108,6 +109,7 @@ public static class Entry
     private static void OnRunStarted(RunState runState)
     {
         ArtworkStore.ActivateRun(runState);
+        MemorialSketchbookStore.ActivateRun(runState);
         RelicAppraisalFairArtworkStore.Reset();
         RelicAppraisalFairTreasureFlow.Reset();
         DeathNoteRestSiteOption.ResetSessions();

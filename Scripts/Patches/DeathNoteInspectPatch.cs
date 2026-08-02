@@ -41,7 +41,7 @@ internal static class DeathNoteInspectPatch
                 DeathNote deathNote =>
                     ErasedCardStore.GetErasedCardIds(deathNote.Owner.RunState).Count > 0,
                 MemorialSketchbook memorialSketchbook =>
-                    GalleryChallengeStore.GetMemorialCardIds(memorialSketchbook.Owner).Count > 0,
+                    MemorialSketchbookCardViewer.HasArtworks(memorialSketchbook),
                 _ => false
             };
             viewButton.Text = ModText.Get("\u7ffb\u9605", "Browse");
@@ -113,7 +113,7 @@ internal static class DeathNoteInspectPatch
             DeathNote deathNote =>
                 ErasedCardStore.GetErasedCardIds(deathNote.Owner.RunState).Count > 0,
             MemorialSketchbook memorialSketchbook =>
-                GalleryChallengeStore.GetMemorialCardIds(memorialSketchbook.Owner).Count > 0,
+                MemorialSketchbookCardViewer.HasArtworks(memorialSketchbook),
             _ => false
         };
         if (!hasCards)

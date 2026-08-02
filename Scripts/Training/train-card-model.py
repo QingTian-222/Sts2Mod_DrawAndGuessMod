@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import struct
 from pathlib import Path
 
@@ -22,10 +21,6 @@ EDGE_FEATURE_COUNT = GRID_SIZE * GRID_SIZE + 6
 FINE_EDGE_FEATURE_COUNT = FINE_GRID_SIZE * FINE_GRID_SIZE
 COLOR_FEATURE_COUNT = COLOR_GRID_SIZE * COLOR_GRID_SIZE * 3 + 10
 FEATURE_COUNT = EDGE_FEATURE_COUNT + FINE_EDGE_FEATURE_COUNT + COLOR_FEATURE_COUNT
-ATLAS_RE = re.compile(r'path="res://images/atlases/(card_atlas_\d+\.png)"')
-REGION_RE = re.compile(r"region\s*=\s*Rect2\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)")
-
-
 def extract_features(portrait: Image.Image, treat_as_sketch: bool = False) -> np.ndarray:
     image = portrait.convert("RGB").resize((SAMPLE_SIZE, SAMPLE_SIZE), Image.Resampling.LANCZOS)
     rgb = np.asarray(image, dtype=np.float64)
@@ -120,38 +115,23 @@ def extract_features(portrait: Image.Image, treat_as_sketch: bool = False) -> np
 
 
 def discover_samples(sts_source: Path) -> list[tuple[str, np.ndarray]]:
-    atlas_dir = sts_source / "images" / "atlases"
-    sprites_dir = atlas_dir / "card_atlas.sprites"
-    if not sprites_dir.is_dir():
-        raise FileNotFoundError(f"Card sprite directory not found: {sprites_dir}")
+    portraits_dir = sts_source / "images" / "packed" / "card_portraits"
+    if not portraits_dir.is_dir():
+        raise FileNotFoundError(f"Packed card portrait directory not found: {portraits_dir}")
 
-    atlases: dict[str, Image.Image] = {}
     samples: dict[str, np.ndarray] = {}
-    for tres_path in sorted(sprites_dir.rglob("*.tres")):
-        relative_parts = tres_path.relative_to(sprites_dir).parts
-        if "beta" in relative_parts or tres_path.stem == "beta":
+    for png_path in sorted(portraits_dir.rglob("*.png")):
+        relative_parts = png_path.relative_to(portraits_dir).parts
+        if "beta" in relative_parts or png_path.stem in {"beta", "ancient_beta"}:
             continue
 
-        text = tres_path.read_text(encoding="utf-8")
-        atlas_match = ATLAS_RE.search(text)
-        region_match = REGION_RE.search(text)
-        if atlas_match is None or region_match is None:
-            continue
-
-        card_id = tres_path.stem.upper()
+        card_id = png_path.stem.upper()
         if card_id in samples:
             continue
 
-        atlas_name = atlas_match.group(1)
-        if atlas_name not in atlases:
-            atlases[atlas_name] = Image.open(atlas_dir / atlas_name).convert("RGB")
-        atlas = atlases[atlas_name]
-        x, y, width, height = (int(round(float(value))) for value in region_match.groups())
-        portrait = atlas.crop((x, y, x + width, y + height))
-        samples[card_id] = extract_features(portrait)
+        with Image.open(png_path) as portrait:
+            samples[card_id] = extract_features(portrait)
 
-    for atlas in atlases.values():
-        atlas.close()
     return sorted(samples.items())
 
 
@@ -169,7 +149,7 @@ def write_model(output_path: Path, samples: list[tuple[str, np.ndarray]]) -> Non
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("sts_source", type=Path, help="Path to game-src/Sts109")
+    parser.add_argument("sts_source", type=Path, help="Path to game-src/Sts110")
     parser.add_argument("output", type=Path, help="Output card_features.bin")
     args = parser.parse_args()
 

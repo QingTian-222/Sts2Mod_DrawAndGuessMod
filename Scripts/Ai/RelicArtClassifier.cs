@@ -8,10 +8,14 @@ using MegaCrit.Sts2.Core.Models;
 
 namespace DrawAndGuessMod.Scripts.Ai;
 
-internal sealed record RelicArtGuess(RelicModel Relic, double Distance);
+internal sealed record RelicArtAssessment(
+    double TargetDistance,
+    double SimilarityPercent,
+    bool IsAccepted);
 
 internal static class RelicArtClassifier
 {
+    public const double RequiredSimilarityPercent = 85d;
     private const int RecognitionSize = 224;
     private const int ArtworkSize = 192;
     private const int ModelVersion = 2;
@@ -45,7 +49,7 @@ internal static class RelicArtClassifier
             .ToList();
     }
 
-    public static RelicArtGuess? GuessTopOne(Image drawing, IReadOnlySet<ModelId>? allowedIds = null)
+    public static RelicArtAssessment? AssessTarget(Image drawing, RelicModel target)
     {
         EnsureSamples();
         if (_samples == null || _samples.Count == 0)
@@ -53,26 +57,26 @@ internal static class RelicArtClassifier
             return null;
         }
 
-        double[] drawingFeatures =
-            ExtractRelicFeatures(drawing, treatAsSketch: true);
-        RelicSample? nearest = null;
-        double nearestDistance = double.MaxValue;
-        foreach (RelicSample sample in _samples)
+        RelicSample? targetSample = _samples.FirstOrDefault(
+            sample => sample.Relic.Id == target.Id);
+        if (targetSample == null)
         {
-            if (allowedIds != null && !allowedIds.Contains(sample.Relic.Id))
-            {
-                continue;
-            }
-
-            double distance = CardArtClassifier.Distance(drawingFeatures, sample.Features);
-            if (distance < nearestDistance)
-            {
-                nearest = sample;
-                nearestDistance = distance;
-            }
+            return null;
         }
 
-        return nearest == null ? null : new RelicArtGuess(nearest.Relic, nearestDistance);
+        double[] drawingFeatures =
+            ExtractRelicFeatures(drawing, treatAsSketch: true);
+        double targetDistance = CardArtClassifier.Distance(
+            drawingFeatures,
+            targetSample.Features);
+        double similarityPercent = Math.Clamp(
+            (1d - targetDistance * targetDistance * 0.5d) * 100d,
+            0d,
+            100d);
+        return new RelicArtAssessment(
+            targetDistance,
+            similarityPercent,
+            similarityPercent >= RequiredSimilarityPercent);
     }
 
     private static void EnsureSamples()
