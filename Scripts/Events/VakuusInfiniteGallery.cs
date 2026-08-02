@@ -360,9 +360,8 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
             .Select(card => new CardCreationResult(card))
             .ToList();
         CardSelectorPrefs prefs = new(
-            new LocString(
-                "events",
-                $"{Id.Entry}.pages.RESULT.options.TAKE_AND_LEAVE.title"),
+            L10NLookup($"{Id.Entry}.selectionScreenPrompt"),
+            0,
             1);
         CardModel? selected = (await CardSelectCmd.FromSimpleGridForRewards(
                 new BlockingPlayerChoiceContext(),
@@ -370,9 +369,12 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
                 EventOwner,
                 prefs))
             .FirstOrDefault();
+        _timedGalleryRewardClaimed = true;
         if (selected == null)
         {
             RemoveUnusedRewardCards(rewardCards, null);
+            Entry.Logger.Info(
+                $"[DrawAndGuessMod] Timed gallery reward skipped by {EventOwner.NetId}.");
             return false;
         }
 
@@ -388,7 +390,6 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
             return false;
         }
 
-        _timedGalleryRewardClaimed = true;
         RemoveUnusedRewardCards(rewardCards, selected);
         CardCmd.PreviewCardPileAdd(addResult, 2f);
         Entry.Logger.Info(

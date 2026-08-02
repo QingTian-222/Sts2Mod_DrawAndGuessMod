@@ -13,6 +13,7 @@ using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Gold;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Entities.TreasureRelicPicking;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Extensions;
@@ -387,7 +388,9 @@ public sealed class RelicAppraisalFair : ModEventTemplate
             .ToHashSet();
 
         return RelicArtClassifier.GetEligibleRelics()
-            .Where(relic => !ownedIds.Contains(relic.Id))
+            .Where(relic =>
+                relic.Rarity != RelicRarity.Ancient &&
+                !ownedIds.Contains(relic.Id))
             .OrderBy(relic => relic.Id.Entry, StringComparer.Ordinal)
             .ToList();
     }
