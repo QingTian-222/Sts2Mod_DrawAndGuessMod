@@ -2549,10 +2549,20 @@ public partial class DrawingScreen : Control
 
     private void Complete(DrawingResult? result)
     {
-        if (_completion.TrySetResult(result))
+        if (_completion.Task.IsCompleted)
         {
-            QueueFree();
+            return;
         }
+
+        // TrySetResult resumes Blank.OnPlay synchronously. Release the active
+        // slot first so Replay can open its next drawing session instead of
+        // seeing this already-completed screen and rejecting the new session.
+        if (ReferenceEquals(_active, this))
+        {
+            _active = null;
+        }
+        QueueFree();
+        _completion.TrySetResult(result);
     }
 
     private void CompleteRelic(RelicDrawingResult? result)

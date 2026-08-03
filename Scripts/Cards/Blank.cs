@@ -7,6 +7,7 @@ using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.GameActions.Multiplayer;
 using MegaCrit.Sts2.Core.Models;
@@ -19,6 +20,9 @@ namespace DrawAndGuessMod.Scripts.Cards;
 [RegisterCard(typeof(ColorlessCardPool))]
 public sealed class Blank : CardModel
 {
+    private BlankReplaySequence _replaySequence = new();
+    private List<PendingBlankChoice> _pendingReplayChoices = new();
+
     public override CardMultiplayerConstraint MultiplayerConstraint => CardMultiplayerConstraint.None;
     public override string PortraitPath => MissingPortraitPath;
     public override CardPoolModel VisualCardPool => ModelDb.CardPool<ColorlessCardPool>();
@@ -28,12 +32,54 @@ public sealed class Blank : CardModel
     {
     }
 
+    protected override void AfterCloned()
+    {
+        base.AfterCloned();
+        _replaySequence = new BlankReplaySequence();
+        _pendingReplayChoices = new List<PendingBlankChoice>();
+    }
+
     protected override async Task OnPlay(PlayerChoiceContext choiceContext, CardPlay cardPlay)
     {
+        if (cardPlay.PlayIndex == 0)
+        {
+            _pendingReplayChoices.Clear();
+        }
+
+        uint combatCardIndex = NetCombatCard.FromModel(this).CombatCardIndex;
+        uint sessionId = _replaySequence.NextSessionId(combatCardIndex);
+        Entry.Logger.Info(
+            $"[DrawAndGuessMod] Starting Blank play {cardPlay.PlayIndex + 1}/{cardPlay.PlayCount}: " +
+            $"owner={Owner.NetId}, target={cardPlay.Target?.Player?.NetId ?? Owner.NetId}, " +
+            $"combatCard={combatCardIndex}, session={sessionId}.");
+
+        PendingBlankChoice? pendingChoice = await PrepareChoice(cardPlay, sessionId);
+        if (pendingChoice != null)
+        {
+            _pendingReplayChoices.Add(pendingChoice);
+        }
+
+        if (cardPlay.PlayIndex + 1 < cardPlay.PlayCount)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (PendingBlankChoice choice in _pendingReplayChoices)
+            {
+                await ResolveChoice(choiceContext, choice);
+            }
+        }
+        finally
+        {
+            _pendingReplayChoices.Clear();
+        }
+    }
+
+    private async Task<PendingBlankChoice?> PrepareChoice(CardPlay cardPlay, uint sessionId)
+    {
         Player recipient = cardPlay.Target?.Player ?? Owner;
-        uint sessionId = choiceContext is GameActionPlayerChoiceContext actionContext
-            ? actionContext.Action.Id ?? 0u
-            : 0u;
         DrawingResult? drawing = await DrawingScreen.ShowAsync(
             Owner,
             sessionId,
@@ -41,7 +87,7 @@ public sealed class Blank : CardModel
             isRegularBlank: true);
         if (drawing == null)
         {
-            return;
+            return null;
         }
 
         string? memorialArtworkId = Owner.RunState is RunState runState
@@ -56,7 +102,7 @@ public sealed class Blank : CardModel
         if (combatState == null)
         {
             Entry.Logger.Warn("[DrawAndGuessMod] Combat ended before the guessed card could be created.");
-            return;
+            return null;
         }
 
         List<CardModel> options = drawing.Guess.NearestCards
@@ -68,7 +114,7 @@ public sealed class Blank : CardModel
         if (options.Count == 0)
         {
             Entry.Logger.Warn("[DrawAndGuessMod] The classifier returned no card choices.");
-            return;
+            return null;
         }
 
         if (IsUpgraded)
@@ -79,7 +125,15 @@ public sealed class Blank : CardModel
             }
         }
 
-        CardModel? selectedCard = await CardSelectCmd.FromChooseACardScreen(choiceContext, options, recipient);
+        return new PendingBlankChoice(recipient, drawing, memorialArtworkId, combatState, options);
+    }
+
+    private async Task ResolveChoice(PlayerChoiceContext choiceContext, PendingBlankChoice choice)
+    {
+        CardModel? selectedCard = await CardSelectCmd.FromChooseACardScreen(
+            choiceContext,
+            choice.Options,
+            choice.Recipient);
         if (selectedCard == null)
         {
             return;
@@ -89,14 +143,14 @@ public sealed class Blank : CardModel
         {
             MemorialSketchbookStore.AssignCard(
                 selectedRunState,
-                memorialArtworkId,
+                choice.MemorialArtworkId,
                 selectedCard,
-                drawing.PngBytes);
+                choice.Drawing.PngBytes);
         }
-        ArtworkStore.Set(Owner.RunState, selectedCard, drawing.PngBytes);
+        ArtworkStore.Set(Owner.RunState, selectedCard, choice.Drawing.PngBytes);
         BlankSelectionStore.Remember(Owner.RunState, selectedCard.Id);
 
-        if (drawing.SkipAddingToDeck)
+        if (choice.Drawing.SkipAddingToDeck)
         {
             CardPileAddResult handResult = await CardPileCmd.AddGeneratedCardToCombat(
                 selectedCard,
@@ -108,8 +162,8 @@ public sealed class Blank : CardModel
                 return;
             }
 
-            int handOnlyRank = options.FindIndex(card => ReferenceEquals(card, selectedCard)) + 1;
-            Entry.Logger.Info($"[DrawAndGuessMod] Recipient {recipient.NetId} selected hand-only card {selectedCard.Id.Entry} at AI rank {handOnlyRank}; card played by {Owner.NetId}.");
+            int handOnlyRank = choice.Options.FindIndex(card => ReferenceEquals(card, selectedCard)) + 1;
+            Entry.Logger.Info($"[DrawAndGuessMod] Recipient {choice.Recipient.NetId} selected hand-only card {selectedCard.Id.Entry} at AI rank {handOnlyRank}; card played by {Owner.NetId}.");
             return;
         }
 
@@ -121,13 +175,20 @@ public sealed class Blank : CardModel
         }
 
         CardModel addedDeckCard = deckResult.cardAdded;
-        CardModel handCard = combatState.CloneCard(addedDeckCard);
+        CardModel handCard = choice.CombatState.CloneCard(addedDeckCard);
         handCard.DeckVersion = addedDeckCard;
         await CardPileCmd.Add(handCard, PileType.Hand);
         CardCmd.PreviewCardPileAdd(deckResult, 2f);
-        int selectedRank = options.FindIndex(card => ReferenceEquals(card, selectedCard)) + 1;
-        Entry.Logger.Info($"[DrawAndGuessMod] Recipient {recipient.NetId} selected {selectedCard.Id.Entry} at AI rank {selectedRank}; card played by {Owner.NetId}.");
+        int selectedRank = choice.Options.FindIndex(card => ReferenceEquals(card, selectedCard)) + 1;
+        Entry.Logger.Info($"[DrawAndGuessMod] Recipient {choice.Recipient.NetId} selected {selectedCard.Id.Entry} at AI rank {selectedRank}; card played by {Owner.NetId}.");
     }
+
+    private sealed record PendingBlankChoice(
+        Player Recipient,
+        DrawingResult Drawing,
+        string? MemorialArtworkId,
+        ICombatState CombatState,
+        List<CardModel> Options);
 
     protected override void OnUpgrade()
     {

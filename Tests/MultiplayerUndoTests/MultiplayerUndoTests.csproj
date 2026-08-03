@@ -9,5 +9,7 @@
   <ItemGroup>
     <Compile Include="..\..\Scripts\Ui\CollaborativeDrawingHistory.cs"
              Link="CollaborativeDrawingHistory.cs" />
+    <Compile Include="..\..\Scripts\State\BlankReplaySequence.cs"
+             Link="BlankReplaySequence.cs" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,7 @@
 using DrawAndGuessMod.Scripts.Ui;
+using DrawAndGuessMod.Scripts.State;
 
+RunBlankReplaySequenceScenario();
 RunSelectiveUndoScenario();
 RunCoveredStrokeScenario();
 RunFixedFillPatchScenario();
@@ -8,7 +10,19 @@ RunRedoOrderScenario();
 RunRedoBranchInvalidationScenario();
 RunOtherPlayerCommitPreservesRedoScenario();
 RunCoveredStrokeRedoScenario();
-Console.WriteLine("All multiplayer undo/redo history tests passed.");
+Console.WriteLine("All multiplayer drawing interaction tests passed.");
+
+static void RunBlankReplaySequenceScenario()
+{
+    BlankReplaySequence sequence = new();
+    uint first = sequence.NextSessionId(21u);
+    uint second = sequence.NextSessionId(21u);
+    uint otherCard = new BlankReplaySequence().NextSessionId(22u);
+
+    Assert(first != 0u, "Blank drawing sessions must never use zero.");
+    Assert(first != second, "Each Replay must receive a distinct drawing session.");
+    Assert(first != otherCard, "Different combat cards must receive distinct drawing sessions.");
+}
 
 static void RunSelectiveUndoScenario()
 {
