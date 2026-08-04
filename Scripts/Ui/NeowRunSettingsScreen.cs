@@ -28,6 +28,7 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
     private Button _precacheButton = null!;
     private ProgressBar _precacheProgressBar = null!;
     private Label _precacheProgressLabel = null!;
+    private TextureRect _precacheThumbnail = null!;
 
     public Control? DefaultFocusedControl => _isHost ? _applyButton : _precacheButton;
 
@@ -173,6 +174,23 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         precacheHeader.AddChild(_precacheButton);
         content.AddChild(precacheHeader);
 
+        HBoxContainer precacheProgress = new()
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        precacheProgress.AddThemeConstantOverride("separation", 12);
+        _precacheThumbnail = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(144f, 100f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        precacheProgress.AddChild(_precacheThumbnail);
+        VBoxContainer precacheProgressText = new()
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
         _precacheProgressBar = new ProgressBar
         {
             MinValue = 0d,
@@ -183,12 +201,14 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         };
         _precacheProgressBar.AddThemeFontSizeOverride("font_size", 18);
         ApplyGameFont(_precacheProgressBar);
-        content.AddChild(_precacheProgressBar);
+        precacheProgressText.AddChild(_precacheProgressBar);
         _precacheProgressLabel = CreateLabel(string.Empty, 17);
         _precacheProgressLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _precacheProgressLabel.CustomMinimumSize = new Vector2(0f, 38f);
         _precacheProgressLabel.AddThemeColorOverride("font_color", new Color("B9C2C8"));
-        content.AddChild(_precacheProgressLabel);
+        precacheProgressText.AddChild(_precacheProgressLabel);
+        precacheProgress.AddChild(precacheProgressText);
+        content.AddChild(precacheProgress);
 
         _statusLabel = CreateLabel(string.Empty, 17);
         _statusLabel.HorizontalAlignment = HorizontalAlignment.Center;
@@ -273,6 +293,8 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
             ? Text("正在预缓存…", "Pre-caching...")
             : Text("开始预缓存", "Start Pre-cache");
         _precacheProgressBar.Value = DrawAndGuessSettings.PretrainingProgress;
+        _precacheThumbnail.Texture = DrawAndGuessSettings.CurrentPretrainingThumbnail;
+        _precacheThumbnail.Visible = running && _precacheThumbnail.Texture != null;
         _precacheProgressLabel.Text = string.IsNullOrWhiteSpace(DrawAndGuessSettings.CurrentPretrainingStatus)
             ? Text("尚未开始预缓存。", "Pre-cache has not started yet.")
             : DrawAndGuessSettings.CurrentPretrainingStatus;

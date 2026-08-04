@@ -27,7 +27,7 @@ internal static class DinoArtEmbedder
         try
         {
             _ = GetOrCreateSession();
-            Image warmupImage = Image.CreateEmpty(InputSize, InputSize, false, Image.Format.Rgb8);
+            using Image warmupImage = Image.CreateEmpty(InputSize, InputSize, false, Image.Format.Rgb8);
             warmupImage.Fill(Colors.White);
             if (TryExtract(warmupImage, out _))
             {
@@ -122,12 +122,7 @@ internal static class DinoArtEmbedder
 
     private static float[] BuildInput(Image source)
     {
-        Image image = Image.CreateFromData(
-            source.GetWidth(),
-            source.GetHeight(),
-            source.HasMipmaps(),
-            source.GetFormat(),
-            source.GetData());
+        using Image image = CardArtClassifier.CopyBaseLayer(source);
         if (image.IsCompressed() && image.Decompress() != Error.Ok)
         {
             throw new InvalidDataException("Could not decompress image for DINOv2.");

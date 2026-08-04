@@ -37,6 +37,11 @@ internal static class DrawAndGuessSettings
     private static double _pretrainingProgress;
     private static ProgressBar? _pretrainingProgressBar;
     private static Label? _pretrainingProgressLabel;
+    private static TextureRect? _pretrainingThumbnailRect;
+    private static readonly ImageTexture?[] PretrainingThumbnailTextures = new ImageTexture?[5];
+    private static readonly Image?[] PretrainingThumbnailUploadSources = new Image?[5];
+    private static int _pretrainingThumbnailTextureIndex = -1;
+    private static bool _hasPretrainingThumbnail;
     private static IReadOnlyList<CandidatePoolInfo>? _detectedCandidatePools;
     private static string _candidatePoolDetectionError = string.Empty;
     private static VBoxContainer? _candidatePoolControls;
@@ -45,6 +50,10 @@ internal static class DrawAndGuessSettings
     internal static bool IsPretraining => _pretraining;
     internal static double PretrainingProgress => _pretrainingProgress;
     internal static string CurrentPretrainingStatus => PretrainingStatus;
+    internal static Texture2D? CurrentPretrainingThumbnail =>
+        _hasPretrainingThumbnail && _pretrainingThumbnailTextureIndex >= 0
+            ? PretrainingThumbnailTextures[_pretrainingThumbnailTextureIndex]
+            : null;
     internal static event Action? PretrainingChanged;
 
     private static readonly IModSettingsValueBinding<int> CardPoolScopeBinding =
@@ -691,6 +700,7 @@ internal static class DrawAndGuessSettings
 
         _pretraining = true;
         _pretrainingProgress = 0d;
+        _hasPretrainingThumbnail = false;
         SetPretrainingStatus(
             "正在分析当前所有已注册卡牌的图片，请稍候……",
             "Analyzing all currently registered card images. Please wait...");
@@ -735,10 +745,26 @@ internal static class DrawAndGuessSettings
 
     private static Control BuildPretrainingProgressControl(IModSettingsUiActionHost host)
     {
-        VBoxContainer container = new()
+        HBoxContainer container = new()
         {
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(420f, 58f)
+            CustomMinimumSize = new Vector2(420f, 100f)
+        };
+        container.AddThemeConstantOverride("separation", 12);
+        _pretrainingThumbnailRect = new TextureRect
+        {
+            Texture = CurrentPretrainingThumbnail,
+            Visible = _pretraining && CurrentPretrainingThumbnail != null,
+            CustomMinimumSize = new Vector2(144f, 100f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        container.AddChild(_pretrainingThumbnailRect);
+
+        VBoxContainer progressContainer = new()
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
         _pretrainingProgressBar = new ProgressBar
         {
@@ -747,7 +773,7 @@ internal static class DrawAndGuessSettings
             Value = _pretrainingProgress,
             ShowPercentage = true,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
-            CustomMinimumSize = new Vector2(400f, 24f)
+            CustomMinimumSize = new Vector2(240f, 24f)
         };
         _pretrainingProgressLabel = new Label
         {
@@ -755,8 +781,9 @@ internal static class DrawAndGuessSettings
             AutowrapMode = TextServer.AutowrapMode.WordSmart,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
-        container.AddChild(_pretrainingProgressBar);
-        container.AddChild(_pretrainingProgressLabel);
+        progressContainer.AddChild(_pretrainingProgressBar);
+        progressContainer.AddChild(_pretrainingProgressLabel);
+        container.AddChild(progressContainer);
         return container;
     }
 
@@ -768,7 +795,36 @@ internal static class DrawAndGuessSettings
         SetPretrainingStatus(
             $"正在分析 {progress.ProcessedCards} / {progress.TotalCards}：{progress.CurrentCardId}",
             $"Analyzing {progress.ProcessedCards} / {progress.TotalCards}: {progress.CurrentCardId}");
+        UpdatePretrainingThumbnail(progress.Thumbnail);
         UpdateProgressControls();
+    }
+
+    private static void UpdatePretrainingThumbnail(Image? thumbnail)
+    {
+        if (thumbnail == null || thumbnail.IsEmpty())
+        {
+            _hasPretrainingThumbnail = false;
+            return;
+        }
+
+        _pretrainingThumbnailTextureIndex =
+            (_pretrainingThumbnailTextureIndex + 1) % PretrainingThumbnailTextures.Length;
+        ImageTexture? previousTexture =
+            PretrainingThumbnailTextures[_pretrainingThumbnailTextureIndex];
+        Image? previousUploadSource =
+            PretrainingThumbnailUploadSources[_pretrainingThumbnailTextureIndex];
+        Image uploadSource = Image.CreateFromData(
+            thumbnail.GetWidth(),
+            thumbnail.GetHeight(),
+            thumbnail.HasMipmaps(),
+            thumbnail.GetFormat(),
+            thumbnail.GetData());
+        ImageTexture texture = ImageTexture.CreateFromImage(uploadSource);
+        PretrainingThumbnailUploadSources[_pretrainingThumbnailTextureIndex] = uploadSource;
+        PretrainingThumbnailTextures[_pretrainingThumbnailTextureIndex] = texture;
+        previousTexture?.Dispose();
+        previousUploadSource?.Dispose();
+        _hasPretrainingThumbnail = true;
     }
 
     private static void UpdateProgressControls()
@@ -780,6 +836,11 @@ internal static class DrawAndGuessSettings
         if (_pretrainingProgressLabel != null && GodotObject.IsInstanceValid(_pretrainingProgressLabel))
         {
             _pretrainingProgressLabel.Text = PretrainingStatus;
+        }
+        if (_pretrainingThumbnailRect != null && GodotObject.IsInstanceValid(_pretrainingThumbnailRect))
+        {
+            _pretrainingThumbnailRect.Texture = CurrentPretrainingThumbnail;
+            _pretrainingThumbnailRect.Visible = _pretraining && CurrentPretrainingThumbnail != null;
         }
         PretrainingChanged?.Invoke();
     }

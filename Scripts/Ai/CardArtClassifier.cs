@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Config;
@@ -28,7 +29,11 @@ public sealed record CardPretrainingResult(
     int DinoReusedCards,
     int SkippedCards,
     string ModelPath);
-public sealed record CardPretrainingProgress(int ProcessedCards, int TotalCards, string CurrentCardId);
+public sealed record CardPretrainingProgress(
+    int ProcessedCards,
+    int TotalCards,
+    string CurrentCardId,
+    Image? Thumbnail);
 public enum GuessCandidateScope
 {
     Default = 0,
@@ -46,12 +51,15 @@ internal static class CardArtClassifier
     private const int FineEdgeFeatureCount = FineGridSize * FineGridSize;
     private const int ColorFeatureCount = ColorGridSize * ColorGridSize * 3 + 10;
     private const int FeatureCount = EdgeFeatureCount + FineEdgeFeatureCount + ColorFeatureCount;
+    private const int PretrainingThumbnailWidth = 144;
+    private const int PretrainingThumbnailHeight = 100;
     private const int ModelVersion = 6;
     private const int DinoModelVersion = 2;
     private const double HybridHandcraftedWeight = 0.5d;
     private const double HybridDinoWeight = 0.5d;
     private const double AdapterHandcraftedWeight = 0.3d;
     private const double AdapterDinoWeight = 0.7d;
+    private static readonly SemaphoreSlim PretrainingGate = new(1, 1);
     private static List<TrainingSample>? _samples;
     private static Dictionary<string, double[]>? _pretrainedFeatures;
     private static Dictionary<string, float[]>? _pretrainedDinoFeatures;
@@ -82,6 +90,19 @@ internal static class CardArtClassifier
 
     public static async Task<CardPretrainingResult> PretrainCurrentCardsAsync(Action<CardPretrainingProgress>? reportProgress = null)
     {
+        await PretrainingGate.WaitAsync();
+        try
+        {
+            return await PretrainCurrentCardsCoreAsync(reportProgress);
+        }
+        finally
+        {
+            PretrainingGate.Release();
+        }
+    }
+
+    private static async Task<CardPretrainingResult> PretrainCurrentCardsCoreAsync(Action<CardPretrainingProgress>? reportProgress)
+    {
         Preload();
         List<CardModel> cards = GetEligibleCards();
         Dictionary<string, double[]> generatedFeatures = new(cards.Count, StringComparer.Ordinal);
@@ -92,18 +113,21 @@ internal static class CardArtClassifier
         int dinoExtracted = 0;
         int dinoReused = 0;
         int skipped = 0;
+        using PortraitGpuImageLoader imageLoader = new();
 
         for (int cardIndex = 0; cardIndex < cards.Count; cardIndex++)
         {
             CardModel card = cards[cardIndex];
             double[]? features = null;
             float[]? dinoFeatures = null;
+            Image? thumbnail = null;
+            bool freshImageAvailable = false;
             try
             {
-                Texture2D? texture = ResourceLoader.Load<Texture2D>(card.PortraitPath, null, ResourceLoader.CacheMode.Reuse);
-                Image? image = texture == null ? null : GetReadableImage(texture);
+                using Image? image = await imageLoader.LoadAsync(card.PortraitPath);
                 if (image != null && !image.IsEmpty())
                 {
+                    freshImageAvailable = true;
                     features = ExtractFeatures(image, treatAsSketch: false);
                     extracted++;
                     if (DinoArtEmbedder.TryExtract(image, out float[] extractedDinoFeatures))
@@ -111,20 +135,34 @@ internal static class CardArtClassifier
                         dinoFeatures = extractedDinoFeatures;
                         dinoExtracted++;
                     }
+                    if (reportProgress != null)
+                    {
+                        thumbnail = CreatePretrainingThumbnail(image);
+                    }
                 }
+            }
+            catch (PortraitReadbackUnavailableException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 Entry.Logger.Debug($"[DrawAndGuessMod] Failed to freshly extract {card.Id.Entry}: {ex.Message}");
             }
 
-            if (features == null && _pretrainedFeatures != null && _pretrainedFeatures.TryGetValue(card.Id.Entry, out double[]? fallback))
+            if (!freshImageAvailable &&
+                features == null &&
+                _pretrainedFeatures != null &&
+                _pretrainedFeatures.TryGetValue(card.Id.Entry, out double[]? fallback))
             {
                 features = fallback;
                 reused++;
             }
 
-            if (dinoFeatures == null && _pretrainedDinoFeatures != null && _pretrainedDinoFeatures.TryGetValue(card.Id.Entry, out float[]? dinoFallback))
+            if (!freshImageAvailable &&
+                dinoFeatures == null &&
+                _pretrainedDinoFeatures != null &&
+                _pretrainedDinoFeatures.TryGetValue(card.Id.Entry, out float[]? dinoFallback))
             {
                 dinoFeatures = dinoFallback;
                 dinoReused++;
@@ -144,10 +182,17 @@ internal static class CardArtClassifier
                 generatedSamples.Add(new TrainingSample(card, features, dinoFeatures));
             }
 
-            reportProgress?.Invoke(new CardPretrainingProgress(cardIndex + 1, cards.Count, card.Id.Entry));
-            if ((cardIndex + 1) % 4 == 0 || cardIndex + 1 == cards.Count)
+            try
             {
-                await YieldProcessFrame();
+                reportProgress?.Invoke(new CardPretrainingProgress(
+                    cardIndex + 1,
+                    cards.Count,
+                    card.Id.Entry,
+                    thumbnail));
+            }
+            finally
+            {
+                thumbnail?.Dispose();
             }
         }
 
@@ -169,14 +214,6 @@ internal static class CardArtClassifier
         _samples = generatedSamples;
         Entry.Logger.Info($"[DrawAndGuessMod] Pretrained current card pool: total={cards.Count}, handcrafted={extracted}+{reused}, dino={dinoExtracted}+{dinoReused}, skipped={skipped}, path={modelPath}");
         return new CardPretrainingResult(cards.Count, extracted, reused, dinoExtracted, dinoReused, skipped, modelPath);
-    }
-
-    private static async Task YieldProcessFrame()
-    {
-        if (Engine.GetMainLoop() is SceneTree tree)
-        {
-            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-        }
     }
 
     public static CardGuess Guess(Image drawing, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default, IReadOnlySet<ModelId>? excludedCardIds = null)
@@ -343,8 +380,6 @@ internal static class CardArtClassifier
 
         _samples = new List<TrainingSample>(cards.Count);
         int fullyPretrained = 0;
-        int dynamicHandcrafted = 0;
-        int dynamicDino = 0;
         int skipped = 0;
         foreach (CardModel card in cards)
         {
@@ -352,46 +387,22 @@ internal static class CardArtClassifier
             float[]? dinoFeatures = null;
             _pretrainedFeatures?.TryGetValue(card.Id.Entry, out features);
             _pretrainedDinoFeatures?.TryGetValue(card.Id.Entry, out dinoFeatures);
-            bool hadHandcrafted = features != null;
-            bool hadDino = dinoFeatures != null;
-            if (features == null || dinoFeatures == null)
-            {
-                try
-                {
-                    Texture2D? texture = ResourceLoader.Load<Texture2D>(card.PortraitPath, null, ResourceLoader.CacheMode.Reuse);
-                    Image? image = texture == null ? null : GetReadableImage(texture);
-                    if (image != null && !image.IsEmpty())
-                    {
-                        if (features == null)
-                        {
-                            features = ExtractFeatures(image, treatAsSketch: false);
-                            dynamicHandcrafted++;
-                        }
-                        if (dinoFeatures == null && DinoArtEmbedder.TryExtract(image, out float[] extractedDinoFeatures))
-                        {
-                            dinoFeatures = extractedDinoFeatures;
-                            dynamicDino++;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Entry.Logger.Debug($"[DrawAndGuessMod] Could not dynamically extract classifier portrait {card.Id.Entry}: {ex.Message}");
-                }
-            }
             if (features == null)
             {
                 skipped++;
                 continue;
             }
-            if (hadHandcrafted && hadDino)
+            if (dinoFeatures != null)
             {
                 fullyPretrained++;
             }
             _samples.Add(new TrainingSample(card, features, dinoFeatures));
         }
 
-        Entry.Logger.Info($"[DrawAndGuessMod] Classifier ready with {_samples.Count} cards ({fullyPretrained} fully pre-trained, handcrafted dynamic={dynamicHandcrafted}, DINOv2 dynamic={dynamicDino}, skipped={skipped}).");
+        Entry.Logger.Info(
+            $"[DrawAndGuessMod] Classifier ready with {_samples.Count} cached cards " +
+            $"({fullyPretrained} with DINOv2, skipped={skipped}). " +
+            "Run Card Recognition Cache to include newly installed mod cards.");
     }
 
     private static Dictionary<string, double[]> LoadPretrainedFeatures()
@@ -441,7 +452,9 @@ internal static class CardArtClassifier
             }
         }
 
-        Entry.Logger.Warn("[DrawAndGuessMod] Pre-trained card model was not found; falling back to runtime feature extraction.");
+        Entry.Logger.Warn(
+            "[DrawAndGuessMod] Pre-trained card model was not found. " +
+            "Run Card Recognition Cache before using card recognition.");
         return new Dictionary<string, double[]>(StringComparer.Ordinal);
     }
 
@@ -491,7 +504,9 @@ internal static class CardArtClassifier
             }
         }
 
-        Entry.Logger.Warn("[DrawAndGuessMod] Pre-trained DINOv2 card features were not found; they will be extracted at runtime.");
+        Entry.Logger.Warn(
+            "[DrawAndGuessMod] Pre-trained DINOv2 card features were not found. " +
+            "Run Card Recognition Cache to build them.");
         return new Dictionary<string, float[]>(StringComparer.Ordinal);
     }
 
@@ -535,12 +550,12 @@ internal static class CardArtClassifier
 
     private static string GetUserModelPath()
     {
-        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_features.local.bin");
+        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_features.local.v2.bin");
     }
 
     private static string GetUserDinoModelPath()
     {
-        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_dino_features.local.bin");
+        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_dino_features.local.v2.bin");
     }
 
     private static void SavePretrainedFeatures(string path, IReadOnlyDictionary<string, double[]> featuresByCardId)
@@ -614,52 +629,62 @@ internal static class CardArtClassifier
         File.Move(temporaryPath, path, overwrite: true);
     }
 
-    private static Image? GetReadableImage(Texture2D texture)
+    internal static Image CopyBaseLayer(Image source)
     {
-        if (texture is AtlasTexture atlasTexture && atlasTexture.Atlas != null)
+        if (source.HasMipmaps())
         {
-            Image atlasImage = atlasTexture.Atlas.GetImage();
-            if (!MakeReadable(atlasImage))
-            {
-                return null;
-            }
-
-            Rect2 region = atlasTexture.Region;
-            int width = Math.Max(1, Mathf.RoundToInt(region.Size.X));
-            int height = Math.Max(1, Mathf.RoundToInt(region.Size.Y));
-            Rect2I sourceRect = new(
-                Mathf.RoundToInt(region.Position.X),
-                Mathf.RoundToInt(region.Position.Y),
-                width,
-                height);
-            Image cropped = Image.CreateEmpty(width, height, false, Image.Format.Rgba8);
-            cropped.BlitRect(atlasImage, sourceRect, Vector2I.Zero);
-            return cropped;
+            throw new InvalidOperationException(
+                "Mipmapped GPU textures must be read through PortraitGpuImageLoader.");
         }
 
-        Image image = texture.GetImage();
-        return MakeReadable(image) ? image : null;
+        Image copy = Image.CreateFromData(
+            source.GetWidth(),
+            source.GetHeight(),
+            false,
+            source.GetFormat(),
+            source.GetData());
+        if (copy.IsCompressed() && copy.Decompress() != Error.Ok)
+        {
+            copy.Dispose();
+            throw new InvalidDataException("Could not decompress copied image.");
+        }
+        return copy;
     }
 
-    private static bool MakeReadable(Image image)
+    private static Image CreatePretrainingThumbnail(Image source)
     {
-        if (image.IsEmpty())
+        using Image scaled = CopyBaseLayer(source);
+        if (scaled.IsCompressed())
         {
-            return false;
+            scaled.Decompress();
         }
+        scaled.Convert(Image.Format.Rgba8);
 
-        if (image.IsCompressed() && image.Decompress() != Error.Ok)
-        {
-            return false;
-        }
+        float scale = Math.Min(
+            PretrainingThumbnailWidth / (float)Math.Max(1, scaled.GetWidth()),
+            PretrainingThumbnailHeight / (float)Math.Max(1, scaled.GetHeight()));
+        int width = Math.Max(1, Mathf.RoundToInt(scaled.GetWidth() * scale));
+        int height = Math.Max(1, Mathf.RoundToInt(scaled.GetHeight() * scale));
+        scaled.Resize(width, height, Image.Interpolation.Bilinear);
 
-        image.Convert(Image.Format.Rgba8);
-        return true;
+        Image thumbnail = Image.CreateEmpty(
+            PretrainingThumbnailWidth,
+            PretrainingThumbnailHeight,
+            false,
+            Image.Format.Rgba8);
+        thumbnail.Fill(Colors.Transparent);
+        thumbnail.BlitRect(
+            scaled,
+            new Rect2I(Vector2I.Zero, new Vector2I(width, height)),
+            new Vector2I(
+                (PretrainingThumbnailWidth - width) / 2,
+                (PretrainingThumbnailHeight - height) / 2));
+        return thumbnail;
     }
 
     internal static double[] ExtractFeatures(Image source, bool treatAsSketch)
     {
-        Image image = Image.CreateFromData(source.GetWidth(), source.GetHeight(), source.HasMipmaps(), source.GetFormat(), source.GetData());
+        using Image image = CopyBaseLayer(source);
         if (image.IsCompressed())
         {
             image.Decompress();
@@ -915,6 +940,165 @@ internal static class CardArtClassifier
     }
 
     private sealed record TrainingSample(CardModel Card, double[] Features, float[]? DinoFeatures);
+    private sealed class PortraitReadbackUnavailableException : InvalidOperationException
+    {
+        public PortraitReadbackUnavailableException(string message) : base(message)
+        {
+        }
+    }
+
+    private sealed class PortraitGpuImageLoader : IDisposable
+    {
+        private const int MaximumReadbackDimension = 1024;
+        private readonly SceneTree _tree;
+        private readonly SubViewport _viewport;
+        private readonly TextureRect _textureRect;
+        private Texture2D? _loadedTexture;
+
+        public PortraitGpuImageLoader()
+        {
+            _tree = Engine.GetMainLoop() as SceneTree
+                ?? throw new InvalidOperationException("Card-art GPU readback requires an active SceneTree.");
+            _viewport = new SubViewport
+            {
+                Name = "DrawAndGuessMod_CardArtReadback",
+                TransparentBg = true,
+                Disable3D = true,
+                HandleInputLocally = false,
+                RenderTargetClearMode = SubViewport.ClearMode.Always,
+                RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled
+            };
+            _textureRect = new TextureRect
+            {
+                Position = Vector2.Zero,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                TextureFilter = CanvasItem.TextureFilterEnum.Linear
+            };
+            _viewport.AddChild(_textureRect);
+            _tree.Root.AddChild(_viewport);
+        }
+
+        public async Task<Image?> LoadAsync(string path)
+        {
+            EnsureReadbackAvailable();
+            ReleaseLoadedTexture();
+            Texture2D? texture = ResourceLoader.Load<Texture2D>(
+                path,
+                null,
+                ResourceLoader.CacheMode.Ignore);
+            if (texture == null)
+            {
+                return null;
+            }
+            _loadedTexture = texture;
+            if (texture.GetWidth() <= 0 || texture.GetHeight() <= 0)
+            {
+                ReleaseLoadedTexture();
+                return null;
+            }
+
+            Vector2I readbackSize = CalculateReadbackSize(texture.GetWidth(), texture.GetHeight());
+            Image? image = null;
+            try
+            {
+                _viewport.Size = readbackSize;
+                _textureRect.Size = readbackSize;
+                _textureRect.TextureFilter =
+                    readbackSize.X == texture.GetWidth() && readbackSize.Y == texture.GetHeight()
+                        ? CanvasItem.TextureFilterEnum.Nearest
+                        : CanvasItem.TextureFilterEnum.Linear;
+                _textureRect.Texture = texture;
+                _viewport.RenderTargetClearMode = SubViewport.ClearMode.Always;
+                _viewport.RenderTargetUpdateMode = SubViewport.UpdateMode.Once;
+
+                await _tree.ToSignal(_tree, SceneTree.SignalName.ProcessFrame);
+                EnsureReadbackAvailable();
+                await _viewport.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                EnsureReadbackAvailable();
+
+                image = _viewport.GetTexture().GetImage();
+                if (image == null || image.IsEmpty())
+                {
+                    image?.Dispose();
+                    return null;
+                }
+                if (image.IsCompressed() && image.Decompress() != Error.Ok)
+                {
+                    image.Dispose();
+                    image = null;
+                    return null;
+                }
+                image.Convert(Image.Format.Rgba8);
+                Image result = image;
+                image = null;
+                return result;
+            }
+            finally
+            {
+                image?.Dispose();
+                if (GodotObject.IsInstanceValid(_textureRect))
+                {
+                    _textureRect.Texture = null;
+                }
+                if (GodotObject.IsInstanceValid(_viewport))
+                {
+                    _viewport.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
+                }
+                ReleaseLoadedTexture();
+            }
+        }
+
+        public void Dispose()
+        {
+            if (GodotObject.IsInstanceValid(_textureRect))
+            {
+                _textureRect.Texture = null;
+            }
+            ReleaseLoadedTexture();
+            if (GodotObject.IsInstanceValid(_viewport))
+            {
+                _viewport.QueueFree();
+            }
+        }
+
+        private static Vector2I CalculateReadbackSize(int sourceWidth, int sourceHeight)
+        {
+            sourceWidth = Math.Max(1, sourceWidth);
+            sourceHeight = Math.Max(1, sourceHeight);
+            int largestDimension = Math.Max(sourceWidth, sourceHeight);
+            if (largestDimension <= MaximumReadbackDimension)
+            {
+                return new Vector2I(sourceWidth, sourceHeight);
+            }
+
+            float scale = MaximumReadbackDimension / (float)largestDimension;
+            return new Vector2I(
+                Math.Max(1, Mathf.RoundToInt(sourceWidth * scale)),
+                Math.Max(1, Mathf.RoundToInt(sourceHeight * scale)));
+        }
+
+        private void ReleaseLoadedTexture()
+        {
+            _loadedTexture?.Dispose();
+            _loadedTexture = null;
+        }
+
+        private void EnsureReadbackAvailable()
+        {
+            if (!GodotObject.IsInstanceValid(_tree) ||
+                !GodotObject.IsInstanceValid(_tree.Root) ||
+                !GodotObject.IsInstanceValid(_viewport) ||
+                !_viewport.IsInsideTree() ||
+                !GodotObject.IsInstanceValid(_textureRect))
+            {
+                throw new PortraitReadbackUnavailableException(
+                    "Card-art GPU readback stopped because the game scene tree is no longer available.");
+            }
+        }
+    }
+
     private sealed record RankedCandidate(
         TrainingSample Sample,
         double CurrentDistance,
