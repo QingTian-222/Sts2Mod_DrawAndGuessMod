@@ -27,8 +27,17 @@ TRAINING_SCRIPT = MOD_ROOT / "Scripts" / "Training" / "train-card-model.py"
 DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts110"
 DEFAULT_MODEL = MOD_ROOT / "Models" / "card_features.bin"
 DEFAULT_DINO_CACHE = MOD_ROOT / "Scripts" / "Preview" / ".semantic-cache" / "dinov2-vits14-lvd142m-224.npz"
+DEFAULT_RELIC_DINO_CACHE = (
+    MOD_ROOT
+    / "Scripts"
+    / "Preview"
+    / ".semantic-cache"
+    / "dinov2-relics-vits14-lvd142m-224.npz"
+)
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 DISPLAY_SIZE = (320, 320)
+RELIC_RECOGNITION_SIZE = 224
+RELIC_ARTWORK_SIZE = 192
 
 
 def load_training_module():
@@ -69,6 +78,83 @@ class CardPortraitIndex:
         with self._lock:
             with Image.open(self._entries[card_id]) as portrait:
                 return portrait.convert("RGB").copy()
+
+
+class RelicImageIndex:
+    def __init__(self, sts_source: Path):
+        relics_dir = sts_source / "images" / "relics"
+        localization_path = sts_source / "localization" / "zhs" / "relics.json"
+        if not relics_dir.is_dir():
+            raise FileNotFoundError(f"找不到遗物图片目录：{relics_dir}")
+
+        localization = json.loads(localization_path.read_text(encoding="utf-8"))
+        valid_ids = {
+            str(key)[:-6].upper()
+            for key in localization
+            if str(key).endswith(".title")
+        }
+        entries: dict[str, Path] = {}
+        for png_path in sorted(relics_dir.glob("*.png")):
+            relic_id = png_path.stem.upper()
+            if relic_id in valid_ids:
+                entries[relic_id] = png_path
+
+        yummy_cookie = relics_dir / "yummy_cookie_ironclad.png"
+        if "YUMMY_COOKIE" in valid_ids and yummy_cookie.is_file():
+            entries["YUMMY_COOKIE"] = yummy_cookie
+
+        mod_image_dir = MOD_ROOT / "AssetProject" / "images"
+        mod_relics = {
+            "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE": mod_image_dir / "death_note_relic_big.png",
+            "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK": mod_image_dir / "memorial_sketchbook_relic.png",
+        }
+        for relic_id, image_path in mod_relics.items():
+            if image_path.is_file():
+                entries[relic_id] = image_path
+
+        if not entries:
+            raise ValueError("没有发现可供 DINOv2 检索的遗物图片")
+        self._entries = dict(sorted(entries.items()))
+        self._lock = threading.Lock()
+
+    @property
+    def relic_ids(self) -> list[str]:
+        return list(self._entries)
+
+    def get(self, relic_id: str) -> Image.Image:
+        with self._lock:
+            with Image.open(self._entries[relic_id]) as source:
+                return source.convert("RGBA").copy()
+
+
+def normalize_relic_artwork(source: Image.Image) -> Image.Image:
+    """沿用游戏内遗物分类器的裁切尺寸，为 DINOv2 生成稳定浅底输入。"""
+
+    rgba = source.convert("RGBA")
+    alpha = np.asarray(rgba, dtype=np.uint8)[:, :, 3]
+    ys, xs = np.nonzero(alpha > 5)
+    if len(xs) == 0:
+        return Image.new("RGB", (RELIC_RECOGNITION_SIZE, RELIC_RECOGNITION_SIZE), "white")
+
+    bounds = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+    artwork = rgba.crop(bounds)
+    scale = RELIC_ARTWORK_SIZE / max(artwork.size)
+    resized_size = (
+        max(1, round(artwork.width * scale)),
+        max(1, round(artwork.height * scale)),
+    )
+    artwork = artwork.resize(resized_size, Image.Resampling.LANCZOS)
+    background = Image.new(
+        "RGBA",
+        (RELIC_RECOGNITION_SIZE, RELIC_RECOGNITION_SIZE),
+        (242, 243, 245, 255),
+    )
+    destination = (
+        (RELIC_RECOGNITION_SIZE - artwork.width) // 2,
+        (RELIC_RECOGNITION_SIZE - artwork.height) // 2,
+    )
+    background.alpha_composite(artwork, destination)
+    return background.convert("RGB")
 
 
 class FeatureModel:
@@ -199,12 +285,103 @@ class SemanticFeatureModel:
         return features
 
     def similarities(self, image: Image.Image) -> np.ndarray:
+        query = self.encode(image)
+        return self.features @ query
+
+    def encode(self, image: Image.Image) -> np.ndarray:
         tensor = self._preprocess(image.convert("RGB")).unsqueeze(0)
         with self._lock, self._torch.inference_mode():
             encoded = self._model(tensor)
             encoded = encoded / encoded.norm(dim=-1, keepdim=True).clamp_min(1e-12)
-        query = encoded.cpu().float().numpy()[0]
-        return self.features @ query
+        return encoded.cpu().float().numpy()[0]
+
+    def encode_batch(self, images: list[Image.Image]) -> np.ndarray:
+        tensors = [self._preprocess(image.convert("RGB")) for image in images]
+        with self._lock, self._torch.inference_mode():
+            encoded = self._model(self._torch.stack(tensors))
+            encoded = encoded / encoded.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+        return encoded.cpu().float().numpy()
+
+
+class RelicDinoModel:
+    def __init__(
+        self,
+        image_index: RelicImageIndex,
+        semantic: SemanticFeatureModel,
+        cache_path: Path,
+        batch_size: int,
+    ):
+        self._image_index = image_index
+        self._semantic = semantic
+        self.relic_ids = image_index.relic_ids
+        self.model_key = f"{semantic.model_key}:relic-neutral-background-v1"
+        self.features = self._load_or_build_cache(cache_path.resolve(), max(1, batch_size))
+
+    @property
+    def sample_count(self) -> int:
+        return len(self.relic_ids)
+
+    def _load_or_build_cache(self, cache_path: Path, batch_size: int) -> np.ndarray:
+        if cache_path.is_file():
+            try:
+                with np.load(cache_path, allow_pickle=False) as cache:
+                    cached_key = str(cache["model_key"][0])
+                    cached_ids = cache["relic_ids"].astype(str).tolist()
+                    cached_features = cache["features"].astype(np.float32)
+                if (
+                    cached_key == self.model_key
+                    and cached_ids == self.relic_ids
+                    and cached_features.shape == (len(self.relic_ids), self._semantic.dimension)
+                ):
+                    print(f"[dino-relic] 已加载遗物缓存：{cache_path}（{len(self.relic_ids)} 个）")
+                    return cached_features
+            except Exception as error:
+                print(f"[dino-relic] 忽略无效缓存 {cache_path}：{error}")
+
+        print(f"[dino-relic] 首次建立遗物索引，共 {len(self.relic_ids)} 个遗物……")
+        batches: list[np.ndarray] = []
+        start = time.perf_counter()
+        for offset in range(0, len(self.relic_ids), batch_size):
+            batch_ids = self.relic_ids[offset : offset + batch_size]
+            images = [normalize_relic_artwork(self._image_index.get(relic_id)) for relic_id in batch_ids]
+            batches.append(self._semantic.encode_batch(images))
+            processed = min(offset + len(batch_ids), len(self.relic_ids))
+            print(f"[dino-relic] {processed}/{len(self.relic_ids)}")
+
+        features = np.concatenate(batches, axis=0).astype(np.float32)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            cache_path,
+            model_key=np.asarray([self.model_key]),
+            relic_ids=np.asarray(self.relic_ids),
+            features=features,
+        )
+        elapsed = time.perf_counter() - start
+        print(f"[dino-relic] 遗物索引已保存：{cache_path}，耗时 {elapsed:.1f} 秒")
+        return features
+
+    def predict(self, image: Image.Image) -> list[dict[str, object]]:
+        query = self._semantic.encode(normalize_relic_artwork(image))
+        similarities = self.features @ query
+        ids = np.asarray(self.relic_ids)
+        order = np.lexsort((ids, -similarities))
+        results: list[dict[str, object]] = []
+        for raw_index in order[:3]:
+            index = int(raw_index)
+            relic_id = self.relic_ids[index]
+            results.append(
+                {
+                    "relic_id": relic_id,
+                    "dino_similarity": float(similarities[index]),
+                    "original_url": "/image/relic?id=" + urllib.parse.quote(relic_id),
+                }
+            )
+        return results
+
+    def get_image(self, relic_id: str) -> Image.Image:
+        if relic_id not in self.relic_ids:
+            raise KeyError(relic_id)
+        return self._image_index.get(relic_id)
 
 
 class FusionModel:
@@ -433,6 +610,7 @@ loadMeta().catch(error=>$('status').innerHTML='<span class="error">'+error.messa
 
 class PreviewHandler(BaseHTTPRequestHandler):
     model: FusionModel
+    relic_model: RelicDinoModel
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -452,8 +630,17 @@ class PreviewHandler(BaseHTTPRequestHandler):
                             "features": self.model.semantic.dimension,
                             "load_ms": self.model.semantic.load_ms,
                         },
+                        "relics": {
+                            "samples": self.relic_model.sample_count,
+                            "model": self.relic_model.model_key,
+                        },
                     }
                 )
+                return
+            if parsed.path == "/image/relic":
+                query = urllib.parse.parse_qs(parsed.query)
+                relic_id = query.get("id", [""])[0].upper()
+                self.send_bytes(png_bytes(self.relic_model.get_image(relic_id)), "image/png")
                 return
             if parsed.path in ("/image/original", "/image/processed"):
                 query = urllib.parse.parse_qs(parsed.query)
@@ -475,7 +662,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/api/predict":
+        if parsed.path not in ("/api/predict", "/api/predict-relic"):
             self.send_error(404)
             return
         try:
@@ -485,6 +672,18 @@ class PreviewHandler(BaseHTTPRequestHandler):
             payload = self.rfile.read(content_length)
             image = Image.open(io.BytesIO(payload))
             image.load()
+            if parsed.path == "/api/predict-relic":
+                start = time.perf_counter()
+                results = self.relic_model.predict(image)
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
+                self.send_json(
+                    {
+                        "results": results,
+                        "model": self.relic_model.model_key,
+                        "elapsed_ms": elapsed_ms,
+                    }
+                )
+                return
             query = urllib.parse.parse_qs(parsed.query)
             dino_weight = float(query.get("dino_weight", ["0.5"])[0])
             start = time.perf_counter()
@@ -523,6 +722,12 @@ def main() -> None:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="card_features.bin 路径")
     parser.add_argument("--dino-model", default="vit_small_patch14_dinov2.lvd142m", help="timm DINOv2模型名")
     parser.add_argument("--dino-cache", type=Path, default=DEFAULT_DINO_CACHE, help="卡图DINOv2向量缓存")
+    parser.add_argument(
+        "--relic-dino-cache",
+        type=Path,
+        default=DEFAULT_RELIC_DINO_CACHE,
+        help="遗物图DINOv2向量缓存",
+    )
     parser.add_argument("--dino-batch-size", type=int, default=16, help="首次建立DINOv2索引的批大小")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
@@ -538,13 +743,21 @@ def main() -> None:
         args.dino_batch_size,
     )
     PreviewHandler.model = FusionModel(current_model, semantic_model)
+    relic_image_index = RelicImageIndex(args.source.resolve())
+    PreviewHandler.relic_model = RelicDinoModel(
+        relic_image_index,
+        semantic_model,
+        args.relic_dino_cache,
+        args.dino_batch_size,
+    )
     server = ThreadingHTTPServer(("127.0.0.1", args.port), PreviewHandler)
     url = f"http://127.0.0.1:{args.port}/"
     print(
         f"DrawAndGuessMod 模型预览已启动：{url}\n"
         f"模型 v{PreviewHandler.model.version}，{PreviewHandler.model.sample_count} 张卡，"
         f"当前特征 {PreviewHandler.model.feature_count} 维，"
-        f"DINOv2 {PreviewHandler.model.semantic.dimension} 维。按 Ctrl+C 退出。"
+        f"DINOv2 {PreviewHandler.model.semantic.dimension} 维，"
+        f"{PreviewHandler.relic_model.sample_count} 个遗物。按 Ctrl+C 退出。"
     )
     if not args.no_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()

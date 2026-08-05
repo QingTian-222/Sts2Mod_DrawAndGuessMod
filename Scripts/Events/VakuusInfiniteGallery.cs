@@ -95,7 +95,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         {
             Entry.Logger.Info(
                 $"[DrawAndGuessMod] Gallery exhausted for {EventOwner.NetId} after {_challengeNumber} challenges.");
-            bool claimedReward = await ClaimTimedGalleryRewardIfEligible();
+            bool claimedReward = await ClaimTimedGalleryRewardForEventOwnerIfEligible();
             SetEventFinished(PageDescription(claimedReward ? "EXHAUSTED_REWARD" : "EXHAUSTED"));
             return;
         }
@@ -269,7 +269,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         if (reward > 0)
         {
             DynamicVars["Reward"].BaseValue = reward;
-            await PlayerCmd.GainGold(reward, EventOwner);
+            await GrantChallengeGoldToEventOwner(reward);
         }
 
         Entry.Logger.Info(
@@ -333,8 +333,15 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
 
     private async Task Leave()
     {
-        bool claimedReward = await ClaimTimedGalleryRewardIfEligible();
+        bool claimedReward = await ClaimTimedGalleryRewardForEventOwnerIfEligible();
         SetEventFinished(PageDescription(claimedReward ? "TAKE_REWARD" : "LEAVE"));
+    }
+
+    private async Task GrantChallengeGoldToEventOwner(int reward)
+    {
+        // Shared event options are executed once for every player-owned event instance.
+        // Rewarding only this instance's owner grants the reward to the whole party exactly once per player.
+        await PlayerCmd.GainGold(reward, EventOwner);
     }
 
     private bool CanClaimTimedGalleryReward =>
@@ -343,18 +350,21 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         _timedSuccessfulCards.Count >= TimedGalleryRewardWins &&
         !_timedGalleryRewardClaimed;
 
-    private async Task<bool> ClaimTimedGalleryRewardIfEligible()
+    private async Task<bool> ClaimTimedGalleryRewardForEventOwnerIfEligible()
     {
         if (!CanClaimTimedGalleryReward)
         {
             return false;
         }
 
+        // Every player owns a separate instance of this shared event. Opening the native selector for
+        // EventOwner lets each player choose independently while PlayerChoiceSynchronizer relays remote choices.
+        Player rewardOwner = EventOwner;
         List<CardModel> rewardCards = _timedSuccessfulCards
             .GroupBy(card => card.Id)
-            .Select(group => EventOwner.RunState.CreateCard(
+            .Select(group => rewardOwner.RunState.CreateCard(
                 group.First(),
-                EventOwner))
+                rewardOwner))
             .ToList();
         List<CardCreationResult> rewardOptions = rewardCards
             .Select(card => new CardCreationResult(card))
@@ -366,7 +376,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         CardModel? selected = (await CardSelectCmd.FromSimpleGridForRewards(
                 new BlockingPlayerChoiceContext(),
                 rewardOptions,
-                EventOwner,
+                rewardOwner,
                 prefs))
             .FirstOrDefault();
         _timedGalleryRewardClaimed = true;
@@ -374,7 +384,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         {
             RemoveUnusedRewardCards(rewardCards, null);
             Entry.Logger.Info(
-                $"[DrawAndGuessMod] Timed gallery reward skipped by {EventOwner.NetId}.");
+                $"[DrawAndGuessMod] Timed gallery reward skipped by {rewardOwner.NetId}.");
             return false;
         }
 
@@ -386,7 +396,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
             RemoveUnusedRewardCards(rewardCards, null);
             Entry.Logger.Warn(
                 $"[DrawAndGuessMod] Failed to add timed gallery reward " +
-                $"{selected.Id.Entry} to {EventOwner.NetId}'s deck.");
+                $"{selected.Id.Entry} to {rewardOwner.NetId}'s deck.");
             return false;
         }
 
@@ -394,7 +404,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         CardCmd.PreviewCardPileAdd(addResult, 2f);
         Entry.Logger.Info(
             $"[DrawAndGuessMod] Timed gallery reward {selected.Id.Entry} added " +
-            $"to {EventOwner.NetId}'s deck from {_timedSuccessfulCards.Count} successful drawings.");
+            $"to {rewardOwner.NetId}'s deck from {_timedSuccessfulCards.Count} successful drawings.");
         return true;
     }
 
