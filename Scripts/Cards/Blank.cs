@@ -125,7 +125,7 @@ public sealed class Blank : CardModel
             }
         }
 
-        return new PendingBlankChoice(recipient, drawing, memorialArtworkId, combatState, options);
+        return new PendingBlankChoice(recipient, drawing, sessionId, memorialArtworkId, combatState, options);
     }
 
     private async Task ResolveChoice(PlayerChoiceContext choiceContext, PendingBlankChoice choice)
@@ -148,6 +148,12 @@ public sealed class Blank : CardModel
                 choice.Drawing.PngBytes);
         }
         ArtworkStore.Set(Owner.RunState, selectedCard, choice.Drawing.PngBytes);
+        DrawingHistoryStore.RecordCard(
+            Owner.RunState,
+            Owner.NetId,
+            choice.SessionId,
+            selectedCard,
+            choice.Drawing.PngBytes);
         BlankSelectionStore.Remember(Owner.RunState, selectedCard.Id);
 
         if (choice.Drawing.SkipAddingToDeck)
@@ -186,6 +192,7 @@ public sealed class Blank : CardModel
     private sealed record PendingBlankChoice(
         Player Recipient,
         DrawingResult Drawing,
+        uint SessionId,
         string? MemorialArtworkId,
         ICombatState CombatState,
         List<CardModel> Options);

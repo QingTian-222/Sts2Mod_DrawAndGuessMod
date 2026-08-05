@@ -34,6 +34,7 @@ public partial class DrawingCanvas : Control
 
     private Image _image = null!;
     private ImageTexture _texture = null!;
+    private Image? _baseImage;
     private Color _leftColor = new("1B1A18");
     private Color _rightColor = PaperColor;
     private Color _activeStrokeColor = new("1B1A18");
@@ -347,7 +348,10 @@ public partial class DrawingCanvas : Control
         }
     }
 
-    internal bool ImportPng(byte[] pngBytes, bool cancelActiveOperation = true)
+    internal bool ImportPng(
+        byte[] pngBytes,
+        bool cancelActiveOperation = true,
+        bool preserveDimensions = false)
     {
         Image imported = new();
         if (imported.LoadPngFromBuffer(pngBytes) != Error.Ok)
@@ -356,7 +360,16 @@ public partial class DrawingCanvas : Control
         }
 
         imported.Convert(Image.Format.Rgba8);
-        imported.Resize(_canvasWidth, _canvasHeight, Image.Interpolation.Lanczos);
+        if (preserveDimensions)
+        {
+            _canvasWidth = imported.GetWidth();
+            _canvasHeight = imported.GetHeight();
+            CustomMinimumSize = new Vector2(_canvasWidth, _canvasHeight);
+        }
+        else
+        {
+            imported.Resize(_canvasWidth, _canvasHeight, Image.Interpolation.Lanczos);
+        }
         if (cancelActiveOperation)
         {
             CancelActiveOperation();
@@ -365,6 +378,28 @@ public partial class DrawingCanvas : Control
         _texture.Update(_image);
         QueueRedraw();
         return true;
+    }
+
+    /// <summary>
+    /// Records a fixed base image (the imported history artwork) that
+    /// <see cref="RebuildFromCommands" /> seeds instead of the blank background,
+    /// so undo/redo in the history editor replays the recorded brush commands on
+    /// top of the original drawing rather than onto an empty canvas.
+    /// </summary>
+    internal void SetBaseImage(Image? baseImage)
+    {
+        if (baseImage == null)
+        {
+            _baseImage = null;
+            return;
+        }
+
+        _baseImage = Image.CreateFromData(
+            baseImage.GetWidth(),
+            baseImage.GetHeight(),
+            false,
+            baseImage.GetFormat(),
+            baseImage.GetData());
     }
 
     internal void CancelActiveOperation()
@@ -661,7 +696,14 @@ public partial class DrawingCanvas : Control
         _batchApplying = true;
         try
         {
-            _image.Fill(CanvasBackgroundColor);
+            if (_baseImage != null)
+            {
+                _image.CopyFrom(_baseImage);
+            }
+            else
+            {
+                _image.Fill(CanvasBackgroundColor);
+            }
             foreach (DrawingCommand command in commands)
             {
                 ApplyRemote(command);

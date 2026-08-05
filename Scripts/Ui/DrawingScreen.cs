@@ -38,6 +38,10 @@ public partial class DrawingScreen : Control
     private const int CustomColorCapacity = DrawingPaletteStore.Capacity;
     private const float ColorButtonHeight = 30f;
     private const ulong TimerSyncIntervalMsec = 250uL;
+    // Sender id used to key locally-recorded brush operations in the history
+    // artwork editor. The editor is single-player (no net messages carry these),
+    // so any stable non-zero value works and cannot collide with real player ids.
+    private const ulong HistoryEditSenderId = 0xF000_0000_0000_0001uL;
     private const string PenNibIconPath =
         "res://images/atlases/relic_atlas.sprites/pen_nib.tres";
     private const string InkBottleIconPath =
@@ -45,6 +49,8 @@ public partial class DrawingScreen : Control
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
     private readonly TaskCompletionSource<RelicDrawingResult?> _relicCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<byte[]?> _historyEditCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<DrawingCommand> _pendingCommands = new();
     private readonly List<RecordedDrawingCommand> _historyCommands = new();
@@ -73,6 +79,7 @@ public partial class DrawingScreen : Control
     private DrawingCanvas _canvas = null!;
     private Label _status = null!;
     private Button _guessButton = null!;
+    private Button _cancelButton = null!;
     private Button _brushToolButton = null!;
     private Button _fillToolButton = null!;
     private Label _sizeLabel = null!;
@@ -111,6 +118,11 @@ public partial class DrawingScreen : Control
     private StyleBoxFlat? _timerFillStyle;
     private bool _receivedAuthoritativeTimer;
     private bool _privateDrawing;
+    private bool _historyEdit;
+    private bool _historyEditFinalizing;
+    private byte[]? _initialPng;
+    private Action<byte[]?>? _historyEditClosed;
+    private CanvasLayer? _historyEditLayer;
     private RelicModel? _relicTarget;
     private RelicArtAssessment? _currentRelicAssessment;
     private TextureRect? _relicTargetImage;
@@ -124,19 +136,33 @@ public partial class DrawingScreen : Control
     private Control? _relicWaitingOverlay;
     private bool _editingRelicWorkTitle;
     private bool _relicDrawingConfirmed;
+    private LineEdit? _tracingSearch;
+    private VBoxContainer? _tracingResults;
+    private ScrollContainer? _tracingResultsScroll;
+    private TextureRect? _tracingReference;
+    private Image? _tracingReferenceImage;
+    private ImageTexture? _tracingReferenceTexture;
+    private Control? _tracingPanel;
+    private IReadOnlyList<CardModel> _searchableCards = [];
+    private bool _tracingSearchPreparing;
+    private bool _tracingSearchPrepared;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
         if (_active != null && GodotObject.IsInstanceValid(_active))
         {
-            if (_active._owner.NetId == owner.NetId && _active._sessionId == sessionId)
+            if (!_active._historyEdit &&
+                _active._owner.NetId == owner.NetId &&
+                _active._sessionId == sessionId)
             {
                 return _active._completion.Task;
             }
 
             Entry.Logger.Warn(
                 $"[DrawAndGuessMod] Rejected drawing session {owner.NetId}/{sessionId} because " +
-                $"session {_active._owner.NetId}/{_active._sessionId} is still active.");
+                (_active._historyEdit
+                    ? "a history artwork editor is still active."
+                    : $"session {_active._owner.NetId}/{_active._sessionId} is still active."));
             return Task.FromResult<DrawingResult?>(null);
         }
 
@@ -182,6 +208,55 @@ public partial class DrawingScreen : Control
         _active = screen;
         tree.Root.AddChild(screen);
         return screen._completion.Task;
+    }
+
+    public static Task<byte[]?> ShowHistoryEditAsync(
+        byte[] pngBytes,
+        string artworkName,
+        Action<byte[]?>? onClosed = null)
+    {
+        if (pngBytes.Length == 0 ||
+            _active != null && GodotObject.IsInstanceValid(_active) ||
+            Engine.GetMainLoop() is not SceneTree tree)
+        {
+            return Task.FromResult<byte[]?>(null);
+        }
+
+        DrawingCanvasMode canvasMode = DetectCanvasMode(pngBytes);
+        DrawingScreen screen = new()
+        {
+            Name = "DrawAndGuessMod_HistoryArtworkEditor",
+            _isChooser = true,
+            _isTimerAuthority = true,
+            _receivedAuthoritativeBlankSettings = true,
+            _privateDrawing = true,
+            _historyEdit = true,
+            _initialPng = pngBytes,
+            _historyEditClosed = onClosed,
+            _canvasMode = canvasMode,
+            _rightColor = canvasMode == DrawingCanvasMode.Relic
+                ? Colors.Transparent
+                : DrawingCanvas.PaperColor,
+            _options = new DrawingScreenOptions(
+                Localized($"编辑画作：{artworkName}", $"Edit artwork: {artworkName}"),
+                Localized("完成后会覆盖保存这幅 PNG 画作。", "Confirm to overwrite this PNG artwork."),
+                AllowCanvasModeSwitch: false)
+        };
+        _active = screen;
+        // Host the editor on a dedicated high canvas layer so it always renders
+        // above the still-open RitsuLib settings submenu. The layer is freed with
+        // the editor, so closing the editor reveals the settings page underneath
+        // and no submenu pop/push round-trip is required.
+        CanvasLayer layer = new()
+        {
+            Name = "DrawAndGuessMod_HistoryArtworkEditorLayer",
+            Layer = 100
+        };
+        screen._historyEditLayer = layer;
+        tree.Root.AddChild(layer);
+        layer.AddChild(screen);
+        screen.MoveToFront();
+        return screen._historyEditCompletion.Task;
     }
 
     public static Task<RelicDrawingResult?> ShowRelicAsync(
@@ -250,6 +325,30 @@ public partial class DrawingScreen : Control
         ZIndex = 4000;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         BuildUi();
+        if (_historyEdit)
+        {
+            // The editor is shown over the still-open RitsuLib settings page, so
+            // take focus and swallow Escape. Otherwise keyboard input would leak
+            // into the settings controls underneath and Escape would pop the
+            // settings submenu while the editor is still on screen.
+            FocusMode = FocusModeEnum.All;
+            GrabFocus();
+        }
+        if (_historyEdit && _initialPng is { Length: > 0 })
+        {
+            if (_canvas.ImportPng(_initialPng, preserveDimensions: true))
+            {
+                // The imported artwork becomes the undo base so "undo to the
+                // start" returns to the original drawing instead of blank.
+                _canvas.SetBaseImage(_canvas.Snapshot());
+            }
+            else
+            {
+                Entry.Logger.Warn("[DrawAndGuessMod] Failed to load PNG for history artwork editing.");
+                CompleteHistoryEdit(null);
+                return;
+            }
+        }
         if (!_privateDrawing)
         {
             DrawingNetSync.DeliverPending(this, _owner.NetId, _sessionId);
@@ -260,7 +359,7 @@ public partial class DrawingScreen : Control
 
     public override void _Process(double delta)
     {
-        if (ShouldCloseForRunExit())
+        if (!_historyEdit && ShouldCloseForRunExit())
         {
             _finishing = true;
             _pendingCommands.Clear();
@@ -325,9 +424,28 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        // While the tracing search box is being edited, let its LineEdit consume
+        // G / Ctrl+Z / Ctrl+Y / wheel instead of the drawing shortcuts.
+        if (_tracingSearch != null && _tracingSearch.HasFocus())
+        {
+            return;
+        }
+
+        // In the history editor Escape cancels and must not bubble down to the
+        // settings submenu (which is still open underneath the editor).
+        if (_historyEdit &&
+            !_colorPickerOverlay.Visible &&
+            @event is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
+        {
+            GetViewport().SetInputAsHandled();
+            OnHistoryEditCancelPressed();
+            return;
+        }
+
         if (@event is InputEventMouseButton { Pressed: true } wheel &&
             wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown &&
-            !_finishing)
+            !_finishing &&
+            !IsPointerOverTracingResults())
         {
             double direction = wheel.ButtonIndex == MouseButton.WheelUp ? 1d : -1d;
             _sizeSlider.Value = Math.Clamp(
@@ -397,9 +515,41 @@ public partial class DrawingScreen : Control
         {
             _relicCompletion.TrySetResult(null);
         }
+        // If the editor leaves the tree without going through CompleteHistoryEdit
+        // (screen teardown, canvas-layer cleanup, ...), still deliver a cancel so
+        // the artwork history list is refreshed on the settings page underneath.
+        if (_historyEditClosed != null)
+        {
+            Action<byte[]?>? onClosed = _historyEditClosed;
+            _historyEditClosed = null;
+            Callable.From(() =>
+            {
+                try
+                {
+                    onClosed(null);
+                }
+                catch (Exception ex)
+                {
+                    Entry.Logger.Warn($"[DrawAndGuessMod] Failed to finish history artwork editing: {ex}");
+                }
+            }).CallDeferred();
+        }
+        if (!_historyEditCompletion.Task.IsCompleted && !_historyEditFinalizing)
+        {
+            _historyEditCompletion.TrySetResult(null);
+        }
         if (ReferenceEquals(_active, this))
         {
             _active = null;
+        }
+        if (_historyEditLayer != null)
+        {
+            CanvasLayer layer = _historyEditLayer;
+            _historyEditLayer = null;
+            if (GodotObject.IsInstanceValid(layer))
+            {
+                layer.QueueFree();
+            }
         }
     }
 
@@ -714,11 +864,15 @@ public partial class DrawingScreen : Control
 
         _status = new Label
         {
-            Text = _isChooser
-                ? Localized("完成后由你确认。", "Confirm the drawing when everyone is finished.")
-                : Localized(
-                    "正在共同绘制，等待出牌者确认。",
-                    "Drawing together. Waiting for the player who played the card to confirm."),
+            Text = _historyEdit
+                ? Localized(
+                    "编辑完成后点击「确定」保存，或「取消」放弃修改。",
+                    "Confirm to save your edits, or Cancel to discard them.")
+                : _isChooser
+                    ? Localized("完成后由你确认。", "Confirm the drawing when everyone is finished.")
+                    : Localized(
+                        "正在共同绘制，等待出牌者确认。",
+                        "Drawing together. Waiting for the player who played the card to confirm."),
             Visible = false,
             MouseFilter = MouseFilterEnum.Ignore
         };
@@ -731,40 +885,79 @@ public partial class DrawingScreen : Control
         buttons.AddThemeConstantOverride("separation", 12);
         column.AddChild(buttons);
 
-        Button clear = CreateActionButton(
-            Localized("清空", "Clear"),
-            new Color("5B252B"),
-            new Color("E47A78"));
-        clear.Pressed += _canvas.ClearCanvas;
-        buttons.AddChild(clear);
+        if (_historyEdit)
+        {
+            // History editor buttons: 确定 / 取消 / 撤销.
+            _guessButton = CreateActionButton(
+                Localized("确定", "Confirm"),
+                new Color("176B72"),
+                new Color("75F0E6"),
+                primary: true);
+            _guessButton.Disabled = !_isChooser ||
+                                    !_receivedAuthoritativeBlankSettings ||
+                                    _relicTarget != null;
+            _guessButton.Pressed += OnGuessPressed;
+            buttons.AddChild(_guessButton);
 
-        Button undo = CreateActionButton(
-            Localized("撤回", "Undo"),
-            new Color("253D58"),
-            new Color("79BCE8"));
-        undo.TooltipText = DrawingNetSync.IsMultiplayer
-            ? Localized(
-                $"撤回你自己的最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
-                $"Undo your most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained")
-            : Localized(
-                $"撤回最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
-                $"Undo the most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained");
-        undo.Pressed += RequestUndo;
-        buttons.AddChild(undo);
+            _cancelButton = CreateActionButton(
+                Localized("取消", "Cancel"),
+                new Color("5B252B"),
+                new Color("E47A78"));
+            _cancelButton.Pressed += OnHistoryEditCancelPressed;
+            buttons.AddChild(_cancelButton);
 
-        _guessButton = CreateActionButton(
-            Localized("确认", "Confirm"),
-            new Color("176B72"),
-            new Color("75F0E6"),
-            primary: true);
-        _guessButton.Disabled = !_isChooser ||
-                                !_receivedAuthoritativeBlankSettings ||
-                                _relicTarget != null;
-        _guessButton.Pressed += OnGuessPressed;
-        buttons.AddChild(_guessButton);
+            Button undo = CreateActionButton(
+                Localized("撤销", "Undo"),
+                new Color("253D58"),
+                new Color("79BCE8"));
+            undo.TooltipText = Localized(
+                $"撤回最近一次操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
+                $"Undo the most recent action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained");
+            undo.Pressed += RequestUndo;
+            buttons.AddChild(undo);
+        }
+        else
+        {
+            Button clear = CreateActionButton(
+                Localized("清空", "Clear"),
+                new Color("5B252B"),
+                new Color("E47A78"));
+            clear.Pressed += _canvas.ClearCanvas;
+            buttons.AddChild(clear);
+
+            Button undo = CreateActionButton(
+                Localized("撤回", "Undo"),
+                new Color("253D58"),
+                new Color("79BCE8"));
+            undo.TooltipText = DrawingNetSync.IsMultiplayer
+                ? Localized(
+                    $"撤回你自己的最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
+                    $"Undo your most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained")
+                : Localized(
+                    $"撤回最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
+                    $"Undo the most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained");
+            undo.Pressed += RequestUndo;
+            buttons.AddChild(undo);
+
+            _guessButton = CreateActionButton(
+                Localized("确认", "Confirm"),
+                new Color("176B72"),
+                new Color("75F0E6"),
+                primary: true);
+            _guessButton.Disabled = !_isChooser ||
+                                    !_receivedAuthoritativeBlankSettings ||
+                                    _relicTarget != null;
+            _guessButton.Pressed += OnGuessPressed;
+            buttons.AddChild(_guessButton);
+        }
 
         AddPeekButton(backdrop, center);
         AddCanvasModeButton();
+        if (!_historyEdit && _relicTarget == null && DrawAndGuessSettings.TracingEnabled)
+        {
+            BuildTracingPanel();
+        }
+
         BuildColorPickerOverlay();
         if (_relicTarget != null)
         {
@@ -920,6 +1113,10 @@ public partial class DrawingScreen : Control
         _canvasModeButton.Visible = !peeking;
         _peekBackdrop.Visible = !peeking;
         _peekPanelContainer.Visible = !peeking;
+        if (_tracingPanel != null)
+        {
+            _tracingPanel.Visible = !peeking;
+        }
         _peekButton.TooltipText = peeking
             ? Localized("返回绘画", "Return to drawing")
             : _options?.PeekTooltip ?? Localized("观察战局", "View combat");
@@ -985,6 +1182,15 @@ public partial class DrawingScreen : Control
     {
         if (_finishing || !_receivedAuthoritativeBlankSettings)
         {
+            return;
+        }
+
+        if (_historyEdit)
+        {
+            _finishing = true;
+            _guessButton.Disabled = true;
+            _cancelButton.Disabled = true;
+            CompleteHistoryEdit(_canvas.ExportPng());
             return;
         }
 
@@ -1638,7 +1844,7 @@ public partial class DrawingScreen : Control
     {
         Color color = DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(_colorPicker.Color));
         color.A = 1f;
-        if (DrawingPaletteStore.TryRemember(_paletteOwner, color))
+        if (!_historyEdit && DrawingPaletteStore.TryRemember(_paletteOwner, color))
         {
             _customColors.Clear();
             _customColors.AddRange(
@@ -1775,85 +1981,98 @@ public partial class DrawingScreen : Control
 
     internal static bool TryReceiveCommands(DrawingSyncMessage message, ulong senderId)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) || _active._owner.NetId != message.OwnerId || _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null)
         {
             return false;
         }
 
-        _active.ReceiveCommands(message, senderId);
+        active.ReceiveCommands(message, senderId);
         return true;
     }
 
     internal static bool TryReceiveFinal(DrawingFinalMessage message)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) || _active._owner.NetId != message.OwnerId || _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null)
         {
             return false;
         }
 
-        _active.ReceiveFinal(message);
+        active.ReceiveFinal(message);
         return true;
     }
 
     internal static bool TryReceiveUndoRequest(DrawingUndoRequestMessage message, ulong senderId)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) || !_active._isChooser ||
-            _active._owner.NetId != message.OwnerId || _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null || !active._isChooser)
         {
             return false;
         }
 
-        _active.ApplyAuthoritativeUndo(senderId);
+        active.ApplyAuthoritativeUndo(senderId);
         return true;
     }
 
     internal static bool TryReceiveRedoRequest(DrawingRedoRequestMessage message, ulong senderId)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) || !_active._isChooser ||
-            _active._owner.NetId != message.OwnerId || _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null || !active._isChooser)
         {
             return false;
         }
 
-        _active.ApplyAuthoritativeRedo(senderId);
+        active.ApplyAuthoritativeRedo(senderId);
         return true;
     }
 
     internal static bool TryReceiveCanvasState(DrawingCanvasStateMessage message)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) || _active._owner.NetId != message.OwnerId ||
-            _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null)
         {
             return false;
         }
 
-        _active.ReceiveCanvasState(message);
+        active.ReceiveCanvasState(message);
         return true;
     }
 
     internal static bool TryReceiveTimer(DrawingTimerSyncMessage message)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) || _active._owner.NetId != message.OwnerId ||
-            _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null)
         {
             return false;
         }
 
-        _active.ReceiveTimer(message);
+        active.ReceiveTimer(message);
         return true;
     }
 
     internal static bool TryReceiveBlankSettings(DrawingBlankSettingsMessage message)
     {
-        if (_active == null || !GodotObject.IsInstanceValid(_active) ||
-            _active._owner.NetId != message.OwnerId ||
-            _active._sessionId != message.SessionId)
+        DrawingScreen? active = GetMatchingActiveSession(message.OwnerId, message.SessionId);
+        if (active == null)
         {
             return false;
         }
 
-        _active.ReceiveBlankSettings(message);
+        active.ReceiveBlankSettings(message);
         return true;
+    }
+
+    private static DrawingScreen? GetMatchingActiveSession(ulong ownerId, uint sessionId)
+    {
+        DrawingScreen? active = _active;
+        return active != null &&
+               GodotObject.IsInstanceValid(active) &&
+               !active._historyEdit &&
+               active._owner.NetId == ownerId &&
+               active._sessionId == sessionId
+            ? active
+            : null;
     }
 
     internal void ReceiveCommands(DrawingSyncMessage message, ulong senderId)
@@ -2074,7 +2293,9 @@ public partial class DrawingScreen : Control
         }
         else if (_isChooser)
         {
-            RecordHistoryCommand(_owner.NetId, command);
+            RecordHistoryCommand(
+                _historyEdit ? HistoryEditSenderId : _owner.NetId,
+                command);
         }
 
         if (!UsesCollaborativeNetworking || _finishing)
@@ -2132,7 +2353,7 @@ public partial class DrawingScreen : Control
 
         if (_isChooser)
         {
-            ApplyAuthoritativeUndo(_owner.NetId);
+            ApplyAuthoritativeUndo(_historyEdit ? 0ul : _owner.NetId);
             return;
         }
 
@@ -2167,7 +2388,7 @@ public partial class DrawingScreen : Control
 
         if (_isChooser)
         {
-            ApplyAuthoritativeRedo(_owner.NetId);
+            ApplyAuthoritativeRedo(_historyEdit ? 0ul : _owner.NetId);
         }
     }
 
@@ -2580,6 +2801,78 @@ public partial class DrawingScreen : Control
         }
     }
 
+    private void OnHistoryEditCancelPressed()
+    {
+        if (_finishing)
+        {
+            return;
+        }
+
+        _finishing = true;
+        _guessButton.Disabled = true;
+        _cancelButton.Disabled = true;
+        CompleteHistoryEdit(null);
+    }
+
+    private void CompleteHistoryEdit(byte[]? pngBytes)
+    {
+        if (_historyEditCompletion.Task.IsCompleted)
+        {
+            return;
+        }
+
+        Action<byte[]?>? onClosed = _historyEditClosed;
+        _historyEditClosed = null;
+        _historyEditFinalizing = true;
+        Node? root = GetTree()?.Root;
+        if (ReferenceEquals(_active, this))
+        {
+            _active = null;
+        }
+
+        QueueFree();
+        void FinishOnMainThread()
+        {
+            try
+            {
+                onClosed?.Invoke(pngBytes);
+            }
+            catch (Exception ex)
+            {
+                Entry.Logger.Warn($"[DrawAndGuessMod] Failed to finish history artwork editing: {ex}");
+            }
+            finally
+            {
+                _historyEditCompletion.TrySetResult(pngBytes);
+            }
+        }
+
+        if (root != null && GodotObject.IsInstanceValid(root))
+        {
+            Callable.From(FinishOnMainThread).CallDeferred();
+        }
+        else
+        {
+            FinishOnMainThread();
+        }
+    }
+
+    private static DrawingCanvasMode DetectCanvasMode(byte[] pngBytes)
+    {
+        Image image = new();
+        if (image.LoadPngFromBuffer(pngBytes) != Error.Ok)
+        {
+            return DrawingCanvasMode.Standard;
+        }
+
+        return (image.GetWidth(), image.GetHeight()) switch
+        {
+            (DrawingCanvas.AncientCanvasWidth, DrawingCanvas.AncientCanvasHeight) => DrawingCanvasMode.Ancient,
+            (DrawingCanvas.RelicCanvasWidth, DrawingCanvas.RelicCanvasHeight) => DrawingCanvasMode.Relic,
+            _ => DrawingCanvasMode.Standard
+        };
+    }
+
     private bool UsesCollaborativeNetworking => DrawingNetSync.IsMultiplayer && !_privateDrawing;
 
     private void BuildRelicTitleEditor(Container column)
@@ -2877,6 +3170,362 @@ public partial class DrawingScreen : Control
                     new Color("F4C95D"),
                     progressToThreshold);
         }
+    }
+
+    /// <summary>
+    /// Builds the tracing reference panel as a transparent floating overlay
+    /// anchored to the right edge of the screen, so the original drawing layout
+    /// (canvas row, palette, tools) and the canvas-mode toggle are left untouched.
+    /// </summary>
+    private void BuildTracingPanel()
+    {
+        VBoxContainer panel = new()
+        {
+            Name = "TracingPanel",
+            ZIndex = 10,
+            MouseFilter = MouseFilterEnum.Pass
+        };
+        panel.SetAnchorsPreset(LayoutPreset.CenterRight);
+        panel.OffsetLeft = -252f;
+        panel.OffsetRight = -12f;
+        panel.OffsetTop = -230f;
+        panel.OffsetBottom = 230f;
+        AddChild(panel);
+        _tracingPanel = panel;
+        panel.AddThemeConstantOverride("separation", 8);
+
+        _tracingSearch = new LineEdit
+        {
+            PlaceholderText = Localized("搜索卡牌…", "Search cards..."),
+            TooltipText = Localized(
+                "输入卡牌名或 ID 进行搜索，选择一张卡牌作为临摹参考。",
+                "Type a card name or ID to search; pick a card to use as a tracing reference."),
+            CustomMinimumSize = new Vector2(0f, 34f)
+        };
+        _tracingSearch.TextChanged += OnTracingSearchTextChanged;
+        panel.AddChild(_tracingSearch);
+
+        ScrollContainer resultsScroll = new()
+        {
+            CustomMinimumSize = new Vector2(240f, 60f),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto
+        };
+        panel.AddChild(resultsScroll);
+        _tracingResultsScroll = resultsScroll;
+        _tracingResults = new VBoxContainer
+        {
+            CustomMinimumSize = new Vector2(240f, 0f),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        _tracingResults.AddThemeConstantOverride("separation", 2);
+        _tracingResults.Visible = false;
+        resultsScroll.AddChild(_tracingResults);
+
+        _tracingReference = new TextureRect
+        {
+            Visible = false,
+            CustomMinimumSize = new Vector2(0f, 200f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Stop,
+            TooltipText = Localized(
+                "点击参考图取色：左键设为左键颜色，右键设为右键颜色",
+                "Click the reference to sample its colors: LMB sets the left color, RMB sets the right color")
+        };
+        _tracingReference.GuiInput += OnTracingReferenceInput;
+        panel.AddChild(_tracingReference);
+
+        Label hint = new()
+        {
+            Text = Localized(
+                "点击参考图可直接取色。",
+                "Click the reference art to sample its colors."),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        panel.AddChild(hint);
+    }
+
+    private void OnTracingSearchTextChanged(string query)
+    {
+        if (_tracingResults == null)
+        {
+            return;
+        }
+
+        foreach (Node child in _tracingResults.GetChildren())
+        {
+            _tracingResults.RemoveChild(child);
+            child.QueueFree();
+        }
+
+        string normalized = query.Trim();
+        if (normalized.Length == 0)
+        {
+            _tracingResults.Visible = false;
+            return;
+        }
+
+        if (!_tracingSearchPrepared)
+        {
+            StartPreparingTracingSearch();
+            return;
+        }
+
+        int shown = 0;
+        foreach (CardModel card in _searchableCards)
+        {
+            string title;
+            try
+            {
+                title = card.Title;
+            }
+            catch
+            {
+                title = string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = card.Id.Entry;
+            }
+
+            bool matches = title.Contains(normalized, StringComparison.OrdinalIgnoreCase) ||
+                           card.Id.Entry.Contains(normalized, StringComparison.OrdinalIgnoreCase);
+            if (!matches)
+            {
+                continue;
+            }
+
+            CardModel captured = card;
+            Button result = new()
+            {
+                Text = title,
+                TooltipText = $"{title}  ({card.Id.Entry})",
+                ClipText = true,
+                FocusMode = FocusModeEnum.None,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                CustomMinimumSize = new Vector2(240f, 34f)
+            };
+            result.AddThemeFontSizeOverride("font_size", 14);
+            result.AddThemeColorOverride("font_color", Colors.White);
+            result.AddThemeColorOverride("font_hover_color", Colors.White);
+            result.AddThemeColorOverride("font_pressed_color", Colors.White);
+            result.AddThemeColorOverride("font_outline_color", new Color("101820"));
+            result.AddThemeConstantOverride("outline_size", 2);
+            result.AddThemeStyleboxOverride("normal", CreateTracingSearchResultStyle("263545D9"));
+            result.AddThemeStyleboxOverride("hover", CreateTracingSearchResultStyle("3D5870F2"));
+            result.AddThemeStyleboxOverride("pressed", CreateTracingSearchResultStyle("1A2734F2"));
+            result.Pressed += () => SelectTracingCard(captured);
+            _tracingResults.AddChild(result);
+            shown++;
+            if (shown >= 50)
+            {
+                break;
+            }
+        }
+
+        _tracingResults.Visible = shown > 0;
+    }
+
+    private bool IsPointerOverTracingResults()
+    {
+        return _tracingResultsScroll != null &&
+               _tracingResultsScroll.Visible &&
+               _tracingResultsScroll.GetGlobalRect().HasPoint(GetGlobalMousePosition());
+    }
+
+    private void StartPreparingTracingSearch()
+    {
+        if (_tracingSearchPreparing)
+        {
+            return;
+        }
+
+        _tracingSearchPreparing = true;
+        _status.Text = Localized(
+            "正在准备临摹卡牌列表…",
+            "Preparing tracing card list...");
+        _ = PrepareTracingSearchAsync();
+    }
+
+    private async Task PrepareTracingSearchAsync()
+    {
+        try
+        {
+            await CardArtClassifier.EnsureTrainedAsync();
+            if (!GodotObject.IsInstanceValid(this) || _finishing)
+            {
+                return;
+            }
+
+            _searchableCards = CardArtClassifier.GetChallengeCandidates(_owner);
+            _tracingSearchPrepared = true;
+            OnTracingSearchTextChanged(_tracingSearch?.Text ?? string.Empty);
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to build the tracing search pool: {ex}");
+            _searchableCards = [];
+            _tracingSearchPrepared = true;
+        }
+        finally
+        {
+            _tracingSearchPreparing = false;
+        }
+    }
+
+    private static StyleBoxFlat CreateTracingSearchResultStyle(string color)
+    {
+        return new StyleBoxFlat
+        {
+            BgColor = new Color(color),
+            CornerRadiusTopLeft = 4,
+            CornerRadiusTopRight = 4,
+            CornerRadiusBottomLeft = 4,
+            CornerRadiusBottomRight = 4,
+            ContentMarginLeft = 8,
+            ContentMarginRight = 8
+        };
+    }
+
+    private void SelectTracingCard(CardModel card)
+    {
+        Image? image = CardArtClassifier.LoadCardPortraitImage(card);
+        if (image == null || _tracingReference == null)
+        {
+            return;
+        }
+
+        if (!TryCreateTracingReference(image, out Image displayImage, out ImageTexture displayTexture))
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to create tracing reference texture for {card.Id.Entry}.");
+            return;
+        }
+
+        _tracingReferenceImage = displayImage;
+        _tracingReferenceTexture = displayTexture;
+        _tracingReference.Texture = _tracingReferenceTexture;
+        _tracingReference.Visible = true;
+        _tracingReference.TooltipText = Localized(
+                $"参考卡牌：{card.Title}",
+                $"Reference: {card.Title}") +
+            "\n" + Localized(
+                "左键取色为左色，右键取色为右色",
+                "LMB samples the left color, RMB samples the right color");
+        _tracingResults!.Visible = false;
+        _tracingSearch?.ReleaseFocus();
+    }
+
+    /// <summary>
+    /// Third-party card portraits can be backed by compressed or atlas-owned GPU
+    /// images. Copy their pixels into a standalone PNG before uploading so the
+    /// tracing preview never retains an invalid external texture backing.
+    /// </summary>
+    private static bool TryCreateTracingReference(
+        Image source,
+        out Image displayImage,
+        out ImageTexture displayTexture)
+    {
+        displayImage = new Image();
+        displayTexture = null!;
+        if (source.IsEmpty())
+        {
+            return false;
+        }
+
+        try
+        {
+            Image rgba = Image.CreateFromData(
+                source.GetWidth(),
+                source.GetHeight(),
+                false,
+                source.GetFormat(),
+                source.GetData());
+            if (rgba.IsCompressed() && rgba.Decompress() != Error.Ok)
+            {
+                return false;
+            }
+
+            rgba.Convert(Image.Format.Rgba8);
+            byte[] pngBytes = rgba.SavePngToBuffer();
+            if (displayImage.LoadPngFromBuffer(pngBytes) != Error.Ok)
+            {
+                return false;
+            }
+
+            displayTexture = ImageTexture.CreateFromImage(displayImage);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Debug($"[DrawAndGuessMod] Failed to isolate tracing reference texture: {ex.Message}");
+            return false;
+        }
+    }
+
+    private void OnTracingReferenceInput(InputEvent @event)
+    {
+        if (_tracingReferenceImage == null ||
+            _tracingReference == null ||
+            @event is not InputEventMouseButton { Pressed: true } button ||
+            (button.ButtonIndex != MouseButton.Left && button.ButtonIndex != MouseButton.Right))
+        {
+            return;
+        }
+
+        Color? sampled = SampleTracingReference(button.Position, _tracingReference.Size);
+        if (sampled == null)
+        {
+            return;
+        }
+
+        Color picked = sampled.Value;
+        if (picked.A <= 0f)
+        {
+            return;
+        }
+        picked.A = 1f;
+        if (button.ButtonIndex == MouseButton.Right)
+        {
+            SelectRightColor(picked);
+        }
+        else
+        {
+            SelectColor(picked);
+        }
+
+        _tracingReference.AcceptEvent();
+    }
+
+    private Color? SampleTracingReference(Vector2 localPosition, Vector2 controlSize)
+    {
+        Image image = _tracingReferenceImage!;
+        int imageWidth = image.GetWidth();
+        int imageHeight = image.GetHeight();
+        if (imageWidth <= 0 || imageHeight <= 0)
+        {
+            return null;
+        }
+
+        float scale = Mathf.Min(controlSize.X / imageWidth, controlSize.Y / imageHeight);
+        float drawWidth = imageWidth * scale;
+        float drawHeight = imageHeight * scale;
+        float offsetX = (controlSize.X - drawWidth) * 0.5f;
+        float offsetY = (controlSize.Y - drawHeight) * 0.5f;
+        float relativeX = (localPosition.X - offsetX) / drawWidth;
+        float relativeY = (localPosition.Y - offsetY) / drawHeight;
+        if (relativeX < 0f || relativeX > 1f || relativeY < 0f || relativeY > 1f)
+        {
+            return null;
+        }
+
+        int pixelX = Mathf.Clamp(Mathf.RoundToInt(relativeX * imageWidth), 0, imageWidth - 1);
+        int pixelY = Mathf.Clamp(Mathf.RoundToInt(relativeY * imageHeight), 0, imageHeight - 1);
+        return image.GetPixel(pixelX, pixelY);
     }
 
     private void BuildRelicReferencePanel(Container canvasRow)

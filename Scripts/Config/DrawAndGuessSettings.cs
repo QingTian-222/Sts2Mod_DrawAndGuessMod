@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Ai;
 using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.Localization;
+using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Models;
@@ -31,6 +32,7 @@ internal static class DrawAndGuessSettings
 {
     private const string DataKey = "settings";
     private const string FileName = "settings.json";
+    private const string ArtworkHistoryPageId = "artwork_history";
     private static bool _pretraining;
     private static string _pretrainingStatusChinese = string.Empty;
     private static string _pretrainingStatusEnglish = string.Empty;
@@ -105,6 +107,13 @@ internal static class DrawAndGuessSettings
             data => data.CustomDrawingTimeLimitSeconds,
             (data, value) => data.CustomDrawingTimeLimitSeconds = Math.Clamp(value, 1, 600));
 
+    private static readonly IModSettingsValueBinding<bool> TracingEnabledBinding =
+        ModSettingsBindings.Global<SettingsData, bool>(
+            Entry.ModId,
+            DataKey,
+            data => data.TracingEnabled,
+            (data, value) => data.TracingEnabled = value);
+
     public static GuessCardPoolScope CardPoolScope
     {
         get
@@ -157,6 +166,21 @@ internal static class DrawAndGuessSettings
             try
             {
                 return BlankGeneratedCardSkipsDeckBinding.Read();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    public static bool TracingEnabled
+    {
+        get
+        {
+            try
+            {
+                return TracingEnabledBinding.Read();
             }
             catch
             {
@@ -220,6 +244,10 @@ internal static class DrawAndGuessSettings
 
             RitsuLibFramework.GetDataStore(Entry.ModId).InitializeGlobal();
             RitsuLibFramework.RegisterModSettings(Entry.ModId, BuildSettingsPage);
+            RitsuLibFramework.RegisterModSettings(
+                Entry.ModId,
+                BuildArtworkHistoryPage,
+                ArtworkHistoryPageId);
         }
         catch (Exception ex)
         {
@@ -358,6 +386,26 @@ internal static class DrawAndGuessSettings
                         "瓦库：基础模型。鸡煲：更加智能的神经网络。自训练适配器：或许对简笔画有更高识别性。",
                         "VAKUU: basic model. Defect: better nn model. Trained Adapter: Higher recognition of simple drawings."),
                     ModSettingsChoicePresentation.Dropdown))
+            .AddSection("drawing_ui", section => section
+                .WithTitle(LocalizedText("绘画界面", "Drawing Interface"))
+                .AddToggle(
+                    "tracing_enabled",
+                    LocalizedText("临摹参考面板", "Tracing Reference Panel"),
+                    TracingEnabledBinding,
+                    LocalizedText(
+                        "在作画界面右侧显示一个卡牌搜索栏：选择卡牌后显示其卡图，可直接点击参考图吸取颜色（左键设左色、右键设右色）。",
+                        "Show a card search bar on the right of the drawing screen: pick a card to display its art, then click the reference to sample its colors (LMB sets the left color, RMB the right)."),
+                    () => true))
+            .AddSection("artwork_history", section => section
+                .WithTitle(LocalizedText("画作历史", "Artwork History"))
+                .AddSubpage(
+                    "open_artwork_history",
+                    LocalizedText("查看历史画作", "View Artwork History"),
+                    ArtworkHistoryPageId,
+                    LocalizedText("打开", "Open"),
+                    LocalizedText(
+                        "使用 RitsuLib 设置页面查看所有已完成的绘画，以及当时选择的卡牌或遗物。",
+                        "Browse every finished drawing in a RitsuLib settings page, including the card or relic selected at the time.")))
             .AddSection("advanced_candidate_pools", section => section
                 .WithTitle(LocalizedText("高级选项", "Advanced Options"))
                 .WithDescription(LocalizedText(
@@ -381,6 +429,29 @@ internal static class DrawAndGuessSettings
                         "关闭的卡池不会出现在识别结果中；已经建立的识别缓存不会被删除。",
                         "Disabled pools will not appear in recognition results. Existing recognition cache data is kept."),
                     () => true));
+    }
+
+    private static void BuildArtworkHistoryPage(ModSettingsPageBuilder page)
+    {
+        page
+            .AsChildOf(Entry.ModId)
+            .WithTitle(LocalizedText("历史画作", "Artwork History"))
+            .WithDescription(LocalizedText(
+                "查看已完成的「空白」、画廊挑战和遗物鉴定画作。",
+                "Browse completed Blank, gallery challenge, and relic appraisal drawings."))
+            .WithVisibleOnHostSurfaces(
+                ModSettingsHostSurface.MainMenu |
+                ModSettingsHostSurface.RunPause |
+                ModSettingsHostSurface.CombatPause)
+            .AddSection("artworks", section => section
+                .WithTitle(LocalizedText("画作", "Artworks"))
+                .AddCustom(
+                    "artwork_entries",
+                    LocalizedText("历史记录", "History"),
+                    ArtworkHistoryViewer.BuildSettingsControl,
+                    LocalizedText(
+                        "按完成时间从新到旧排列。重命名、编辑和删除会立即刷新列表。",
+                        "Entries are ordered newest first. Rename, edit, and delete refresh the list immediately.")));
     }
 
     private static IModSettingsValueBinding<bool> CreateCandidatePoolBinding(string poolKey)
@@ -588,10 +659,10 @@ internal static class DrawAndGuessSettings
         List<CandidatePoolInfo> result = new();
         foreach (CardPoolModel pool in ModelDb.All
                      .OfType<CardPoolModel>()
-                     .Concat(ModelDb.AllCardPools)
-                     .GroupBy(GetCardPoolKey, StringComparer.Ordinal)
-                     .Select(group => group.First())
-                     .Where(pool => !IsMockModel(pool)))
+                      .Concat(ModelDb.AllCardPools)
+                      .GroupBy(GetCardPoolKey, StringComparer.Ordinal)
+                      .Select(group => group.First())
+                      .Where(pool => !IsMockModel(pool) && !IsUnsupportedCandidatePool(pool)))
         {
             try
             {
@@ -626,6 +697,13 @@ internal static class DrawAndGuessSettings
                || name.Contains("mock", StringComparison.OrdinalIgnoreCase)
                || fullName.Contains(".Mocks.", StringComparison.OrdinalIgnoreCase)
                || fullName.Contains(".Mock.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUnsupportedCandidatePool(CardPoolModel pool)
+    {
+        // DeprivedCardPool intentionally throws from AllCards and is never a real
+        // candidate source for this mod's card selection UI.
+        return string.Equals(pool.Id.Entry, "DEPRIVED_CARD_POOL", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsEligibleCandidateCard(CardModel card)
@@ -872,6 +950,7 @@ internal static class DrawAndGuessSettings
         public bool IncludeMultiplayerCards { get; set; } = true;
         public bool ExcludePreviouslySelectedBlankCards { get; set; }
         public bool BlankGeneratedCardSkipsDeck { get; set; }
+        public bool TracingEnabled { get; set; }
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;
         public int DrawingTimeLimitPreset { get; set; }

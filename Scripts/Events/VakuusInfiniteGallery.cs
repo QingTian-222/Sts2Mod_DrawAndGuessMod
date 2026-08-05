@@ -59,10 +59,9 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
     protected override Task BeforeEventStarted(bool isPreFinished)
     {
         _timedSuccessfulCards = new List<CardModel>();
-        if (EventOwner.NetId == HostPlayer.NetId)
-        {
-            DrawingNetSync.BeginGalleryEvent();
-        }
+        // This event can be owned by a guest. Every peer must advance its local
+        // event epoch so history-session ids cannot repeat on guest-owned runs.
+        DrawingNetSync.BeginGalleryEvent();
         return Task.CompletedTask;
     }
 
@@ -168,6 +167,12 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
             selected,
             drawing.PngBytes);
         ArtworkStore.Set(EventOwner.RunState, selected, drawing.PngBytes);
+        DrawingHistoryStore.RecordCard(
+            EventOwner.RunState,
+            HostPlayer.NetId,
+            sessionId,
+            selected,
+            drawing.PngBytes);
         if (selected.Id == target.Id)
         {
             await ResolveSuccess(target);

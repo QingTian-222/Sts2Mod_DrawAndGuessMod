@@ -63,6 +63,7 @@ internal static class CardArtClassifier
     private static List<TrainingSample>? _samples;
     private static Dictionary<string, double[]>? _pretrainedFeatures;
     private static Dictionary<string, float[]>? _pretrainedDinoFeatures;
+    private static Task? _asyncTrainingTask;
 
     public static void Preload()
     {
@@ -368,6 +369,98 @@ internal static class CardArtClassifier
             .ToList();
     }
 
+    private static async Task YieldProcessFrame()
+    {
+        if (Engine.GetMainLoop() is SceneTree tree)
+        {
+            await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+        }
+    }
+
+    /// <summary>
+    /// Builds the runtime fallback cache incrementally. Card portraits and Godot
+    /// image APIs remain on the main thread, but yielding after each card keeps
+    /// interactive UI (such as the tracing search field) responsive.
+    /// </summary>
+    public static Task EnsureTrainedAsync()
+    {
+        if (_samples != null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return _asyncTrainingTask ??= EnsureTrainedAsyncCore();
+    }
+
+    private static async Task EnsureTrainedAsyncCore()
+    {
+        // Let the text-change handler return before any cache or model work.
+        await YieldProcessFrame();
+        if (_samples != null)
+        {
+            return;
+        }
+
+        Preload();
+        List<CardModel> cards = GetEligibleCards();
+        List<TrainingSample> samples = new(cards.Count);
+        int fullyPretrained = 0;
+        int dynamicHandcrafted = 0;
+        int dynamicDino = 0;
+        int skipped = 0;
+        foreach (CardModel card in cards)
+        {
+            double[]? features = null;
+            float[]? dinoFeatures = null;
+            _pretrainedFeatures?.TryGetValue(card.Id.Entry, out features);
+            _pretrainedDinoFeatures?.TryGetValue(card.Id.Entry, out dinoFeatures);
+            bool hadHandcrafted = features != null;
+            bool hadDino = dinoFeatures != null;
+            if (features == null || dinoFeatures == null)
+            {
+                try
+                {
+                    Image? image = LoadCardPortraitImage(card);
+                    if (image != null && !image.IsEmpty())
+                    {
+                        if (features == null)
+                        {
+                            features = ExtractFeatures(image, treatAsSketch: false);
+                            dynamicHandcrafted++;
+                        }
+                        if (dinoFeatures == null && DinoArtEmbedder.TryExtract(image, out float[] extractedDinoFeatures))
+                        {
+                            dinoFeatures = extractedDinoFeatures;
+                            dynamicDino++;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Entry.Logger.Debug($"[DrawAndGuessMod] Could not dynamically extract classifier portrait {card.Id.Entry}: {ex.Message}");
+                }
+            }
+
+            if (features == null)
+            {
+                skipped++;
+            }
+            else
+            {
+                if (hadHandcrafted && hadDino)
+                {
+                    fullyPretrained++;
+                }
+                samples.Add(new TrainingSample(card, features, dinoFeatures));
+            }
+
+            await YieldProcessFrame();
+        }
+
+        _samples = samples;
+        Entry.Logger.Info($"[DrawAndGuessMod] Classifier ready with {_samples.Count} cards ({fullyPretrained} fully pre-trained, handcrafted dynamic={dynamicHandcrafted}, DINOv2 dynamic={dynamicDino}, skipped={skipped}).");
+    }
+
     private static void EnsureTrained()
     {
         if (_samples != null)
@@ -534,9 +627,8 @@ internal static class CardArtClassifier
 
     private static List<CardModel> GetEligibleCards()
     {
-        return ModelDb.All
-            .OfType<CardModel>()
-            .Concat(ModelDb.AllCards)
+        return ModelDb.AllCards
+            .Concat(ModelDb.All.OfType<CardModel>())
             .Where(card =>
                 card is not Blank &&
                 !card.IsMock &&
@@ -627,6 +719,76 @@ internal static class CardArtClassifier
             }
         }
         File.Move(temporaryPath, path, overwrite: true);
+    }
+
+    /// <summary>
+    /// Loads a card's original portrait as a readable RGBA image, bypassing the
+    /// patched <see cref="CardModel.Portrait"/> getter so the result is always
+    /// the game's art (used by the tracing reference panel and feature caches).
+    /// </summary>
+    internal static Image? LoadCardPortraitImage(CardModel card)
+    {
+        try
+        {
+            Texture2D? texture = ResourceLoader.Load<Texture2D>(
+                card.PortraitPath,
+                null,
+                ResourceLoader.CacheMode.Reuse);
+            Image? image = texture == null ? null : GetReadableImage(texture);
+            if (image != null)
+            {
+                return image;
+            }
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Debug($"[DrawAndGuessMod] Failed to load portrait resource for {card.Id.Entry}: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private static Image? GetReadableImage(Texture2D texture)
+    {
+        if (texture is AtlasTexture atlasTexture && atlasTexture.Atlas != null)
+        {
+            Image atlasImage = atlasTexture.Atlas.GetImage();
+            if (!MakeReadable(atlasImage))
+            {
+                return null;
+            }
+
+            Rect2 region = atlasTexture.Region;
+            int width = Math.Max(1, Mathf.RoundToInt(region.Size.X));
+            int height = Math.Max(1, Mathf.RoundToInt(region.Size.Y));
+            Rect2I sourceRect = new(
+                Mathf.RoundToInt(region.Position.X),
+                Mathf.RoundToInt(region.Position.Y),
+                width,
+                height);
+            Image cropped = Image.CreateEmpty(width, height, false, Image.Format.Rgba8);
+            cropped.BlitRect(atlasImage, sourceRect, Vector2I.Zero);
+            return cropped;
+        }
+
+        Image image = texture.GetImage();
+        return MakeReadable(image) ? image : null;
+    }
+
+    private static bool MakeReadable(Image image)
+    {
+        if (image.IsEmpty())
+        {
+            return false;
+        }
+
+        if (image.IsCompressed() && image.Decompress() != Error.Ok)
+        {
+            return false;
+        }
+
+        image.Convert(Image.Format.Rgba8);
+        return true;
     }
 
     internal static Image CopyBaseLayer(Image source)
