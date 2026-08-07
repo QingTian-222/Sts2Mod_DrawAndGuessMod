@@ -39,6 +39,15 @@ internal static class ArtworkHistoryViewer
         };
         root.AddChild(entriesContainer);
         RebuildEntries(entriesContainer, host);
+
+        root.VisibilityChanged += () =>
+        {
+            if (root.IsVisibleInTree())
+            {
+                RebuildEntries(entriesContainer, host);
+            }
+        };
+
         return root;
     }
 
