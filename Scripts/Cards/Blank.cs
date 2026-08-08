@@ -24,6 +24,8 @@ public sealed class Blank : CardModel
     private List<PendingBlankChoice> _pendingReplayChoices = new();
 
     public override CardMultiplayerConstraint MultiplayerConstraint => CardMultiplayerConstraint.None;
+    public override bool CanBeGeneratedInCombat => DrawingRunRules.IsGameplayEnabledForCurrentRun();
+    public override bool CanBeGeneratedByModifiers => DrawingRunRules.IsGameplayEnabledForCurrentRun();
     public override string PortraitPath => MissingPortraitPath;
     public override CardPoolModel VisualCardPool => ModelDb.CardPool<ColorlessCardPool>();
     public override IEnumerable<CardKeyword> CanonicalKeywords => [CardKeyword.Exhaust];

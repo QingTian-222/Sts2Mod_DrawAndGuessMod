@@ -16,6 +16,9 @@ public partial class DrawingCanvas : Control
     public const int RelicCanvasHeight = 300;
     private const int RelicCanvasDisplaySize = 300;
     private const int TransparencyGridSize = 20;
+    private const int RelicOutlineRadius = 13;
+    private const byte RelicOutlineOpacity = 127;
+    private const byte RelicOccupiedAlphaThreshold = 8;
     public const int MinBrushSize = 2;
     public const int MaxBrushSize = 48;
     public const int DefaultBrushSize = 14;
@@ -194,6 +197,20 @@ public partial class DrawingCanvas : Control
         LocalCommandGenerated?.Invoke(DrawingCommand.Clear(NextOperationId()));
     }
 
+    public void AddRelicOutline()
+    {
+        if (CanvasMode != DrawingCanvasMode.Relic)
+        {
+            return;
+        }
+
+        CancelActiveOperation();
+        if (ApplyRelicOutline())
+        {
+            LocalCommandGenerated?.Invoke(DrawingCommand.Outline(NextOperationId()));
+        }
+    }
+
     internal void SetCanvasMode(DrawingCanvasMode mode)
     {
         CanvasMode = mode;
@@ -216,7 +233,7 @@ public partial class DrawingCanvas : Control
         QueueRedraw();
     }
 
-    private static Vector2 GetCanvasDisplaySize(DrawingCanvasMode mode)
+    internal static Vector2 GetCanvasDisplaySize(DrawingCanvasMode mode)
     {
         return mode switch
         {
@@ -344,6 +361,9 @@ public partial class DrawingCanvas : Control
                 break;
             case DrawingCommandKind.Clear:
                 ApplyClear();
+                break;
+            case DrawingCommandKind.Outline:
+                ApplyRelicOutline();
                 break;
         }
     }
@@ -689,6 +709,95 @@ public partial class DrawingCanvas : Control
     {
         _image.Fill(CanvasBackgroundColor);
         RefreshTexture();
+    }
+
+    private bool ApplyRelicOutline()
+    {
+        if (CanvasMode != DrawingCanvasMode.Relic || _image.GetFormat() != Image.Format.Rgba8)
+        {
+            return false;
+        }
+
+        byte[] source = _image.GetData();
+        byte[] result = (byte[])source.Clone();
+        byte[] outlineAlpha = new byte[_canvasWidth * _canvasHeight];
+        bool hasContent = false;
+        for (int y = 0; y < _canvasHeight; y++)
+        {
+            for (int x = 0; x < _canvasWidth; x++)
+            {
+                int sourcePixel = y * _canvasWidth + x;
+                byte sourceAlpha = source[sourcePixel * 4 + 3];
+                if (sourceAlpha <= RelicOccupiedAlphaThreshold)
+                {
+                    continue;
+                }
+
+                hasContent = true;
+                byte candidateAlpha = (byte)(sourceAlpha * RelicOutlineOpacity / 255);
+                for (int offsetY = -RelicOutlineRadius; offsetY <= RelicOutlineRadius; offsetY++)
+                {
+                    int targetY = y + offsetY;
+                    if (targetY < 0 || targetY >= _canvasHeight)
+                    {
+                        continue;
+                    }
+
+                    for (int offsetX = -RelicOutlineRadius; offsetX <= RelicOutlineRadius; offsetX++)
+                    {
+                        if (offsetX * offsetX + offsetY * offsetY > RelicOutlineRadius * RelicOutlineRadius)
+                        {
+                            continue;
+                        }
+
+                        int targetX = x + offsetX;
+                        if (targetX < 0 || targetX >= _canvasWidth)
+                        {
+                            continue;
+                        }
+
+                        int targetPixel = targetY * _canvasWidth + targetX;
+                        if (source[targetPixel * 4 + 3] > RelicOccupiedAlphaThreshold ||
+                            outlineAlpha[targetPixel] >= candidateAlpha)
+                        {
+                            continue;
+                        }
+                        outlineAlpha[targetPixel] = candidateAlpha;
+                    }
+                }
+            }
+        }
+
+        if (!hasContent)
+        {
+            return false;
+        }
+
+        bool changed = false;
+        for (int pixel = 0; pixel < outlineAlpha.Length; pixel++)
+        {
+            byte alpha = outlineAlpha[pixel];
+            if (alpha == 0)
+            {
+                continue;
+            }
+
+            int byteIndex = pixel * 4;
+            result[byteIndex] = 0;
+            result[byteIndex + 1] = 0;
+            result[byteIndex + 2] = 0;
+            result[byteIndex + 3] = alpha;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return false;
+        }
+
+        _image.SetData(_canvasWidth, _canvasHeight, false, Image.Format.Rgba8, result);
+        RefreshTexture();
+        return true;
     }
 
     internal void RebuildFromCommands(IEnumerable<DrawingCommand> commands)

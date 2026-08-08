@@ -84,7 +84,9 @@ public sealed class RelicAppraisalFair : ModEventTemplate
 
     public override bool IsAllowed(MegaCrit.Sts2.Core.Runs.IRunState runState)
     {
-        if (runState.Players.Count <= 1 ||
+        if (!DrawingRunRules.IsGameplayEnabled(runState) ||
+            DrawingRunRules.GetTreasureRoomRelicDrawingEnabled(runState) ||
+            runState.Players.Count <= 1 ||
             runState.CurrentActIndex is not (1 or 2))
         {
             return false;
@@ -128,8 +130,8 @@ public sealed class RelicAppraisalFair : ModEventTemplate
                     $"鉴定题：{target.Title.GetFormattedText()}",
                     $"Appraisal Prompt: {target.Title.GetFormattedText()}"),
                 ModText.Get(
-                    "让瓦库认出题签上的遗物，便可为作品署名并提交鉴定。其他人只会看到作品名。画布是透明的，右键会抹去颜色。",
-                    "Once VAKUU recognizes the relic on your prompt, you may title the work and submit it for appraisal. Other players will see only its title. The canvas is transparent; RMB clears color."),
+                    "绘画目标遗物，达到匹配度即可提交；只有你知道它原本是什么。",
+                    "Draw the target relic and reach the required match to submit; only you know what it originally was."),
                 PeekTooltip: ModText.Get("查看事件", "View event"),
                 InitialCanvasMode: DrawingCanvasMode.Relic,
                 AllowCanvasModeSwitch: false);

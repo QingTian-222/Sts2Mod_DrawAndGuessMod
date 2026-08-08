@@ -17,11 +17,13 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
     private RunState _runState = null!;
     private Action? _onApplied;
     private bool _isHost;
+    private CheckButton _gameplayEnabledToggle = null!;
     private OptionButton _initialBlankOption = null!;
     private OptionButton _drawingTimeOption = null!;
-    private CheckBox _noRepeatCheck = null!;
-    private CheckBox _skipDeckCheck = null!;
+    private CheckButton _noRepeatCheck = null!;
+    private CheckButton _skipDeckCheck = null!;
     private OptionButton _cardRestrictionOption = null!;
+    private CheckButton _treasureRoomRelicDrawingCheck = null!;
     private Label _statusLabel = null!;
     private Button _applyButton = null!;
     private Button _closeButton = null!;
@@ -87,14 +89,14 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         PanelContainer panel = new()
         {
             Name = "SettingsPanel",
-            CustomMinimumSize = new Vector2(720f, 700f),
+            CustomMinimumSize = new Vector2(720f, 760f),
             MouseFilter = MouseFilterEnum.Stop
         };
         panel.SetAnchorsPreset(LayoutPreset.Center);
         panel.OffsetLeft = -360f;
-        panel.OffsetTop = -350f;
+        panel.OffsetTop = -380f;
         panel.OffsetRight = 360f;
-        panel.OffsetBottom = 350f;
+        panel.OffsetBottom = 380f;
         panel.AddThemeStyleboxOverride("panel", CreatePanelStyle());
         AddChild(panel);
 
@@ -106,7 +108,7 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         panel.AddChild(margin);
 
         VBoxContainer content = new();
-        content.AddThemeConstantOverride("separation", 8);
+        content.AddThemeConstantOverride("separation", 5);
         margin.AddChild(content);
 
         Label title = CreateLabel(Text("作画设置", "Drawing Settings"), 34, FontType.Bold);
@@ -122,6 +124,25 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         content.AddChild(subtitle);
         content.AddChild(new HSeparator());
 
+        _gameplayEnabledToggle = new CheckButton
+        {
+            FocusMode = FocusModeEnum.All,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            TooltipText = Text(
+                "关闭后，本局不会生成“空白”、相关事件以及绘本遗物；如果涅奥当前给出了死亡绘本，只会替换这一项。",
+                "Disable this to remove Blank, related events, and sketchbook relics from this run. If Death Sketchbook is currently offered by Neow, only that choice will be replaced.")
+        };
+        _gameplayEnabledToggle.AddThemeFontSizeOverride("font_size", 21);
+        ApplyGameFont(_gameplayEnabledToggle);
+        _gameplayEnabledToggle.Toggled += enabled =>
+        {
+            RefreshGameplayToggleText();
+            SetRuleControlsEditable(_isHost && enabled);
+        };
+        content.AddChild(CreateSettingRow(
+            Text("开启“你画瓦猜”玩法", "Enable Draw & Guess Gameplay"),
+            _gameplayEnabledToggle));
+
         _initialBlankOption = CreateOptionButton();
         AddOption(_initialBlankOption, Text("不获得", "None"), (int)InitialBlankMode.None);
         AddOption(_initialBlankOption, Text("随机一名玩家", "One Random Player"), (int)InitialBlankMode.RandomPlayer);
@@ -136,24 +157,12 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         AddOption(_drawingTimeOption, Text("120 秒", "120 Seconds"), 120);
         content.AddChild(CreateSettingRow(Text("作画时间", "Drawing Time"), _drawingTimeOption));
 
-        _noRepeatCheck = new CheckBox
-        {
-            Text = Text("开启", "Enabled"),
-            FocusMode = FocusModeEnum.All,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        _noRepeatCheck.AddThemeFontSizeOverride("font_size", 21);
-        ApplyGameFont(_noRepeatCheck);
+        _noRepeatCheck = CreateToggle();
+        _noRepeatCheck.Toggled += _ => RefreshToggleText(_noRepeatCheck);
         content.AddChild(CreateSettingRow(Text("绘画不重复", "No Repeat Cards"), _noRepeatCheck));
 
-        _skipDeckCheck = new CheckBox
-        {
-            Text = Text("开启", "Enabled"),
-            FocusMode = FocusModeEnum.All,
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        _skipDeckCheck.AddThemeFontSizeOverride("font_size", 21);
-        ApplyGameFont(_skipDeckCheck);
+        _skipDeckCheck = CreateToggle();
+        _skipDeckCheck.Toggled += _ => RefreshToggleText(_skipDeckCheck);
         content.AddChild(CreateSettingRow(Text("绘画不加入卡组", "Do Not Add Drawn Cards to Deck"), _skipDeckCheck));
 
         _cardRestrictionOption = CreateOptionButton();
@@ -161,7 +170,19 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         AddOption(_cardRestrictionOption, Text("不能画出先古牌", "No Ancient Cards"), (int)DrawingCardRestriction.ExcludeAncient);
         AddOption(_cardRestrictionOption, Text("只能画出自己职业的卡牌", "Own Character Cards Only"), (int)DrawingCardRestriction.CurrentCharacter);
         content.AddChild(CreateSettingRow(Text("画图限制", "Card Restriction"), _cardRestrictionOption));
-        SetRuleControlsEditable(_isHost);
+
+        _treasureRoomRelicDrawingCheck = CreateToggle();
+        _treasureRoomRelicDrawingCheck.TooltipText = Text(
+            "多人模式下，进入宝箱房后每名玩家会绘制一个由原版宝箱逻辑生成的遗物；全部提交后自动开箱。开启时不会出现“鉴宝大会”事件。",
+            "In multiplayer, each player draws a relic generated by the vanilla chest logic. The chest opens after every drawing is submitted, and Relic Appraisal Fair will not appear while this is enabled.");
+        _treasureRoomRelicDrawingCheck.Toggled += _ => RefreshToggleText(_treasureRoomRelicDrawingCheck);
+        HBoxContainer treasureRoomRelicDrawingRow = CreateSettingRow(
+            Text("宝箱房画遗物", "Draw Relics in Treasure Rooms"),
+            _treasureRoomRelicDrawingCheck);
+        treasureRoomRelicDrawingRow.Visible = _runState.Players.Count > 1;
+        content.AddChild(treasureRoomRelicDrawingRow);
+        _gameplayEnabledToggle.Disabled = !_isHost;
+        SetRuleControlsEditable(_isHost && _gameplayEnabledToggle.ButtonPressed);
 
         content.AddChild(new HSeparator());
         HBoxContainer precacheHeader = new();
@@ -236,16 +257,24 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         _noRepeatCheck.Disabled = !editable;
         _skipDeckCheck.Disabled = !editable;
         _cardRestrictionOption.Disabled = !editable;
+        _treasureRoomRelicDrawingCheck.Disabled = !editable;
     }
 
     private void LoadCurrentValues()
     {
         DrawingRunRuleState state = DrawingRunRules.GetSnapshot(_runState);
+        _gameplayEnabledToggle.ButtonPressed = state.GameplayEnabled;
+        RefreshGameplayToggleText();
+        SetRuleControlsEditable(_isHost && state.GameplayEnabled);
         SelectById(_initialBlankOption, state.InitialBlankMode);
         SelectById(_drawingTimeOption, state.DrawingTimeLimitSeconds);
         _noRepeatCheck.ButtonPressed = state.ExcludePreviouslySelectedCards;
+        RefreshToggleText(_noRepeatCheck);
         _skipDeckCheck.ButtonPressed = state.BlankGeneratedCardSkipsDeck;
+        RefreshToggleText(_skipDeckCheck);
         SelectById(_cardRestrictionOption, state.CardRestriction);
+        _treasureRoomRelicDrawingCheck.ButtonPressed = state.TreasureRoomRelicDrawingEnabled;
+        RefreshToggleText(_treasureRoomRelicDrawingCheck);
     }
 
     private void Apply()
@@ -259,11 +288,13 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         {
             DrawingRunRules.ApplyHostSettings(
                 _runState,
+                _gameplayEnabledToggle.ButtonPressed,
                 (InitialBlankMode)_initialBlankOption.GetSelectedId(),
                 _drawingTimeOption.GetSelectedId(),
                 _noRepeatCheck.ButtonPressed,
                 _skipDeckCheck.ButtonPressed,
-                (DrawingCardRestriction)_cardRestrictionOption.GetSelectedId());
+                (DrawingCardRestriction)_cardRestrictionOption.GetSelectedId(),
+                _treasureRoomRelicDrawingCheck.ButtonPressed);
             _onApplied?.Invoke();
             Close();
         }
@@ -272,6 +303,18 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
             Entry.Logger.Error($"[DrawAndGuessMod] Failed to apply Neow drawing settings: {ex}");
             _statusLabel.Text = Text("应用失败：", "Failed to apply: ") + ex.Message;
         }
+    }
+
+    private void RefreshGameplayToggleText()
+    {
+        RefreshToggleText(_gameplayEnabledToggle);
+    }
+
+    private static void RefreshToggleText(CheckButton toggle)
+    {
+        toggle.Text = toggle.ButtonPressed
+            ? Text("开启", "Enabled")
+            : Text("关闭", "Disabled");
     }
 
     private void StartPrecache()
@@ -357,6 +400,18 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         option.AddThemeFontSizeOverride("font_size", 21);
         ApplyGameFont(option);
         return option;
+    }
+
+    private static CheckButton CreateToggle()
+    {
+        CheckButton toggle = new()
+        {
+            FocusMode = FocusModeEnum.All,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        toggle.AddThemeFontSizeOverride("font_size", 21);
+        ApplyGameFont(toggle);
+        return toggle;
     }
 
     private static void AddOption(OptionButton option, string text, int id)

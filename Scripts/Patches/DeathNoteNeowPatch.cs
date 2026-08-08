@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using DrawAndGuessMod.Scripts.Relics;
+using DrawAndGuessMod.Scripts.State;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Models;
@@ -59,6 +60,11 @@ internal static class DeathNoteNeowPatch
 
     private static bool CanOfferDeathNote(Neow neow)
     {
+        if (neow.Owner != null && !DrawingRunRules.IsGameplayEnabled(neow.Owner.RunState))
+        {
+            return false;
+        }
+
         if (neow.Owner == null)
         {
             return true;

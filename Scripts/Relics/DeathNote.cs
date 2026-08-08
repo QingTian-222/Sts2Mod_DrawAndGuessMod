@@ -26,6 +26,11 @@ public sealed class DeathNote : ModRelicTemplate
     public override RelicRarity Rarity => RelicRarity.Ancient;
     public override bool HasUponPickupEffect => true;
 
+    public override bool IsAllowed(IRunState runState)
+    {
+        return DrawingRunRules.IsGameplayEnabled(runState) && base.IsAllowed(runState);
+    }
+
     public override RelicAssetProfile AssetProfile => new(
         RelicIconPath,
         RelicIconPath,

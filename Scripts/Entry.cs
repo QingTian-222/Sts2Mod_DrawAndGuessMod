@@ -8,6 +8,7 @@ using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Config;
 using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
+using DrawAndGuessMod.Scripts.Patches;
 using DrawAndGuessMod.Scripts.RestSite;
 using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
@@ -57,6 +58,7 @@ public static class Entry
 
             _harmony = new Harmony("sts2.qingtian.drawandguessmod");
             _harmony.PatchAll(assembly);
+            NeowRunSettingsPatch.RegisterGameplayOptionReplacement();
 
             RunManager.Instance.RunStarted -= OnRunStarted;
             RunManager.Instance.RunStarted += OnRunStarted;

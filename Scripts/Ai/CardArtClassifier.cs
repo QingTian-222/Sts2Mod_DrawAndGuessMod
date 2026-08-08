@@ -369,6 +369,18 @@ internal static class CardArtClassifier
             .ToList();
     }
 
+    public static bool IsCandidate(CardModel card, Player owner, GuessCandidateScope candidateScope = GuessCandidateScope.Default, IReadOnlySet<ModelId>? excludedCardIds = null)
+    {
+        EnsureTrained();
+        if (excludedCardIds?.Contains(card.Id) == true)
+        {
+            return false;
+        }
+
+        return FilterCandidates(owner, candidateScope)
+            .Any(sample => sample.Card.Id == card.Id);
+    }
+
     private static async Task YieldProcessFrame()
     {
         if (Engine.GetMainLoop() is SceneTree tree)

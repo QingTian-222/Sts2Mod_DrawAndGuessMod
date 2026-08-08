@@ -9,6 +9,7 @@ using DrawAndGuessMod.Scripts.Networking;
 using DrawAndGuessMod.Scripts.State;
 using Godot;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Characters;
@@ -46,6 +47,10 @@ public partial class DrawingScreen : Control
         "res://images/atlases/relic_atlas.sprites/pen_nib.tres";
     private const string InkBottleIconPath =
         "res://images/atlases/relic_atlas.sprites/ink_bottle.tres";
+    private const string EnfeeblingTouchPowerIconPath =
+        "res://images/atlases/power_atlas.sprites/enfeebling_touch_power.tres";
+    private const string VigorPowerIconPath =
+        "res://images/atlases/power_atlas.sprites/vigor_power.tres";
     private static DrawingScreen? _active;
     private readonly TaskCompletionSource<DrawingResult?> _completion = new();
     private readonly TaskCompletionSource<RelicDrawingResult?> _relicCompletion =
@@ -89,7 +94,7 @@ public partial class DrawingScreen : Control
     private Button _peekButton = null!;
     private EyeIconControl _peekIcon = null!;
     private Button _canvasModeButton = null!;
-    private CanvasModeIconControl _canvasModeIcon = null!;
+    private CanvasModeIconControl? _canvasModeIcon;
     private Control _peekBackdrop = null!;
     private Control _peekPanelContainer = null!;
     private Control _colorPickerOverlay = null!;
@@ -136,16 +141,15 @@ public partial class DrawingScreen : Control
     private Control? _relicWaitingOverlay;
     private bool _editingRelicWorkTitle;
     private bool _relicDrawingConfirmed;
-    private LineEdit? _tracingSearch;
-    private VBoxContainer? _tracingResults;
-    private ScrollContainer? _tracingResultsScroll;
     private TextureRect? _tracingReference;
     private Image? _tracingReferenceImage;
     private ImageTexture? _tracingReferenceTexture;
     private Control? _tracingPanel;
-    private IReadOnlyList<CardModel> _searchableCards = [];
-    private bool _tracingSearchPreparing;
-    private bool _tracingSearchPrepared;
+    private Button? _tracingChangeButton;
+    private Label? _tracingCandidateWarning;
+    private CardModel? _tracingSelectedCard;
+    private bool _tracingLibraryOpen;
+    private int _tracingSelectionVersion;
 
     public static Task<DrawingResult?> ShowAsync(Player owner, uint sessionId, DrawingScreenOptions? options = null, double? defaultTimeLimitSeconds = null, bool isRegularBlank = false)
     {
@@ -414,19 +418,12 @@ public partial class DrawingScreen : Control
 
     public override void _Input(InputEvent @event)
     {
-        if (_peeking)
+        if (_peeking || _tracingLibraryOpen)
         {
             return;
         }
 
         if (IsEditingRelicWorkTitle())
-        {
-            return;
-        }
-
-        // While the tracing search box is being edited, let its LineEdit consume
-        // G / Ctrl+Z / Ctrl+Y / wheel instead of the drawing shortcuts.
-        if (_tracingSearch != null && _tracingSearch.HasFocus())
         {
             return;
         }
@@ -444,8 +441,7 @@ public partial class DrawingScreen : Control
 
         if (@event is InputEventMouseButton { Pressed: true } wheel &&
             wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown &&
-            !_finishing &&
-            !IsPointerOverTracingResults())
+            !_finishing)
         {
             double direction = wheel.ButtonIndex == MouseButton.WheelUp ? 1d : -1d;
             _sizeSlider.Value = Math.Clamp(
@@ -630,7 +626,7 @@ public partial class DrawingScreen : Control
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        canvasRow.AddThemeConstantOverride("separation", 12);
+        canvasRow.AddThemeConstantOverride("separation", _relicTarget != null ? 44 : 12);
         column.AddChild(canvasRow);
 
         _canvas = new DrawingCanvas();
@@ -765,15 +761,21 @@ public partial class DrawingScreen : Control
         tools.AddChild(drawingTools);
 
         ButtonGroup drawingToolGroup = new() { AllowUnpress = true };
+        string brushIconPath = _relicTarget != null
+            ? EnfeeblingTouchPowerIconPath
+            : PenNibIconPath;
+        string fillIconPath = _relicTarget != null
+            ? VigorPowerIconPath
+            : InkBottleIconPath;
         _brushToolButton = CreateDrawingToolButton(
-            ResourceLoader.Load<Texture2D>(PenNibIconPath, null, ResourceLoader.CacheMode.Reuse),
+            ResourceLoader.Load<Texture2D>(brushIconPath, null, ResourceLoader.CacheMode.Reuse),
             Localized("画笔", "Brush"),
             Localized(
                 "使用左键或右键颜色绘制",
                 "Draw with the left or right mouse button color"),
             drawingToolGroup);
         _fillToolButton = CreateDrawingToolButton(
-            ResourceLoader.Load<Texture2D>(InkBottleIconPath, null, ResourceLoader.CacheMode.Reuse),
+            ResourceLoader.Load<Texture2D>(fillIconPath, null, ResourceLoader.CacheMode.Reuse),
             Localized("填充", "Fill"),
             Localized(
                 "快捷键：按住 G 临时切换，松开回到画笔\n",
@@ -842,6 +844,19 @@ public partial class DrawingScreen : Control
             }
         };
         sizeRow.AddChild(_sizeSlider);
+        if (_relicTarget != null)
+        {
+            Button outlineButton = CreateActionButton(
+                Localized("一键描边", "Auto Outline"),
+                new Color("24262C"),
+                new Color("969BA6"));
+            outlineButton.CustomMinimumSize = new Vector2(108f, 36f);
+            outlineButton.TooltipText = Localized(
+                "在画作外侧添加一圈半透明黑色描边，可撤销",
+                "Add a semi-transparent black outline around the artwork; this can be undone");
+            outlineButton.Pressed += _canvas.AddRelicOutline;
+            sizeRow.AddChild(outlineButton);
+        }
 
         HBoxContainer stampRow = new()
         {
@@ -952,10 +967,17 @@ public partial class DrawingScreen : Control
         }
 
         AddPeekButton(backdrop, center);
-        AddCanvasModeButton();
-        if (!_historyEdit && _relicTarget == null && DrawAndGuessSettings.TracingEnabled)
+        if (TracingReferenceEnabled)
         {
             BuildTracingPanel();
+        }
+        else
+        {
+            AddCanvasModeButton();
+            if (_relicTarget != null)
+            {
+                _canvasModeButton.Visible = false;
+            }
         }
 
         BuildColorPickerOverlay();
@@ -1077,6 +1099,11 @@ public partial class DrawingScreen : Control
         RefreshCanvasModeButton();
     }
 
+    private bool TracingReferenceEnabled =>
+        !_historyEdit &&
+        _relicTarget == null &&
+        DrawAndGuessSettings.TracingEnabled;
+
     private static StyleBoxFlat CreatePeekButtonStyle(Color fill, Color border)
     {
         return new StyleBoxFlat
@@ -1110,7 +1137,10 @@ public partial class DrawingScreen : Control
         _peeking = peeking;
         MouseFilter = peeking ? MouseFilterEnum.Ignore : MouseFilterEnum.Stop;
         _peekButton.MouseFilter = MouseFilterEnum.Stop;
-        _canvasModeButton.Visible = !peeking;
+        if (!TracingReferenceEnabled)
+        {
+            _canvasModeButton.Visible = _relicTarget == null && !peeking;
+        }
         _peekBackdrop.Visible = !peeking;
         _peekPanelContainer.Visible = !peeking;
         if (_tracingPanel != null)
@@ -1126,18 +1156,26 @@ public partial class DrawingScreen : Control
 
     private void SwitchCanvasMode()
     {
+        DrawingCanvasMode nextMode = _canvasMode == DrawingCanvasMode.Standard
+            ? DrawingCanvasMode.Ancient
+            : DrawingCanvasMode.Standard;
+        SetCanvasModeAuthoritatively(nextMode);
+    }
+
+    private bool SetCanvasModeAuthoritatively(DrawingCanvasMode mode)
+    {
         if (_finishing ||
             !_isChooser ||
             _options?.AllowCanvasModeSwitch == false ||
-            _canvasModeLocked)
+            _canvasModeLocked ||
+            mode == DrawingCanvasMode.Relic ||
+            mode == _canvasMode)
         {
-            return;
+            return false;
         }
 
         FlushCommands();
-        _canvasMode = _canvasMode == DrawingCanvasMode.Standard
-            ? DrawingCanvasMode.Ancient
-            : DrawingCanvasMode.Standard;
+        _canvasMode = mode;
         _canvas.SetCanvasMode(_canvasMode);
         ResetDrawingHistory();
         AdvanceHistoryEpoch();
@@ -1147,6 +1185,7 @@ public partial class DrawingScreen : Control
         Entry.Logger.Info(
             $"[DrawAndGuessMod] Switched drawing canvas mode to {_canvasMode}: " +
             $"owner={_owner.NetId}, session={_sessionId}, epoch={_historyEpoch}.");
+        return true;
     }
 
     private void RefreshCanvasModeButton()
@@ -1156,13 +1195,23 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        if (TracingReferenceEnabled)
+        {
+            _canvasModeButton.Disabled = _finishing || _tracingLibraryOpen;
+            _canvasModeButton.TooltipText = Localized(
+                "选择参考卡牌",
+                "Choose a reference card");
+            UpdateTracingPanelLayout();
+            return;
+        }
+
         bool switchAllowed = _isChooser &&
                              _options?.AllowCanvasModeSwitch != false &&
                              !_canvasModeLocked &&
                              !_finishing;
         _canvasModeButton.Disabled = !switchAllowed;
         _canvasModeButton.TooltipText = Localized("切换画布", "Switch canvas");
-        _canvasModeIcon.SetMode(_canvasMode, !switchAllowed);
+        _canvasModeIcon?.SetMode(_canvasMode, !switchAllowed);
     }
 
     private void AnimatePeekButton()
@@ -1247,15 +1296,11 @@ public partial class DrawingScreen : Control
             }
 
             byte[] png = _canvas.ExportPng();
-            IReadOnlySet<ModelId>? excludedCardIds =
-                _isRegularBlank && _excludePreviouslySelectedBlankCards
-                    ? BlankSelectionStore.GetSelectedCardIds(_owner.RunState)
-                    : null;
             CardGuess guess = CardArtClassifier.Guess(
                 _canvas.Snapshot(),
                 _owner,
                 _options?.CandidateScope ?? GuessCandidateScope.Default,
-                excludedCardIds);
+                GetExcludedCandidateCardIds());
             bool skipAddingToDeck = DrawingRunRules.GetBlankGeneratedCardSkipsDeck(_owner.RunState);
             _status.Text = "";
             FlushCommands();
@@ -2708,7 +2753,7 @@ public partial class DrawingScreen : Control
         bool locked = command.Kind switch
         {
             DrawingCommandKind.Clear => false,
-            DrawingCommandKind.Line or DrawingCommandKind.Fill or DrawingCommandKind.Stamp => true,
+            DrawingCommandKind.Line or DrawingCommandKind.Fill or DrawingCommandKind.Stamp or DrawingCommandKind.Outline => true,
             _ => _canvasModeLocked
         };
         if (locked == _canvasModeLocked)
@@ -3172,224 +3217,160 @@ public partial class DrawingScreen : Control
         }
     }
 
-    /// <summary>
-    /// Builds the tracing reference panel as a transparent floating overlay
-    /// anchored to the right edge of the screen, so the original drawing layout
-    /// (canvas row, palette, tools) and the canvas-mode toggle are left untouched.
-    /// </summary>
     private void BuildTracingPanel()
     {
-        VBoxContainer panel = new()
+        Control panel = new()
         {
             Name = "TracingPanel",
             ZIndex = 10,
             MouseFilter = MouseFilterEnum.Pass
         };
-        panel.SetAnchorsPreset(LayoutPreset.CenterRight);
-        panel.OffsetLeft = -252f;
-        panel.OffsetRight = -12f;
-        panel.OffsetTop = -230f;
-        panel.OffsetBottom = 230f;
+        panel.SetAnchorsPreset(LayoutPreset.Center);
         AddChild(panel);
         _tracingPanel = panel;
-        panel.AddThemeConstantOverride("separation", 8);
 
-        _tracingSearch = new LineEdit
+        _canvasModeButton = new Button
         {
-            PlaceholderText = Localized("搜索卡牌…", "Search cards..."),
-            TooltipText = Localized(
-                "输入卡牌名或 ID 进行搜索，选择一张卡牌作为临摹参考。",
-                "Type a card name or ID to search; pick a card to use as a tracing reference."),
-            CustomMinimumSize = new Vector2(0f, 34f)
+            Name = "TracingReferenceAddButton",
+            Text = "+",
+            TooltipText = Localized("选择参考卡牌", "Choose a reference card"),
+            FocusMode = FocusModeEnum.None,
+            MouseFilter = MouseFilterEnum.Stop
         };
-        _tracingSearch.TextChanged += OnTracingSearchTextChanged;
-        panel.AddChild(_tracingSearch);
-
-        ScrollContainer resultsScroll = new()
-        {
-            CustomMinimumSize = new Vector2(240f, 60f),
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            SizeFlagsVertical = SizeFlags.ExpandFill,
-            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
-            VerticalScrollMode = ScrollContainer.ScrollMode.Auto
-        };
-        panel.AddChild(resultsScroll);
-        _tracingResultsScroll = resultsScroll;
-        _tracingResults = new VBoxContainer
-        {
-            CustomMinimumSize = new Vector2(240f, 0f),
-            SizeFlagsHorizontal = SizeFlags.ExpandFill
-        };
-        _tracingResults.AddThemeConstantOverride("separation", 2);
-        _tracingResults.Visible = false;
-        resultsScroll.AddChild(_tracingResults);
+        _canvasModeButton.AddThemeFontSizeOverride("font_size", 34);
+        _canvasModeButton.AddThemeStyleboxOverride("normal", CreatePeekButtonStyle(new Color("171C24"), new Color("768393")));
+        _canvasModeButton.AddThemeStyleboxOverride("hover", CreatePeekButtonStyle(new Color("22303A"), new Color("8EE9E0")));
+        _canvasModeButton.AddThemeStyleboxOverride("pressed", CreatePeekButtonStyle(new Color("10272A"), new Color("75F0E6")));
+        _canvasModeButton.AddThemeStyleboxOverride("disabled", CreatePeekButtonStyle(new Color("11151B"), new Color("46505B")));
+        _canvasModeButton.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+        _canvasModeButton.Pressed += OpenTracingCardLibrary;
+        panel.AddChild(_canvasModeButton);
 
         _tracingReference = new TextureRect
         {
             Visible = false,
-            CustomMinimumSize = new Vector2(0f, 200f),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             MouseFilter = MouseFilterEnum.Stop,
             TooltipText = Localized(
-                "点击参考图取色：左键设为左键颜色，右键设为右键颜色",
-                "Click the reference to sample its colors: LMB sets the left color, RMB sets the right color")
+                "鼠标中键点击参考图取色，并设为左键颜色",
+                "Middle-click the reference to sample a color for LMB")
         };
         _tracingReference.GuiInput += OnTracingReferenceInput;
         panel.AddChild(_tracingReference);
 
-        Label hint = new()
+        _tracingChangeButton = CreateActionButton(
+            Localized("更换", "Change"),
+            new Color("253D58"),
+            new Color("79BCE8"));
+        _tracingChangeButton.Visible = false;
+        _tracingChangeButton.Pressed += OpenTracingCardLibrary;
+        panel.AddChild(_tracingChangeButton);
+
+        _tracingCandidateWarning = new Label
         {
-            Text = Localized(
-                "点击参考图可直接取色。",
-                "Click the reference art to sample its colors."),
+            Visible = false,
             HorizontalAlignment = HorizontalAlignment.Center,
-            AutowrapMode = TextServer.AutowrapMode.WordSmart
+            VerticalAlignment = VerticalAlignment.Top,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            MouseFilter = MouseFilterEnum.Ignore
         };
-        panel.AddChild(hint);
+        _tracingCandidateWarning.AddThemeFontSizeOverride("font_size", 13);
+        _tracingCandidateWarning.AddThemeColorOverride("font_color", new Color("F4C95D"));
+        _tracingCandidateWarning.AddThemeColorOverride("font_outline_color", new Color("101820"));
+        _tracingCandidateWarning.AddThemeConstantOverride("outline_size", 3);
+        panel.AddChild(_tracingCandidateWarning);
+
+        RefreshCanvasModeButton();
     }
 
-    private void OnTracingSearchTextChanged(string query)
+    private void UpdateTracingPanelLayout()
     {
-        if (_tracingResults == null)
+        if (_tracingPanel == null ||
+            _tracingReference == null ||
+            _tracingChangeButton == null ||
+            _tracingCandidateWarning == null)
         {
             return;
         }
 
-        foreach (Node child in _tracingResults.GetChildren())
-        {
-            _tracingResults.RemoveChild(child);
-            child.QueueFree();
-        }
+        Vector2 referenceSize = DrawingCanvas.GetCanvasDisplaySize(_canvasMode) * 0.5f;
+        const float originalButtonCenterX = 484f;
+        float panelLeft = originalButtonCenterX - referenceSize.X * 0.5f;
+        float panelTop = -referenceSize.Y * 0.5f;
+        _tracingPanel.OffsetLeft = panelLeft;
+        _tracingPanel.OffsetRight = panelLeft + referenceSize.X;
+        _tracingPanel.OffsetTop = panelTop;
+        _tracingPanel.OffsetBottom = panelTop + referenceSize.Y + 126f;
 
-        string normalized = query.Trim();
-        if (normalized.Length == 0)
-        {
-            _tracingResults.Visible = false;
-            return;
-        }
+        _tracingReference.OffsetLeft = 0f;
+        _tracingReference.OffsetTop = 0f;
+        _tracingReference.OffsetRight = referenceSize.X;
+        _tracingReference.OffsetBottom = referenceSize.Y;
 
-        if (!_tracingSearchPrepared)
-        {
-            StartPreparingTracingSearch();
-            return;
-        }
+        float buttonLeft = (referenceSize.X - 64f) * 0.5f;
+        float buttonTop = (referenceSize.Y - 64f) * 0.5f;
+        _canvasModeButton.OffsetLeft = buttonLeft;
+        _canvasModeButton.OffsetTop = buttonTop;
+        _canvasModeButton.OffsetRight = buttonLeft + 64f;
+        _canvasModeButton.OffsetBottom = buttonTop + 64f;
 
-        int shown = 0;
-        foreach (CardModel card in _searchableCards)
-        {
-            string title;
-            try
-            {
-                title = card.Title;
-            }
-            catch
-            {
-                title = string.Empty;
-            }
+        float changeWidth = Math.Min(140f, referenceSize.X);
+        float changeLeft = (referenceSize.X - changeWidth) * 0.5f;
+        _tracingChangeButton.OffsetLeft = changeLeft;
+        _tracingChangeButton.OffsetTop = referenceSize.Y + 8f;
+        _tracingChangeButton.OffsetRight = changeLeft + changeWidth;
+        _tracingChangeButton.OffsetBottom = referenceSize.Y + 42f;
 
-            if (string.IsNullOrWhiteSpace(title))
-            {
-                title = card.Id.Entry;
-            }
-
-            bool matches = title.Contains(normalized, StringComparison.OrdinalIgnoreCase) ||
-                           card.Id.Entry.Contains(normalized, StringComparison.OrdinalIgnoreCase);
-            if (!matches)
-            {
-                continue;
-            }
-
-            CardModel captured = card;
-            Button result = new()
-            {
-                Text = title,
-                TooltipText = $"{title}  ({card.Id.Entry})",
-                ClipText = true,
-                FocusMode = FocusModeEnum.None,
-                SizeFlagsHorizontal = SizeFlags.ExpandFill,
-                CustomMinimumSize = new Vector2(240f, 34f)
-            };
-            result.AddThemeFontSizeOverride("font_size", 14);
-            result.AddThemeColorOverride("font_color", Colors.White);
-            result.AddThemeColorOverride("font_hover_color", Colors.White);
-            result.AddThemeColorOverride("font_pressed_color", Colors.White);
-            result.AddThemeColorOverride("font_outline_color", new Color("101820"));
-            result.AddThemeConstantOverride("outline_size", 2);
-            result.AddThemeStyleboxOverride("normal", CreateTracingSearchResultStyle("263545D9"));
-            result.AddThemeStyleboxOverride("hover", CreateTracingSearchResultStyle("3D5870F2"));
-            result.AddThemeStyleboxOverride("pressed", CreateTracingSearchResultStyle("1A2734F2"));
-            result.Pressed += () => SelectTracingCard(captured);
-            _tracingResults.AddChild(result);
-            shown++;
-            if (shown >= 50)
-            {
-                break;
-            }
-        }
-
-        _tracingResults.Visible = shown > 0;
+        _tracingCandidateWarning.OffsetLeft = -24f;
+        _tracingCandidateWarning.OffsetTop = referenceSize.Y + 48f;
+        _tracingCandidateWarning.OffsetRight = referenceSize.X + 24f;
+        _tracingCandidateWarning.OffsetBottom = referenceSize.Y + 122f;
     }
 
-    private bool IsPointerOverTracingResults()
+    private IReadOnlySet<ModelId>? GetExcludedCandidateCardIds()
     {
-        return _tracingResultsScroll != null &&
-               _tracingResultsScroll.Visible &&
-               _tracingResultsScroll.GetGlobalRect().HasPoint(GetGlobalMousePosition());
+        return _isRegularBlank && _excludePreviouslySelectedBlankCards
+            ? BlankSelectionStore.GetSelectedCardIds(_owner.RunState)
+            : null;
     }
 
-    private void StartPreparingTracingSearch()
+    private void OpenTracingCardLibrary()
     {
-        if (_tracingSearchPreparing)
+        if (_tracingLibraryOpen || _finishing || _peeking)
         {
             return;
         }
 
-        _tracingSearchPreparing = true;
-        _status.Text = Localized(
-            "正在准备临摹卡牌列表…",
-            "Preparing tracing card list...");
-        _ = PrepareTracingSearchAsync();
+        _ = OpenTracingCardLibraryAsync();
     }
 
-    private async Task PrepareTracingSearchAsync()
+    private async Task OpenTracingCardLibraryAsync()
     {
+        _tracingLibraryOpen = true;
+        RefreshCanvasModeButton();
         try
         {
-            await CardArtClassifier.EnsureTrainedAsync();
-            if (!GodotObject.IsInstanceValid(this) || _finishing)
+            CardModel? selected = await TracingCardLibrarySelector.SelectAsync(this, _owner);
+            if (selected != null &&
+                GodotObject.IsInstanceValid(this) &&
+                !_finishing)
             {
-                return;
+                SelectTracingCard(selected);
             }
-
-            _searchableCards = CardArtClassifier.GetChallengeCandidates(_owner);
-            _tracingSearchPrepared = true;
-            OnTracingSearchTextChanged(_tracingSearch?.Text ?? string.Empty);
         }
         catch (Exception ex)
         {
-            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to build the tracing search pool: {ex}");
-            _searchableCards = [];
-            _tracingSearchPrepared = true;
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to open the tracing card library: {ex}");
         }
         finally
         {
-            _tracingSearchPreparing = false;
+            if (GodotObject.IsInstanceValid(this))
+            {
+                _tracingLibraryOpen = false;
+                RefreshCanvasModeButton();
+            }
         }
-    }
-
-    private static StyleBoxFlat CreateTracingSearchResultStyle(string color)
-    {
-        return new StyleBoxFlat
-        {
-            BgColor = new Color(color),
-            CornerRadiusTopLeft = 4,
-            CornerRadiusTopRight = 4,
-            CornerRadiusBottomLeft = 4,
-            CornerRadiusBottomRight = 4,
-            ContentMarginLeft = 8,
-            ContentMarginRight = 8
-        };
     }
 
     private void SelectTracingCard(CardModel card)
@@ -3406,18 +3387,67 @@ public partial class DrawingScreen : Control
             return;
         }
 
+        DrawingCanvasMode referenceMode = card.Rarity == CardRarity.Ancient
+            ? DrawingCanvasMode.Ancient
+            : DrawingCanvasMode.Standard;
+        if (_canvas.IsBlank())
+        {
+            SetCanvasModeAuthoritatively(referenceMode);
+        }
+
         _tracingReferenceImage = displayImage;
         _tracingReferenceTexture = displayTexture;
+        _tracingSelectedCard = card;
         _tracingReference.Texture = _tracingReferenceTexture;
         _tracingReference.Visible = true;
+        _canvasModeButton.Visible = false;
+        if (_tracingChangeButton != null)
+        {
+            _tracingChangeButton.Visible = true;
+        }
         _tracingReference.TooltipText = Localized(
                 $"参考卡牌：{card.Title}",
                 $"Reference: {card.Title}") +
             "\n" + Localized(
-                "左键取色为左色，右键取色为右色",
-                "LMB samples the left color, RMB samples the right color");
-        _tracingResults!.Visible = false;
-        _tracingSearch?.ReleaseFocus();
+                "鼠标中键取色，并设为左键颜色",
+                "Middle-click to sample a color for LMB");
+        _ = RefreshTracingCandidateWarningAsync(card, ++_tracingSelectionVersion);
+    }
+
+    private async Task RefreshTracingCandidateWarningAsync(CardModel card, int selectionVersion)
+    {
+        if (_tracingCandidateWarning == null)
+        {
+            return;
+        }
+
+        _tracingCandidateWarning.Visible = false;
+        try
+        {
+            await CardArtClassifier.EnsureTrainedAsync();
+            if (!GodotObject.IsInstanceValid(this) ||
+                _finishing ||
+                selectionVersion != _tracingSelectionVersion ||
+                _tracingSelectedCard?.Id != card.Id)
+            {
+                return;
+            }
+
+            bool isCandidate = CardArtClassifier.IsCandidate(
+                card,
+                _owner,
+                _options?.CandidateScope ?? GuessCandidateScope.Default,
+                GetExcludedCandidateCardIds());
+            _tracingCandidateWarning.Text = Localized(
+                $"“{card.Title}”不在当前候选池中，瓦库不会猜到它。",
+                $"“{card.Title}” is outside the current candidate pool, so VAKUU cannot guess it.");
+            _tracingCandidateWarning.Visible = !isCandidate;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Failed to check tracing candidate {card.Id.Entry}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -3472,7 +3502,7 @@ public partial class DrawingScreen : Control
         if (_tracingReferenceImage == null ||
             _tracingReference == null ||
             @event is not InputEventMouseButton { Pressed: true } button ||
-            (button.ButtonIndex != MouseButton.Left && button.ButtonIndex != MouseButton.Right))
+            button.ButtonIndex != MouseButton.Middle)
         {
             return;
         }
@@ -3489,21 +3519,18 @@ public partial class DrawingScreen : Control
             return;
         }
         picked.A = 1f;
-        if (button.ButtonIndex == MouseButton.Right)
-        {
-            SelectRightColor(picked);
-        }
-        else
-        {
-            SelectColor(picked);
-        }
+        SelectColor(picked);
 
         _tracingReference.AcceptEvent();
     }
 
     private Color? SampleTracingReference(Vector2 localPosition, Vector2 controlSize)
     {
-        Image image = _tracingReferenceImage!;
+        return SampleReferenceImage(_tracingReferenceImage!, localPosition, controlSize);
+    }
+
+    private static Color? SampleReferenceImage(Image image, Vector2 localPosition, Vector2 controlSize)
+    {
         int imageWidth = image.GetWidth();
         int imageHeight = image.GetHeight();
         if (imageWidth <= 0 || imageHeight <= 0)
@@ -3546,20 +3573,63 @@ public partial class DrawingScreen : Control
         Label targetLabel = new()
         {
             Text = Localized(
-                $"题目参考：{_relicTarget.Title.GetFormattedText()}",
-                $"Target Reference: {_relicTarget.Title.GetFormattedText()}"),
+                "参考图配色已提取至下方",
+                "Reference colors are available below"),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
         references.AddChild(targetLabel);
+
+        Control imageStack = new()
+        {
+            CustomMinimumSize = new Vector2(190f, 190f),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            MouseFilter = MouseFilterEnum.Ignore
+        };
+        references.AddChild(imageStack);
+
+        Texture2D relicTexture = _relicTarget.BigIcon;
+        Image? paletteImage = null;
+        try
+        {
+            Image source = relicTexture.GetImage();
+            if (TryCreateTracingReference(
+                    source,
+                    out Image displayImage,
+                    out ImageTexture displayTexture))
+            {
+                paletteImage = displayImage;
+                relicTexture = displayTexture;
+            }
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Debug(
+                $"[DrawAndGuessMod] Failed to prepare relic reference sampling for {_relicTarget.Id.Entry}: {ex.Message}");
+        }
+
+        if (paletteImage != null)
+        {
+            IReadOnlyList<Color> extractedColors = ExtractDominantColors(
+                paletteImage,
+                CustomColorCapacity);
+            if (extractedColors.Count > 0)
+            {
+                _customColors.Clear();
+                _customColors.AddRange(extractedColors);
+            }
+        }
+
         _relicTargetImage = new TextureRect
         {
-            Texture = _relicTarget.BigIcon,
-            CustomMinimumSize = new Vector2(190f, 190f),
+            Texture = relicTexture,
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Ignore
         };
-        references.AddChild(_relicTargetImage);
+        _relicTargetImage.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        imageStack.AddChild(_relicTargetImage);
 
         _relicMatchFillStyle = CreateTimerBarStyle(
             new Color("F05A55"),
@@ -3572,6 +3642,7 @@ public partial class DrawingScreen : Control
             Value = 0d,
             ShowPercentage = false,
             CustomMinimumSize = new Vector2(190f, 14f),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
             MouseFilter = MouseFilterEnum.Ignore
         };
         _relicMatchBar.AddThemeStyleboxOverride(
@@ -3589,6 +3660,172 @@ public partial class DrawingScreen : Control
             3f);
         _relicMatchBar.AddChild(thresholdMarker);
     }
+
+    private static IReadOnlyList<Color> ExtractDominantColors(Image image, int maxColors)
+    {
+        if (image.IsEmpty() || maxColors <= 0)
+        {
+            return [];
+        }
+
+        int width = image.GetWidth();
+        int height = image.GetHeight();
+        const int pixelBudget = 32768;
+        int sampleStride = Math.Max(
+            1,
+            (int)Math.Ceiling(Math.Sqrt((double)width * height / pixelBudget)));
+        Dictionary<int, (double SumR, double SumG, double SumB, double Weight)> histogram = new();
+        for (int y = 0; y < height; y += sampleStride)
+        {
+            for (int x = 0; x < width; x += sampleStride)
+            {
+                Color pixel = image.GetPixel(x, y);
+                if (pixel.A < 0.08f)
+                {
+                    continue;
+                }
+                if (Math.Max(pixel.R, Math.Max(pixel.G, pixel.B)) <= 0.08f)
+                {
+                    continue;
+                }
+
+                int redBucket = Mathf.Clamp(Mathf.RoundToInt(pixel.R * 31f), 0, 31);
+                int greenBucket = Mathf.Clamp(Mathf.RoundToInt(pixel.G * 31f), 0, 31);
+                int blueBucket = Mathf.Clamp(Mathf.RoundToInt(pixel.B * 31f), 0, 31);
+                int key = redBucket << 10 | greenBucket << 5 | blueBucket;
+                double weight = pixel.A;
+                histogram.TryGetValue(key, out var bucket);
+                histogram[key] = (
+                    bucket.SumR + pixel.R * weight,
+                    bucket.SumG + pixel.G * weight,
+                    bucket.SumB + pixel.B * weight,
+                    bucket.Weight + weight);
+            }
+        }
+
+        List<WeightedPaletteColor> samples = histogram.Values
+            .Where(bucket => bucket.Weight > 0d)
+            .Select(bucket => new WeightedPaletteColor(
+                new Color(
+                    (float)(bucket.SumR / bucket.Weight),
+                    (float)(bucket.SumG / bucket.Weight),
+                    (float)(bucket.SumB / bucket.Weight),
+                    1f),
+                bucket.Weight))
+            .OrderByDescending(sample => sample.Weight)
+            .ToList();
+        if (samples.Count == 0)
+        {
+            return [];
+        }
+
+        int clusterCount = Math.Min(maxColors, samples.Count);
+        List<Color> centers = [samples[0].Color];
+        while (centers.Count < clusterCount)
+        {
+            WeightedPaletteColor? next = null;
+            double bestScore = -1d;
+            foreach (WeightedPaletteColor sample in samples)
+            {
+                double nearestDistance = centers.Min(center =>
+                    PaletteColorDistance(sample.Color, center));
+                double score = nearestDistance * sample.Weight;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    next = sample;
+                }
+            }
+
+            if (next == null || bestScore <= 0d)
+            {
+                break;
+            }
+            centers.Add(next.Value.Color);
+        }
+
+        double[] clusterWeights = new double[centers.Count];
+        for (int iteration = 0; iteration < 12; iteration++)
+        {
+            double[] sumR = new double[centers.Count];
+            double[] sumG = new double[centers.Count];
+            double[] sumB = new double[centers.Count];
+            Array.Clear(clusterWeights);
+            foreach (WeightedPaletteColor sample in samples)
+            {
+                int cluster = FindNearestPaletteCenter(sample.Color, centers);
+                clusterWeights[cluster] += sample.Weight;
+                sumR[cluster] += sample.Color.R * sample.Weight;
+                sumG[cluster] += sample.Color.G * sample.Weight;
+                sumB[cluster] += sample.Color.B * sample.Weight;
+            }
+
+            double largestShift = 0d;
+            for (int cluster = 0; cluster < centers.Count; cluster++)
+            {
+                if (clusterWeights[cluster] <= 0d)
+                {
+                    continue;
+                }
+
+                Color updated = new(
+                    (float)(sumR[cluster] / clusterWeights[cluster]),
+                    (float)(sumG[cluster] / clusterWeights[cluster]),
+                    (float)(sumB[cluster] / clusterWeights[cluster]),
+                    1f);
+                largestShift = Math.Max(
+                    largestShift,
+                    PaletteColorDistance(centers[cluster], updated));
+                centers[cluster] = updated;
+            }
+
+            if (largestShift < 0.000001d)
+            {
+                break;
+            }
+        }
+
+        Array.Clear(clusterWeights);
+        foreach (WeightedPaletteColor sample in samples)
+        {
+            int cluster = FindNearestPaletteCenter(sample.Color, centers);
+            clusterWeights[cluster] += sample.Weight;
+        }
+
+        return Enumerable.Range(0, centers.Count)
+            .Where(index => clusterWeights[index] > 0d)
+            .OrderByDescending(index => clusterWeights[index])
+            .Select(index => DrawingCommand.UnpackRgb(DrawingCommand.PackRgb(centers[index])))
+            .ToList();
+    }
+
+    private static int FindNearestPaletteCenter(Color color, IReadOnlyList<Color> centers)
+    {
+        int nearest = 0;
+        double nearestDistance = PaletteColorDistance(color, centers[0]);
+        for (int index = 1; index < centers.Count; index++)
+        {
+            double distance = PaletteColorDistance(color, centers[index]);
+            if (distance < nearestDistance)
+            {
+                nearest = index;
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
+    }
+
+    private static double PaletteColorDistance(Color first, Color second)
+    {
+        double deltaR = first.R - second.R;
+        double deltaG = first.G - second.G;
+        double deltaB = first.B - second.B;
+        return deltaR * deltaR * 0.2126d +
+               deltaG * deltaG * 0.7152d +
+               deltaB * deltaB * 0.0722d;
+    }
+
+    private readonly record struct WeightedPaletteColor(Color Color, double Weight);
 
     private static ColorRect CreateRelicMatchThresholdMarker(Color color, float width)
     {

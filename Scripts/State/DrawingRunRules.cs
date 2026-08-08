@@ -31,11 +31,13 @@ public enum DrawingCardRestriction
 public sealed class DrawingRunRuleState
 {
     public bool Configured { get; set; }
+    public bool GameplayEnabled { get; set; } = true;
     public int InitialBlankMode { get; set; }
     public int DrawingTimeLimitSeconds { get; set; }
     public bool ExcludePreviouslySelectedCards { get; set; }
     public bool BlankGeneratedCardSkipsDeck { get; set; }
     public int CardRestriction { get; set; }
+    public bool TreasureRoomRelicDrawingEnabled { get; set; } = true;
     public List<ulong> InitialBlankRecipients { get; set; } = new();
 }
 
@@ -49,6 +51,7 @@ internal static class DrawingRunRules
     private static RunSavedData<DrawingRunRuleState>? _savedData;
 
     public static event Action<RunState>? RulesChanged;
+    public static event Action<RunState, bool>? GameplayEnabledChanged;
 
     public static void Register()
     {
@@ -87,7 +90,7 @@ internal static class DrawingRunRules
             }
         }
 
-        return CreateDefaults();
+        return CreateDefaults(runState);
     }
 
     public static double? GetDrawingTimeLimitSeconds(IRunState runState)
@@ -99,6 +102,19 @@ internal static class DrawingRunRules
         }
 
         return DrawAndGuessSettings.DrawingTimeLimitSeconds;
+    }
+
+    public static bool IsGameplayEnabled(IRunState runState)
+    {
+        return runState is not RunState state ||
+               !IsConfigured(state) ||
+               GetSnapshot(state).GameplayEnabled;
+    }
+
+    public static bool IsGameplayEnabledForCurrentRun()
+    {
+        RunState? runState = RunManager.Instance?.DebugOnlyGetState();
+        return runState == null || IsGameplayEnabled(runState);
     }
 
     public static bool GetExcludePreviouslySelectedCards(IRunState runState)
@@ -127,24 +143,43 @@ internal static class DrawingRunRules
             : DrawingCardRestriction.None;
     }
 
+    public static bool GetTreasureRoomRelicDrawingEnabled(IRunState runState)
+    {
+        if (runState.Players.Count <= 1)
+        {
+            return false;
+        }
+
+        return runState is RunState state && IsConfigured(state)
+            ? GetSnapshot(state).TreasureRoomRelicDrawingEnabled
+            : DrawAndGuessSettings.TreasureRoomRelicDrawingEnabled;
+    }
+
     public static DrawingRunRuleState ApplyHostSettings(
         RunState runState,
+        bool gameplayEnabled,
         InitialBlankMode initialBlankMode,
         int drawingTimeLimitSeconds,
         bool excludePreviouslySelectedCards,
         bool blankGeneratedCardSkipsDeck,
-        DrawingCardRestriction cardRestriction)
+        DrawingCardRestriction cardRestriction,
+        bool treasureRoomRelicDrawingEnabled)
     {
         DrawingRunRuleState previous = GetSnapshot(runState);
-        List<ulong> recipients = ResolveRecipients(runState, initialBlankMode, previous);
+        InitialBlankMode effectiveInitialBlankMode = gameplayEnabled
+            ? initialBlankMode
+            : InitialBlankMode.None;
+        List<ulong> recipients = ResolveRecipients(runState, effectiveInitialBlankMode, previous);
         DrawingRunRuleState next = new()
         {
             Configured = true,
-            InitialBlankMode = (int)initialBlankMode,
+            GameplayEnabled = gameplayEnabled,
+            InitialBlankMode = (int)effectiveInitialBlankMode,
             DrawingTimeLimitSeconds = NormalizeDrawingTime(drawingTimeLimitSeconds),
             ExcludePreviouslySelectedCards = excludePreviouslySelectedCards,
             BlankGeneratedCardSkipsDeck = blankGeneratedCardSkipsDeck,
             CardRestriction = (int)cardRestriction,
+            TreasureRoomRelicDrawingEnabled = treasureRoomRelicDrawingEnabled,
             InitialBlankRecipients = recipients
         };
         ApplyState(runState, next);
@@ -154,14 +189,16 @@ internal static class DrawingRunRules
 
     public static DrawingRunRuleState ApplyHostDefaults(RunState runState)
     {
-        DrawingRunRuleState defaults = CreateDefaults();
+        DrawingRunRuleState defaults = CreateDefaults(runState);
         return ApplyHostSettings(
             runState,
+            defaults.GameplayEnabled,
             (InitialBlankMode)defaults.InitialBlankMode,
             defaults.DrawingTimeLimitSeconds,
             defaults.ExcludePreviouslySelectedCards,
             defaults.BlankGeneratedCardSkipsDeck,
-            (DrawingCardRestriction)defaults.CardRestriction);
+            (DrawingCardRestriction)defaults.CardRestriction,
+            defaults.TreasureRoomRelicDrawingEnabled);
     }
 
     public static void ApplySyncedSettings(RunState runState, DrawingRunRuleState state)
@@ -176,15 +213,26 @@ internal static class DrawingRunRules
             return;
         }
 
+        bool previousGameplayEnabled = IsGameplayEnabled(runState);
         DrawingRunRuleState snapshot = Sanitize(state);
+        if (runState.Players.Count <= 1)
+        {
+            snapshot.TreasureRoomRelicDrawingEnabled = false;
+        }
         _savedData.Set(runState, snapshot);
         ReconcileInitialBlanks(runState, snapshot.InitialBlankRecipients);
         RulesChanged?.Invoke(runState);
+        if (previousGameplayEnabled != snapshot.GameplayEnabled)
+        {
+            GameplayEnabledChanged?.Invoke(runState, snapshot.GameplayEnabled);
+        }
         Entry.Logger.Info(
-            $"[DrawAndGuessMod] Applied run drawing rules: blankMode={(InitialBlankMode)snapshot.InitialBlankMode}, " +
+            $"[DrawAndGuessMod] Applied run drawing rules: gameplay={snapshot.GameplayEnabled}, " +
+            $"blankMode={(InitialBlankMode)snapshot.InitialBlankMode}, " +
             $"recipients={string.Join(',', snapshot.InitialBlankRecipients)}, time={snapshot.DrawingTimeLimitSeconds}, " +
             $"noRepeat={snapshot.ExcludePreviouslySelectedCards}, skipDeck={snapshot.BlankGeneratedCardSkipsDeck}, " +
-            $"restriction={(DrawingCardRestriction)snapshot.CardRestriction}.");
+            $"restriction={(DrawingCardRestriction)snapshot.CardRestriction}, " +
+            $"treasureRelicDrawing={snapshot.TreasureRoomRelicDrawingEnabled}.");
     }
 
     private static List<ulong> ResolveRecipients(RunState runState, InitialBlankMode mode, DrawingRunRuleState previous)
@@ -238,19 +286,22 @@ internal static class DrawingRunRules
         }
     }
 
-    private static DrawingRunRuleState CreateDefaults()
+    private static DrawingRunRuleState CreateDefaults(RunState? runState = null)
     {
         double? configuredTime = DrawAndGuessSettings.DrawingTimeLimitSeconds;
         return new DrawingRunRuleState
         {
             Configured = false,
+            GameplayEnabled = true,
             InitialBlankMode = (int)InitialBlankMode.None,
             DrawingTimeLimitSeconds = NormalizeDrawingTime(configuredTime.HasValue ? (int)Math.Round(configuredTime.Value) : 0),
             ExcludePreviouslySelectedCards = DrawAndGuessSettings.ExcludePreviouslySelectedBlankCards,
             BlankGeneratedCardSkipsDeck = DrawAndGuessSettings.BlankGeneratedCardSkipsDeck,
             CardRestriction = DrawAndGuessSettings.CardPoolScope == GuessCardPoolScope.CurrentCharacter
                 ? (int)DrawingCardRestriction.CurrentCharacter
-                : (int)DrawingCardRestriction.None
+                : (int)DrawingCardRestriction.None,
+            TreasureRoomRelicDrawingEnabled = runState?.Players.Count > 1 &&
+                                                DrawAndGuessSettings.TreasureRoomRelicDrawingEnabled
         };
     }
 
@@ -259,11 +310,15 @@ internal static class DrawingRunRules
         return new DrawingRunRuleState
         {
             Configured = source.Configured,
-            InitialBlankMode = Math.Clamp(source.InitialBlankMode, 0, 2),
+            GameplayEnabled = source.GameplayEnabled,
+            InitialBlankMode = source.GameplayEnabled
+                ? Math.Clamp(source.InitialBlankMode, 0, 2)
+                : (int)InitialBlankMode.None,
             DrawingTimeLimitSeconds = NormalizeDrawingTime(source.DrawingTimeLimitSeconds),
             ExcludePreviouslySelectedCards = source.ExcludePreviouslySelectedCards,
             BlankGeneratedCardSkipsDeck = source.BlankGeneratedCardSkipsDeck,
             CardRestriction = Math.Clamp(source.CardRestriction, 0, 2),
+            TreasureRoomRelicDrawingEnabled = source.TreasureRoomRelicDrawingEnabled,
             InitialBlankRecipients = source.InitialBlankRecipients?.Distinct().Take(8).ToList() ?? new List<ulong>()
         };
     }

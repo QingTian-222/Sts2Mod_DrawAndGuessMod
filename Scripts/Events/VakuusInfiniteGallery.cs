@@ -41,6 +41,11 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
     private bool _timedGalleryRewardClaimed;
 
     public override bool IsShared => true;
+    public override bool IsAllowed(IRunState runState)
+    {
+        return DrawingRunRules.IsGameplayEnabled(runState);
+    }
+
     public override EventAssetProfile AssetProfile =>
         new(null!, DrawAndGuessAssets.GalleryPortraitPath, null!, null!);
     private Player EventOwner => Owner ?? throw new InvalidOperationException("The gallery event has no owner.");

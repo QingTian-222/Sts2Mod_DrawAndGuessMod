@@ -11,7 +11,8 @@ public enum DrawingCommandKind
     StrokeEnd,
     Fill,
     Stamp,
-    Clear
+    Clear,
+    Outline
 }
 
 public sealed class DrawingCommand : IPacketSerializable
@@ -27,7 +28,7 @@ public sealed class DrawingCommand : IPacketSerializable
     public byte StampSize { get; set; } = DrawingCanvas.DefaultStampSize;
     public byte StampIndex { get; set; }
     public bool Erasing { get; set; }
-    public bool CompletesOperation => Kind is DrawingCommandKind.StrokeEnd or DrawingCommandKind.Fill or DrawingCommandKind.Stamp or DrawingCommandKind.Clear;
+    public bool CompletesOperation => Kind is DrawingCommandKind.StrokeEnd or DrawingCommandKind.Fill or DrawingCommandKind.Stamp or DrawingCommandKind.Clear or DrawingCommandKind.Outline;
 
     public static DrawingCommand Line(ushort x1, ushort y1, ushort x2, ushort y2, Color color, bool erasing, byte brushSize, uint operationId)
     {
@@ -73,6 +74,11 @@ public sealed class DrawingCommand : IPacketSerializable
         return new DrawingCommand { Kind = DrawingCommandKind.Clear, OperationId = operationId };
     }
 
+    public static DrawingCommand Outline(uint operationId)
+    {
+        return new DrawingCommand { Kind = DrawingCommandKind.Outline, OperationId = operationId };
+    }
+
     public void Serialize(PacketWriter writer)
     {
         writer.WriteEnum(Kind);
@@ -102,6 +108,7 @@ public sealed class DrawingCommand : IPacketSerializable
                 writer.WriteByte(StampSize);
                 break;
             case DrawingCommandKind.Clear:
+            case DrawingCommandKind.Outline:
                 break;
         }
     }
@@ -135,6 +142,7 @@ public sealed class DrawingCommand : IPacketSerializable
                 StampSize = reader.ReadByte();
                 break;
             case DrawingCommandKind.Clear:
+            case DrawingCommandKind.Outline:
                 break;
         }
     }

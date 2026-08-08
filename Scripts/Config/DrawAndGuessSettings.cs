@@ -9,6 +9,7 @@ using DrawAndGuessMod.Scripts.Ui;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Runs;
 using STS2RitsuLib;
 using STS2RitsuLib.Settings;
 using STS2RitsuLib.Utils.Persistence;
@@ -32,7 +33,13 @@ internal static class DrawAndGuessSettings
 {
     private const string DataKey = "settings";
     private const string FileName = "settings.json";
+    private const string AiSettingsPageId = "ai_settings";
+    private const string GameSettingsPageId = "game_settings";
     private const string ArtworkHistoryPageId = "artwork_history";
+    private const ModSettingsHostSurface SettingsHostSurfaces =
+        ModSettingsHostSurface.MainMenu |
+        ModSettingsHostSurface.RunPause |
+        ModSettingsHostSurface.CombatPause;
     private static bool _pretraining;
     private static string _pretrainingStatusChinese = string.Empty;
     private static string _pretrainingStatusEnglish = string.Empty;
@@ -113,6 +120,13 @@ internal static class DrawAndGuessSettings
             DataKey,
             data => data.TracingEnabled,
             (data, value) => data.TracingEnabled = value);
+
+    private static readonly IModSettingsValueBinding<bool> TreasureRoomRelicDrawingEnabledBinding =
+        ModSettingsBindings.Global<SettingsData, bool>(
+            Entry.ModId,
+            DataKey,
+            data => data.TreasureRoomRelicDrawingEnabled,
+            (data, value) => data.TreasureRoomRelicDrawingEnabled = value);
 
     public static GuessCardPoolScope CardPoolScope
     {
@@ -246,6 +260,14 @@ internal static class DrawAndGuessSettings
             RitsuLibFramework.RegisterModSettings(Entry.ModId, BuildSettingsPage);
             RitsuLibFramework.RegisterModSettings(
                 Entry.ModId,
+                BuildAiSettingsPage,
+                AiSettingsPageId);
+            RitsuLibFramework.RegisterModSettings(
+                Entry.ModId,
+                BuildGameSettingsPage,
+                GameSettingsPageId);
+            RitsuLibFramework.RegisterModSettings(
+                Entry.ModId,
                 BuildArtworkHistoryPage,
                 ArtworkHistoryPageId);
         }
@@ -258,6 +280,59 @@ internal static class DrawAndGuessSettings
 
     private static void BuildSettingsPage(ModSettingsPageBuilder page)
     {
+        page
+            .WithModDisplayName(LocalizedText("你画瓦猜", "Draw & Guess"))
+            .WithTitle(LocalizedText("你画瓦猜", "Draw & Guess"))
+            .WithSortOrder(0)
+            .WithDescription(LocalizedText(
+                "选择一个分类查看详细设置。",
+                "Choose a category to view its settings."))
+            .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
+            .AddSection("settings_categories", section => section
+                .WithTitle(LocalizedText("设置分类", "Settings Categories"))
+                .AddSubpage(
+                    "open_ai_settings",
+                    LocalizedText("AI 设置", "AI Settings"),
+                    AiSettingsPageId,
+                    LocalizedText("打开", "Open"),
+                    LocalizedText(
+                        "识别缓存、识别范围、多人卡牌、模型选择和候选卡池高级选项。",
+                        "Recognition cache, scope, multiplayer cards, model selection, and advanced candidate-pool options."))
+                .AddSubpage(
+                    "open_game_settings",
+                    LocalizedText("游戏设置", "Game Settings"),
+                    GameSettingsPageId,
+                    LocalizedText("打开", "Open"),
+                    LocalizedText(
+                        "调整“空白”、作画时间限制和参考图等游戏体验选项。",
+                        "Configure Blank, drawing time limits, reference images, and other gameplay options."))
+                .AddSubpage(
+                    "open_artwork_history",
+                    LocalizedText("历史画作", "Artwork History"),
+                    ArtworkHistoryPageId,
+                    LocalizedText("打开", "Open"),
+                    LocalizedText(
+                        "查看所有已完成的卡牌及遗物画作。",
+                        "Browse all completed card and relic drawings.")));
+    }
+
+    public static bool TreasureRoomRelicDrawingEnabled
+    {
+        get
+        {
+            try
+            {
+                return TreasureRoomRelicDrawingEnabledBinding.Read();
+            }
+            catch
+            {
+                return true;
+            }
+        }
+    }
+
+    private static void BuildAiSettingsPage(ModSettingsPageBuilder page)
+    {
         if (string.IsNullOrEmpty(_pretrainingStatusChinese))
         {
             SetPretrainingStatus(
@@ -266,15 +341,13 @@ internal static class DrawAndGuessSettings
         }
 
         page
-            .WithModDisplayName(LocalizedText("你画瓦猜", "Draw & Guess"))
-            .WithTitle(LocalizedText("你画瓦猜", "Draw & Guess"))
+            .AsChildOf(Entry.ModId)
+            .WithTitle(LocalizedText("AI 设置", "AI Settings"))
+            .WithSortOrder(10)
             .WithDescription(LocalizedText(
-                "设置空白卡牌的 AI 猜测候选范围。",
-                "Configure the AI candidate pool used by Blank."))
-            .WithVisibleOnHostSurfaces(
-                ModSettingsHostSurface.MainMenu |
-                ModSettingsHostSurface.RunPause |
-                ModSettingsHostSurface.CombatPause)
+                "管理识别模型、缓存和 AI 候选范围。",
+                "Manage recognition models, caches, and AI candidate pools."))
+            .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
             .AddSection("model_training", section => section
                 .WithTitle(LocalizedText("卡牌识别缓存", "Card Recognition Cache"))
                 .AddCustom(
@@ -318,6 +391,59 @@ internal static class DrawAndGuessSettings
                         "开启后，AI 候选中可以包含仅限多人模式的卡牌；关闭时会排除这些牌。",
                         "Allow multiplayer-only cards to appear among AI candidates. Disable this to exclude them."),
                     () => true)
+                .AddChoice(
+                    "recognition_model_accuracy",
+                    LocalizedText("识别模型准确度", "Recognition Model"),
+                    RecognitionModelAccuracyBinding,
+                    new[]
+                    {
+                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Waku, LocalizedText("瓦库", "VAKUU")),
+                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Jibao, LocalizedText("鸡煲", "Defect")),
+                        new ModSettingsChoiceOption<int>(
+                            (int)RecognitionModelAccuracy.SketchAdapter,
+                            LocalizedText("自训练适配器（实验性）", "Trained Adapter (Experimental)"))
+                    },
+                    LocalizedText(
+                        "瓦库：基础模型。鸡煲：更加智能的神经网络。自训练适配器：或许对简笔画有更高识别性。",
+                        "VAKUU: basic model. Defect: better nn model. Trained Adapter: Higher recognition of simple drawings."),
+                    ModSettingsChoicePresentation.Dropdown))
+            .AddSection("advanced_candidate_pools", section => section
+                .WithTitle(LocalizedText("高级选项", "Advanced Options"))
+                .WithDescription(LocalizedText(
+                    "单独关闭不希望参与识别的候选卡池。新检测到的卡池默认开启。",
+                    "Disable individual card pools that should not participate in recognition. Newly detected pools are enabled by default."))
+                .Collapsible(true)
+                .AddButton(
+                    "detect_candidate_card_pools",
+                    LocalizedText("检测卡池", "Detect Card Pools"),
+                    LocalizedText("检测/重新检测已加载的卡池", "Detect / Re-detect Loaded Card Pools"),
+                    DetectCandidateCardPools,
+                    ModSettingsButtonTone.Accent,
+                    LocalizedText(
+                        "在所有模组加载完成后读取候选卡池，并刷新下方的独立开关列表。",
+                        "Read candidate card pools after all mods have loaded and refresh the individual toggles below."))
+                .AddCustom(
+                    "candidate_card_pools",
+                    LocalizedText("候选卡池", "Candidate Card Pools"),
+                    BuildCandidatePoolControls,
+                    LocalizedText(
+                        "关闭的卡池不会出现在识别结果中；已经建立的识别缓存不会被删除。",
+                        "Disabled pools will not appear in recognition results. Existing recognition cache data is kept."),
+                    () => true));
+    }
+
+    private static void BuildGameSettingsPage(ModSettingsPageBuilder page)
+    {
+        page
+            .AsChildOf(Entry.ModId)
+            .WithTitle(LocalizedText("游戏设置", "Game Settings"))
+            .WithSortOrder(20)
+            .WithDescription(LocalizedText(
+                "调整“空白”和绘画界面的游戏体验。",
+                "Configure Blank and the drawing interface."))
+            .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
+            .AddSection("blank_rules", section => section
+                .WithTitle(LocalizedText("空白", "Blank"))
                 .AddToggle(
                     "exclude_previously_selected_blank_cards",
                     LocalizedText(
@@ -325,8 +451,8 @@ internal static class DrawAndGuessSettings
                         "Exclude Cards Previously Selected by Blank"),
                     ExcludePreviouslySelectedBlankCardsBinding,
                     LocalizedText(
-                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认关闭。",
-                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Disabled by default."),
+                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认开启。",
+                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Enabled by default."),
                     () => true)
                 .AddToggle(
                     "blank_generated_card_skips_deck",
@@ -354,7 +480,7 @@ internal static class DrawAndGuessSettings
                     },
                     LocalizedText(
                         "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。",
-                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default. "),
+                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default."),
                     ModSettingsChoicePresentation.Dropdown)
                 .AddIntSlider(
                     "custom_drawing_time_limit_seconds",
@@ -369,65 +495,27 @@ internal static class DrawAndGuessSettings
                         "Set a custom drawing time for the regular Blank card, from 1 to 600 seconds."))
                 .WithEntryVisibleWhen(
                     "custom_drawing_time_limit_seconds",
-                    () => NormalizeDrawingTimeLimitPreset(DrawingTimeLimitPresetBinding.Read()) == -1)
-                .AddChoice(
-                    "recognition_model_accuracy",
-                    LocalizedText("识别模型准确度", "Recognition Model"),
-                    RecognitionModelAccuracyBinding,
-                    new[]
-                    {
-                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Waku, LocalizedText("瓦库", "VAKUU")),
-                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Jibao, LocalizedText("鸡煲", "Defect")),
-                        new ModSettingsChoiceOption<int>(
-                            (int)RecognitionModelAccuracy.SketchAdapter,
-                            LocalizedText("自训练适配器（实验性）", "Trained Adapter (Experimental)"))
-                    },
-                    LocalizedText(
-                        "瓦库：基础模型。鸡煲：更加智能的神经网络。自训练适配器：或许对简笔画有更高识别性。",
-                        "VAKUU: basic model. Defect: better nn model. Trained Adapter: Higher recognition of simple drawings."),
-                    ModSettingsChoicePresentation.Dropdown))
+                    () => NormalizeDrawingTimeLimitPreset(DrawingTimeLimitPresetBinding.Read()) == -1))
             .AddSection("drawing_ui", section => section
                 .WithTitle(LocalizedText("绘画界面", "Drawing Interface"))
                 .AddToggle(
+                    "treasure_room_relic_drawing_enabled",
+                    LocalizedText("宝箱房画遗物", "Draw Relics in Treasure Rooms"),
+                    TreasureRoomRelicDrawingEnabledBinding,
+                    LocalizedText(
+                        "多人模式下，进入宝箱房后每名玩家会绘制一个由原版宝箱逻辑生成的遗物，全部提交后自动开箱。开启时不会出现“鉴宝大会”事件。默认开启；本局最终使用房主在涅奥界面确认的设置。",
+                        "In multiplayer, each player draws a relic generated by the vanilla treasure-room logic. The chest opens after every drawing is submitted. Relic Appraisal Fair will not appear while enabled. Enabled by default; the host's Neow setting controls the current run."),
+                    () => true)
+                .WithEntryVisibleWhen(
+                    "treasure_room_relic_drawing_enabled",
+                    IsCurrentRunMultiplayer)
+                .AddToggle(
                     "tracing_enabled",
-                    LocalizedText("临摹参考面板", "Tracing Reference Panel"),
+                    LocalizedText("参考图", "Reference Image"),
                     TracingEnabledBinding,
                     LocalizedText(
-                        "在作画界面右侧显示一个卡牌搜索栏：选择卡牌后显示其卡图，可直接点击参考图吸取颜色（左键设左色、右键设右色）。",
-                        "Show a card search bar on the right of the drawing screen: pick a card to display its art, then click the reference to sample its colors (LMB sets the left color, RMB the right)."),
-                    () => true))
-            .AddSection("artwork_history", section => section
-                .WithTitle(LocalizedText("画作历史", "Artwork History"))
-                .AddSubpage(
-                    "open_artwork_history",
-                    LocalizedText("查看历史画作", "View Artwork History"),
-                    ArtworkHistoryPageId,
-                    LocalizedText("打开", "Open"),
-                    LocalizedText(
-                        "使用 RitsuLib 设置页面查看所有已完成的绘画，以及当时选择的卡牌或遗物。",
-                        "Browse every finished drawing in a RitsuLib settings page, including the card or relic selected at the time.")))
-            .AddSection("advanced_candidate_pools", section => section
-                .WithTitle(LocalizedText("高级选项", "Advanced Options"))
-                .WithDescription(LocalizedText(
-                    "单独关闭不希望参与识别的候选卡池。新检测到的卡池默认开启。",
-                    "Disable individual card pools that should not participate in recognition. Newly detected pools are enabled by default."))
-                .Collapsible(true)
-                .AddButton(
-                    "detect_candidate_card_pools",
-                    LocalizedText("检测卡池", "Detect Card Pools"),
-                    LocalizedText("检测/重新检测已加载的卡池", "Detect / Re-detect Loaded Card Pools"),
-                    DetectCandidateCardPools,
-                    ModSettingsButtonTone.Accent,
-                    LocalizedText(
-                        "在所有模组加载完成后读取候选卡池，并刷新下方的独立开关列表。",
-                        "Read candidate card pools after all mods have loaded and refresh the individual toggles below."))
-                .AddCustom(
-                    "candidate_card_pools",
-                    LocalizedText("候选卡池", "Candidate Card Pools"),
-                    BuildCandidatePoolControls,
-                    LocalizedText(
-                        "关闭的卡池不会出现在识别结果中；已经建立的识别缓存不会被删除。",
-                        "Disabled pools will not appear in recognition results. Existing recognition cache data is kept."),
+                        "将“切换画布”替换为参考图按钮。点击后可从原版卡牌图鉴界面选择一张卡牌；鼠标中键点击参考图可吸色并设为左键颜色。",
+                        "Replace Switch Canvas with a reference button. Choose a card from the game's card library, then middle-click its art to sample a color for LMB."),
                     () => true));
     }
 
@@ -436,13 +524,11 @@ internal static class DrawAndGuessSettings
         page
             .AsChildOf(Entry.ModId)
             .WithTitle(LocalizedText("历史画作", "Artwork History"))
+            .WithSortOrder(30)
             .WithDescription(LocalizedText(
                 "查看已完成的「空白」、画廊挑战和遗物鉴定画作。",
                 "Browse completed Blank, gallery challenge, and relic appraisal drawings."))
-            .WithVisibleOnHostSurfaces(
-                ModSettingsHostSurface.MainMenu |
-                ModSettingsHostSurface.RunPause |
-                ModSettingsHostSurface.CombatPause)
+            .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
             .AddSection("artworks", section => section
                 .WithTitle(LocalizedText("画作", "Artworks"))
                 .AddCustom(
@@ -944,6 +1030,11 @@ internal static class DrawAndGuessSettings
         return ModText.Get(simplifiedChinese, english);
     }
 
+    private static bool IsCurrentRunMultiplayer()
+    {
+        return RunManager.Instance?.DebugOnlyGetState()?.Players.Count > 1;
+    }
+
     private sealed class SettingsData
     {
         public int CardPoolScope { get; set; } = (int)GuessCardPoolScope.AllCards;
@@ -951,6 +1042,7 @@ internal static class DrawAndGuessSettings
         public bool ExcludePreviouslySelectedBlankCards { get; set; }
         public bool BlankGeneratedCardSkipsDeck { get; set; }
         public bool TracingEnabled { get; set; }
+        public bool TreasureRoomRelicDrawingEnabled { get; set; } = true;
         public bool GainBlankAtRunStart { get; set; }
         public int RecognitionModelAccuracy { get; set; } = (int)DrawAndGuessMod.Scripts.Config.RecognitionModelAccuracy.Jibao;
         public int DrawingTimeLimitPreset { get; set; }

@@ -38,7 +38,8 @@ internal static class ArtworkHistoryViewer
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
         root.AddChild(entriesContainer);
-        RebuildEntries(entriesContainer, host);
+
+        root.TreeEntered += () => RebuildEntries(entriesContainer, host);
 
         root.VisibilityChanged += () =>
         {
@@ -69,6 +70,7 @@ internal static class ArtworkHistoryViewer
 
     private static void RebuildEntries(VBoxContainer entriesContainer, IModSettingsUiActionHost host)
     {
+        int generation = ++_rebuildGeneration;
         foreach (Node child in entriesContainer.GetChildren())
         {
             entriesContainer.RemoveChild(child);
@@ -93,9 +95,10 @@ internal static class ArtworkHistoryViewer
         }
         else
         {
-            int generation = ++_rebuildGeneration;
             _ = AddRowsAsync(entriesContainer, host, entries, generation);
         }
+
+        RefreshLayout(entriesContainer);
     }
 
     private static async Task AddRowsAsync(
@@ -124,7 +127,39 @@ internal static class ArtworkHistoryViewer
                 entry,
                 host,
                 () => RebuildEntries(entriesContainer, host)));
+            RefreshLayout(entriesContainer);
         }
+    }
+
+    private static void RefreshLayout(VBoxContainer entriesContainer)
+    {
+        Callable.From(() =>
+        {
+            if (!GodotObject.IsInstanceValid(entriesContainer))
+            {
+                return;
+            }
+
+            entriesContainer.UpdateMinimumSize();
+            entriesContainer.QueueSort();
+
+            Control? ancestor = entriesContainer.GetParent() as Control;
+            while (ancestor != null)
+            {
+                ancestor.UpdateMinimumSize();
+                if (ancestor is Container container)
+                {
+                    container.QueueSort();
+                }
+
+                if (ancestor is ScrollContainer)
+                {
+                    break;
+                }
+
+                ancestor = ancestor.GetParent() as Control;
+            }
+        }).CallDeferred();
     }
 
     private static Control BuildRow(

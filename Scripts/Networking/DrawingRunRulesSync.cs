@@ -11,11 +11,13 @@ namespace DrawAndGuessMod.Scripts.Networking;
 
 public sealed class DrawingRunRulesMessage : INetMessage, IPacketSerializable
 {
+    public bool GameplayEnabled { get; set; } = true;
     public InitialBlankMode InitialBlankMode { get; set; }
     public int DrawingTimeLimitSeconds { get; set; }
     public bool ExcludePreviouslySelectedCards { get; set; }
     public bool BlankGeneratedCardSkipsDeck { get; set; }
     public DrawingCardRestriction CardRestriction { get; set; }
+    public bool TreasureRoomRelicDrawingEnabled { get; set; } = true;
     public List<ulong> InitialBlankRecipients { get; set; } = new();
 
     public bool ShouldBroadcast => true;
@@ -25,11 +27,13 @@ public sealed class DrawingRunRulesMessage : INetMessage, IPacketSerializable
 
     public void Serialize(PacketWriter writer)
     {
+        writer.WriteBool(GameplayEnabled);
         writer.WriteByte((byte)InitialBlankMode, 2);
         writer.WriteByte((byte)DrawingTimeLimitSeconds);
         writer.WriteBool(ExcludePreviouslySelectedCards);
         writer.WriteBool(BlankGeneratedCardSkipsDeck);
         writer.WriteByte((byte)CardRestriction, 2);
+        writer.WriteBool(TreasureRoomRelicDrawingEnabled);
         writer.WriteByte((byte)Math.Min(InitialBlankRecipients.Count, 8), 4);
         foreach (ulong recipientId in InitialBlankRecipients.GetRange(0, Math.Min(InitialBlankRecipients.Count, 8)))
         {
@@ -39,11 +43,13 @@ public sealed class DrawingRunRulesMessage : INetMessage, IPacketSerializable
 
     public void Deserialize(PacketReader reader)
     {
+        GameplayEnabled = reader.ReadBool();
         InitialBlankMode = (InitialBlankMode)reader.ReadByte(2);
         DrawingTimeLimitSeconds = reader.ReadByte();
         ExcludePreviouslySelectedCards = reader.ReadBool();
         BlankGeneratedCardSkipsDeck = reader.ReadBool();
         CardRestriction = (DrawingCardRestriction)reader.ReadByte(2);
+        TreasureRoomRelicDrawingEnabled = reader.ReadBool();
         int recipientCount = reader.ReadByte(4);
         InitialBlankRecipients = new List<ulong>(recipientCount);
         for (int index = 0; index < recipientCount; index++)
@@ -80,11 +86,13 @@ internal static class DrawingRunRulesSync
         Attach(netService);
         netService.SendMessage(new DrawingRunRulesMessage
         {
+            GameplayEnabled = state.GameplayEnabled,
             InitialBlankMode = (InitialBlankMode)state.InitialBlankMode,
             DrawingTimeLimitSeconds = state.DrawingTimeLimitSeconds,
             ExcludePreviouslySelectedCards = state.ExcludePreviouslySelectedCards,
             BlankGeneratedCardSkipsDeck = state.BlankGeneratedCardSkipsDeck,
             CardRestriction = (DrawingCardRestriction)state.CardRestriction,
+            TreasureRoomRelicDrawingEnabled = state.TreasureRoomRelicDrawingEnabled,
             InitialBlankRecipients = new List<ulong>(state.InitialBlankRecipients)
         });
     }
@@ -123,11 +131,13 @@ internal static class DrawingRunRulesSync
         DrawingRunRules.ApplySyncedSettings(runState, new DrawingRunRuleState
         {
             Configured = true,
+            GameplayEnabled = message.GameplayEnabled,
             InitialBlankMode = (int)message.InitialBlankMode,
             DrawingTimeLimitSeconds = message.DrawingTimeLimitSeconds,
             ExcludePreviouslySelectedCards = message.ExcludePreviouslySelectedCards,
             BlankGeneratedCardSkipsDeck = message.BlankGeneratedCardSkipsDeck,
             CardRestriction = (int)message.CardRestriction,
+            TreasureRoomRelicDrawingEnabled = message.TreasureRoomRelicDrawingEnabled,
             InitialBlankRecipients = new List<ulong>(message.InitialBlankRecipients)
         });
     }
