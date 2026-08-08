@@ -148,6 +148,13 @@ public sealed class RelicAppraisalFair : ModEventTemplate
                 target.Id.Entry,
                 drawing.WorkTitle,
                 drawing.PngBytes);
+            DrawingHistoryStore.RecordRelic(
+                EventOwner.RunState,
+                EventOwner.NetId,
+                _appraisalId ^ (uint)EventOwner.NetId,
+                target,
+                drawing.WorkTitle,
+                drawing.PngBytes);
             DrawingNetSync.PublishAppraisalSubmission(_appraisalId, submission);
         }
         else
