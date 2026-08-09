@@ -12,6 +12,7 @@ using DrawAndGuessMod.Scripts.Patches;
 using DrawAndGuessMod.Scripts.RestSite;
 using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
+using DrawAndGuessMod.Scripts.Updates;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Modding;
@@ -40,6 +41,7 @@ public static class Entry
             InstallDependencyResolver(assembly);
             RitsuLibFramework.EnsureGodotScriptsRegistered(assembly, Logger);
             ModTypeDiscoveryHub.RegisterModAssembly(ModId, assembly);
+            DrawAndGuessUpdateChecker.Register(assembly);
 
             DrawAndGuessAssets.Install();
             DrawAndGuessSettings.Register();
