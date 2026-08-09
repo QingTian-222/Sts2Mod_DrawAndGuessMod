@@ -1,8 +1,14 @@
 name: Deploy update manifest
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
+    paths:
+      - DrawAndGuessMod.json
+      - public/update.template.json
+      - tools/generate-update-manifest.mjs
+      - .github/workflows/deploy-update-manifest.yml
   workflow_dispatch:
 
 permissions:
