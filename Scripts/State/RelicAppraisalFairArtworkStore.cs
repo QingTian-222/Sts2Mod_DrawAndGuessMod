@@ -33,6 +33,11 @@ internal static class RelicAppraisalFairArtworkStore
     {
         foreach (RelicAppraisalFairSubmission submission in submissions)
         {
+            if (submission.UseOriginalPresentation)
+            {
+                continue;
+            }
+
             try
             {
                 Image image = new();

@@ -149,14 +149,18 @@ public sealed class RelicAppraisalFair : ModEventTemplate
                 EventOwner.NetId,
                 target.Id.Entry,
                 drawing.WorkTitle,
-                drawing.PngBytes);
-            DrawingHistoryStore.RecordRelic(
-                EventOwner.RunState,
-                EventOwner.NetId,
-                _appraisalId ^ (uint)EventOwner.NetId,
-                target,
-                drawing.WorkTitle,
-                drawing.PngBytes);
+                drawing.PngBytes,
+                drawing.SkippedCreation);
+            if (!drawing.SkippedCreation)
+            {
+                DrawingHistoryStore.RecordRelic(
+                    EventOwner.RunState,
+                    EventOwner.NetId,
+                    _appraisalId ^ (uint)EventOwner.NetId,
+                    target,
+                    drawing.WorkTitle,
+                    drawing.PngBytes);
+            }
             DrawingNetSync.PublishAppraisalSubmission(_appraisalId, submission);
         }
         else
@@ -367,6 +371,10 @@ public sealed class RelicAppraisalFair : ModEventTemplate
                 $"Relic appraisal submission from {submission.OwnerId} has an invalid PNG.");
         }
         RelicModel target = FindRelic(expectedTarget);
+        if (submission.UseOriginalPresentation)
+        {
+            return;
+        }
         RelicArtAssessment? assessment = RelicArtClassifier.AssessTarget(
             image,
             target);

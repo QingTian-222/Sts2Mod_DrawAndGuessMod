@@ -12,7 +12,8 @@ internal sealed record RelicAppraisalFairSubmission(
     ulong OwnerId,
     string TargetRelicId,
     string WorkTitle,
-    byte[] PngBytes);
+    byte[] PngBytes,
+    bool UseOriginalPresentation = false);
 
 internal static class DrawingNetSync
 {
@@ -176,6 +177,7 @@ internal static class DrawingNetSync
             TargetRelicId = submission.TargetRelicId,
             WorkTitle = submission.WorkTitle,
             PngBytes = submission.PngBytes,
+            UseOriginalPresentation = submission.UseOriginalPresentation,
             LocationValue = _registeredBuffer!.CurrentLocation
         });
     }
@@ -614,7 +616,8 @@ internal static class DrawingNetSync
                 message.OwnerId,
                 message.TargetRelicId,
                 message.WorkTitle,
-                message.PngBytes));
+                message.PngBytes,
+                message.UseOriginalPresentation));
     }
 
     private static void AcceptAppraisalSubmission(uint appraisalId, RelicAppraisalFairSubmission submission)

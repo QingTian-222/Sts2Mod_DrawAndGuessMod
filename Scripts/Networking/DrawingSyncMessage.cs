@@ -420,6 +420,7 @@ public sealed class RelicAppraisalFairSubmissionMessage : INetMessage, IPacketSe
     public string TargetRelicId { get; set; } = "";
     public string WorkTitle { get; set; } = "";
     public byte[] PngBytes { get; set; } = [];
+    public bool UseOriginalPresentation { get; set; }
     public RunLocation LocationValue { get; set; }
 
     public bool ShouldBroadcast => true;
@@ -436,6 +437,7 @@ public sealed class RelicAppraisalFairSubmissionMessage : INetMessage, IPacketSe
         writer.WriteString(WorkTitle);
         writer.WriteInt(PngBytes.Length);
         writer.WriteBytes(PngBytes, PngBytes.Length);
+        writer.WriteBool(UseOriginalPresentation);
         writer.Write(LocationValue);
     }
 
@@ -452,6 +454,7 @@ public sealed class RelicAppraisalFairSubmissionMessage : INetMessage, IPacketSe
         }
         PngBytes = new byte[pngLength];
         reader.ReadBytes(PngBytes, pngLength);
+        UseOriginalPresentation = reader.ReadBool();
         LocationValue = reader.Read<RunLocation>();
     }
 }

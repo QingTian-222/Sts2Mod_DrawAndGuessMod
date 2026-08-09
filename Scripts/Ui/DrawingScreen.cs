@@ -22,7 +22,8 @@ public sealed record DrawingResult(byte[] PngBytes, CardGuess Guess, bool SkipAd
 public sealed record RelicDrawingResult(
     byte[] PngBytes,
     RelicModel Relic,
-    string WorkTitle);
+    string WorkTitle,
+    bool SkippedCreation = false);
 public sealed record DrawingScreenOptions(
     string Title,
     string Help,
@@ -39,6 +40,7 @@ public partial class DrawingScreen : Control
     private const int CustomColorCapacity = DrawingPaletteStore.Capacity;
     private const float ColorButtonHeight = 30f;
     private const ulong TimerSyncIntervalMsec = 250uL;
+    private const double RelicSkipRevealDelaySeconds = 30d;
     // Sender id used to key locally-recorded brush operations in the history
     // artwork editor. The editor is single-player (no net messages carry these),
     // so any stable non-zero value works and cannot collide with real player ids.
@@ -138,9 +140,13 @@ public partial class DrawingScreen : Control
     private Label? _relicWorkTitleLabel;
     private LineEdit? _relicWorkTitleInput;
     private Control? _relicWorkTitleOverlay;
+    private Button? _relicSkipButton;
+    private Control? _relicSkipConfirmationOverlay;
     private Control? _relicWaitingOverlay;
     private bool _editingRelicWorkTitle;
+    private bool _relicSkipConfirmationOpen;
     private bool _relicDrawingConfirmed;
+    private double _relicDrawingElapsedSeconds;
     private TextureRect? _tracingReference;
     private Image? _tracingReferenceImage;
     private ImageTexture? _tracingReferenceTexture;
@@ -369,12 +375,21 @@ public partial class DrawingScreen : Control
             _pendingCommands.Clear();
             Entry.Logger.Info(
                 $"[DrawAndGuessMod] Closing drawing session {_sessionId} because the active run ended.");
-            Complete(null);
+            if (_relicTarget != null)
+            {
+                CompleteRelic(null);
+            }
+            else
+            {
+                Complete(null);
+            }
             return;
         }
 
         if (_relicTarget != null && !_finishing)
         {
+            _relicDrawingElapsedSeconds += Math.Max(0d, delta);
+            UpdateRelicSkipButton();
             UpdateRelicAssessment();
             AnimateRelicMatchBar(delta);
         }
@@ -423,7 +438,7 @@ public partial class DrawingScreen : Control
             return;
         }
 
-        if (IsEditingRelicWorkTitle())
+        if (IsEditingRelicWorkTitle() || _relicSkipConfirmationOpen)
         {
             return;
         }
@@ -964,6 +979,19 @@ public partial class DrawingScreen : Control
                                     _relicTarget != null;
             _guessButton.Pressed += OnGuessPressed;
             buttons.AddChild(_guessButton);
+            if (_relicTarget != null)
+            {
+                _relicSkipButton = CreateActionButton(
+                    Localized("跳过创作", "Skip Creation"),
+                    new Color("4A3B24"),
+                    new Color("D5AA62"));
+                _relicSkipButton.Visible = false;
+                _relicSkipButton.TooltipText = Localized(
+                    "放弃本次绘画，使用遗物原来的名称和贴图",
+                    "Abandon this drawing and use the relic's original name and artwork");
+                _relicSkipButton.Pressed += OpenRelicSkipConfirmation;
+                buttons.AddChild(_relicSkipButton);
+            }
         }
 
         AddPeekButton(backdrop, center);
@@ -984,6 +1012,7 @@ public partial class DrawingScreen : Control
         if (_relicTarget != null)
         {
             BuildRelicWorkTitleOverlay();
+            BuildRelicSkipConfirmationOverlay();
         }
     }
 
@@ -3018,6 +3047,207 @@ public partial class DrawingScreen : Control
         content.AddChild(confirm);
     }
 
+    private void BuildRelicSkipConfirmationOverlay()
+    {
+        _relicSkipConfirmationOverlay = new Control
+        {
+            Name = "RelicSkipConfirmationOverlay",
+            Visible = false,
+            MouseFilter = MouseFilterEnum.Stop,
+            ZIndex = 35
+        };
+        _relicSkipConfirmationOverlay.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_relicSkipConfirmationOverlay);
+
+        ColorRect dimmer = new()
+        {
+            Color = new Color(0f, 0f, 0f, 0.64f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        dimmer.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicSkipConfirmationOverlay.AddChild(dimmer);
+
+        CenterContainer center = new();
+        center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        _relicSkipConfirmationOverlay.AddChild(center);
+
+        PanelContainer panel = new()
+        {
+            CustomMinimumSize = new Vector2(560f, 230f),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.045f, 0.06f, 0.085f, 0.97f),
+            BorderColor = new Color("D5AA62"),
+            BorderWidthLeft = 2,
+            BorderWidthTop = 2,
+            BorderWidthRight = 2,
+            BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 12,
+            CornerRadiusTopRight = 12,
+            CornerRadiusBottomLeft = 12,
+            CornerRadiusBottomRight = 12,
+            ShadowColor = new Color(0f, 0f, 0f, 0.55f),
+            ShadowSize = 12,
+            ShadowOffset = new Vector2(0f, 6f)
+        });
+        center.AddChild(panel);
+
+        MarginContainer margin = new();
+        margin.AddThemeConstantOverride("margin_left", 28);
+        margin.AddThemeConstantOverride("margin_right", 28);
+        margin.AddThemeConstantOverride("margin_top", 22);
+        margin.AddThemeConstantOverride("margin_bottom", 22);
+        panel.AddChild(margin);
+
+        VBoxContainer content = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        content.AddThemeConstantOverride("separation", 16);
+        margin.AddChild(content);
+
+        Label title = new()
+        {
+            Text = Localized("跳过创作？", "Skip Creation?"),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        title.AddThemeFontSizeOverride("font_size", 28);
+        content.AddChild(title);
+
+        string relicName = _relicTarget?.Title.GetFormattedText() ?? string.Empty;
+        Label body = new()
+        {
+            Text = Localized(
+                $"确认后将使用「{relicName}」原来的名称和贴图，本次不会保存为历史画作。",
+                $"The original name and artwork for \"{relicName}\" will be used, and this attempt will not be saved to drawing history."),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        body.AddThemeFontSizeOverride("font_size", 20);
+        content.AddChild(body);
+
+        HBoxContainer buttons = new()
+        {
+            Alignment = BoxContainer.AlignmentMode.Center
+        };
+        buttons.AddThemeConstantOverride("separation", 14);
+        content.AddChild(buttons);
+
+        Button cancel = CreateActionButton(
+            Localized("继续作画", "Keep Drawing"),
+            new Color("253D58"),
+            new Color("79BCE8"));
+        cancel.CustomMinimumSize = new Vector2(160f, 46f);
+        cancel.Pressed += CloseRelicSkipConfirmation;
+        buttons.AddChild(cancel);
+
+        Button confirm = CreateActionButton(
+            Localized("确认跳过", "Confirm Skip"),
+            new Color("5B252B"),
+            new Color("E47A78"),
+            primary: true);
+        confirm.CustomMinimumSize = new Vector2(160f, 46f);
+        confirm.Pressed += ConfirmRelicSkip;
+        buttons.AddChild(confirm);
+    }
+
+    private void OpenRelicSkipConfirmation()
+    {
+        if (_relicTarget == null ||
+            _relicSkipConfirmationOverlay == null ||
+            _finishing ||
+            _relicDrawingConfirmed ||
+            _relicDrawingElapsedSeconds < RelicSkipRevealDelaySeconds)
+        {
+            return;
+        }
+
+        if (_gFillHeld)
+        {
+            _gFillHeld = false;
+            ActivateBrushTool();
+        }
+        _relicSkipConfirmationOpen = true;
+        _relicSkipConfirmationOverlay.Visible = true;
+        UpdateRelicAssessmentState();
+    }
+
+    private void CloseRelicSkipConfirmation()
+    {
+        if (_relicSkipConfirmationOverlay != null)
+        {
+            _relicSkipConfirmationOverlay.Visible = false;
+        }
+        _relicSkipConfirmationOpen = false;
+        UpdateRelicAssessmentState();
+    }
+
+    private void ConfirmRelicSkip()
+    {
+        if (_relicTarget == null || _finishing)
+        {
+            return;
+        }
+
+        try
+        {
+            Image originalImage = _relicTarget.BigIcon.GetImage();
+            if (originalImage.IsEmpty())
+            {
+                throw new InvalidOperationException(
+                    $"Could not export original artwork for {_relicTarget.Id.Entry}.");
+            }
+
+            _finishing = true;
+            _relicSkipConfirmationOpen = false;
+            if (_relicSkipConfirmationOverlay != null)
+            {
+                _relicSkipConfirmationOverlay.Visible = false;
+            }
+            _guessButton.Disabled = true;
+            if (_relicSkipButton != null)
+            {
+                _relicSkipButton.Disabled = true;
+            }
+            CompleteRelic(new RelicDrawingResult(
+                originalImage.SavePngToBuffer(),
+                _relicTarget,
+                _relicTarget.Title.GetFormattedText(),
+                SkippedCreation: true));
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Failed to skip relic creation for {_relicTarget.Id.Entry}: {ex}");
+            _finishing = false;
+            _relicSkipConfirmationOpen = false;
+            if (_relicSkipConfirmationOverlay != null)
+            {
+                _relicSkipConfirmationOverlay.Visible = false;
+            }
+            UpdateRelicAssessmentState();
+            _status.Text = Localized(
+                "无法读取遗物原图，请继续作画。",
+                "The original relic artwork could not be loaded. Please continue drawing.");
+        }
+    }
+
+    private void UpdateRelicSkipButton()
+    {
+        if (_relicSkipButton == null)
+        {
+            return;
+        }
+
+        _relicSkipButton.Visible =
+            _relicDrawingElapsedSeconds >= RelicSkipRevealDelaySeconds &&
+            !_relicDrawingConfirmed &&
+            !_finishing;
+        _relicSkipButton.Disabled = _relicSkipConfirmationOpen || _finishing;
+    }
+
     private void OpenRelicWorkTitleEditor()
     {
         if (_relicWorkTitleInput == null ||
@@ -3177,7 +3407,9 @@ public partial class DrawingScreen : Control
         _guessButton.Disabled =
             !matches ||
             _editingRelicWorkTitle ||
+            _relicSkipConfirmationOpen ||
             string.IsNullOrWhiteSpace(_relicWorkTitleLabel?.Text);
+        UpdateRelicSkipButton();
     }
 
     private void AnimateRelicMatchBar(double delta)

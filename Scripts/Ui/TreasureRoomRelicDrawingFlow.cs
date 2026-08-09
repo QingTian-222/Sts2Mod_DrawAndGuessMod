@@ -212,17 +212,21 @@ internal static class TreasureRoomRelicDrawingFlow
                 localPlayer.NetId,
                 target.Id.Entry,
                 drawing.WorkTitle,
-                drawing.PngBytes);
+                drawing.PngBytes,
+                drawing.SkippedCreation);
         DrawingNetSync.PublishAppraisalSubmission(appraisalId, submission);
         try
         {
-            DrawingHistoryStore.RecordRelic(
-                localPlayer.RunState,
-                localPlayer.NetId,
-                appraisalId ^ (uint)localPlayer.NetId,
-                target,
-                submission.WorkTitle,
-                submission.PngBytes);
+            if (!submission.UseOriginalPresentation)
+            {
+                DrawingHistoryStore.RecordRelic(
+                    localPlayer.RunState,
+                    localPlayer.NetId,
+                    appraisalId ^ (uint)localPlayer.NetId,
+                    target,
+                    submission.WorkTitle,
+                    submission.PngBytes);
+            }
         }
         catch (Exception ex)
         {
@@ -243,7 +247,8 @@ internal static class TreasureRoomRelicDrawingFlow
             player.NetId,
             target.Id.Entry,
             target.Title.GetFormattedText(),
-            source.SavePngToBuffer());
+            source.SavePngToBuffer(),
+            UseOriginalPresentation: true);
     }
 
     private static void ValidateSubmissions(IReadOnlyList<Player> participants, IReadOnlyList<RelicModel> targets, IReadOnlyList<RelicAppraisalFairSubmission> submissions)
