@@ -16,3 +16,10 @@ Scripts/Preview/.semantic-cache/
 card_features.local.bin
 dist/
 /public/update.json
+
+# Local maintainer release tools
+/tools/release.ps1
+/tools/release.cmd
+/tools/release-gui.ps1
+/tools/release-gui.cmd
+/tools/RELEASING.md

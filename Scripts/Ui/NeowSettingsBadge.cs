@@ -32,7 +32,7 @@ internal sealed partial class NeowSettingsBadge : Button
         PivotOffset = Size * 0.5f;
         FocusMode = FocusModeEnum.All;
         MouseFilter = MouseFilterEnum.Stop;
-        TooltipText = ModText.Get("查看本局作画设置", "View drawing settings for this run");
+        TooltipText = ModText.Get("DRAW_AND_GUESS_MOD.NEOW_SETTINGS_BADGE.VIEW_DRAWING_SETTINGS_FOR_THIS_RUN");
         AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
         AddThemeStyleboxOverride("hover", new StyleBoxEmpty());
         AddThemeStyleboxOverride("pressed", new StyleBoxEmpty());
@@ -64,7 +64,7 @@ internal sealed partial class NeowSettingsBadge : Button
 
         Label caption = new()
         {
-            Text = ModText.Get("设置", "Settings"),
+            Text = ModText.Get("DRAW_AND_GUESS_MOD.NEOW_SETTINGS_BADGE.SETTINGS"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = MouseFilterEnum.Ignore

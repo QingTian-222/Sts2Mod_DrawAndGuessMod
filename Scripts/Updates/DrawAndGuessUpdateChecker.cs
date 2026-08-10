@@ -1,5 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
+using DrawAndGuessMod.Scripts.Localization;
+using HarmonyLib;
+using MegaCrit.Sts2.Core.Localization;
 using STS2RitsuLib;
 using STS2RitsuLib.Updates;
 
@@ -12,21 +15,35 @@ internal static class DrawAndGuessUpdateChecker
         "https://qingtian-222.github.io/Sts2Mod_DrawAndGuessMod/update.json");
     private static readonly Uri ReleasePageUri = new(
         "https://github.com/QingTian-222/Sts2Mod_DrawAndGuessMod/releases");
+    private static Assembly? _pendingAssembly;
+    private static bool _registered;
 
     public static void Register(Assembly assembly)
     {
+        _pendingAssembly = assembly;
+        TryRegister();
+    }
+
+    internal static void TryRegister()
+    {
+        if (_registered || _pendingAssembly == null || LocManager.Instance == null)
+        {
+            return;
+        }
+
         try
         {
             ModUpdateCheckOptions options = new()
             {
                 ModId = Entry.ModId,
-                DisplayName = "Draw & Guess / 你画瓦猜",
-                CurrentVersion = ReadInstalledVersion(assembly),
+                DisplayName = ModText.Get("DRAW_AND_GUESS_MOD.UPDATE_CHECKER.DISPLAY_NAME"),
+                CurrentVersion = ReadInstalledVersion(_pendingAssembly),
                 ManifestUri = ManifestUri,
                 ReleasePageUri = ReleasePageUri,
             };
 
             RitsuLibFramework.RegisterModUpdateCheck(options);
+            _registered = true;
         }
         catch (Exception ex)
         {
@@ -60,5 +77,14 @@ internal static class DrawAndGuessUpdateChecker
         }
 
         return UnknownVersion;
+    }
+}
+
+[HarmonyPatch(typeof(LocManager), nameof(LocManager.Initialize))]
+internal static class DrawAndGuessUpdateCheckerLocalizationPatch
+{
+    private static void Postfix()
+    {
+        DrawAndGuessUpdateChecker.TryRegister();
     }
 }

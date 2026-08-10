@@ -1,0 +1,4 @@
+{
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.description": "카드 삽화를 그립니다. VAKUU가 추측한 {IfUpgraded:show:[gold]강화된[/gold] }카드를 [gold]손[/gold]과 [gold]덱[/gold]에 추가합니다.",
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.title": "공백"
+}

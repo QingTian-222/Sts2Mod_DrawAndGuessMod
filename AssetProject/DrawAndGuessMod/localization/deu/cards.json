@@ -1,0 +1,4 @@
+{
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.description": "Zeichne eine Kartenillustration. VAKUU fügt die erratene {IfUpgraded:show:[gold]verbesserte[/gold] }Karte deiner [gold]Hand[/gold] und deinem [gold]Deck[/gold] hinzu.",
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.title": "Leere Seite"
+}

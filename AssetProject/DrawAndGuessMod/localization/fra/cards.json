@@ -1,0 +1,4 @@
+{
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.description": "Dessinez une illustration de carte. VAKUU ajoute la carte {IfUpgraded:show:[gold]améliorée[/gold] }qu’il devine à votre [gold]Main[/gold] et à votre [gold]Deck[/gold].",
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.title": "Page blanche"
+}

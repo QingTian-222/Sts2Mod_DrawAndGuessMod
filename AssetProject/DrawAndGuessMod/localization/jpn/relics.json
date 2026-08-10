@@ -1,0 +1,10 @@
+{
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.description": "休憩所で[gold]描く[/gold]ことができる。描いたカードはこのゲームから完全に消える。拾得時、ランダムな[red]呪い[/red]を1枚獲得する。",
+  "DRAW_AND_GUESS_MOD_DEATH_NOTE_ERASED_CARDS.infoText": "死のスケッチブックに消されたカード",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.flavor": "別の世界にも、よく似たノートがあるらしい。",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.title": "死のスケッチブック",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.description": "このゲーム中に全プレイヤーが描いたすべてのカード作品を保存する。ページをめくり、好きな作品を恒久的なカード画像に設定できる。",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.flavor": "",
+  "DRAW_AND_GUESS_MOD_MEMORIAL_SKETCHBOOK_CARDS.infoText": "左クリックで確認。「恒久カード画像に設定」を有効にしてから、差し替える作品を選択する。",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.title": "思い出のスケッチブック"
+}

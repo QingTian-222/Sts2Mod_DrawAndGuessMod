@@ -126,13 +126,11 @@ public sealed class RelicAppraisalFair : ModEventTemplate
         if (LocalContext.IsMe(EventOwner))
         {
             DrawingScreenOptions options = new(
-                ModText.Get(
-                    $"鉴定题：{target.Title.GetFormattedText()}",
-                    $"Appraisal Prompt: {target.Title.GetFormattedText()}"),
-                ModText.Get(
-                    "绘画目标遗物，达到匹配度即可提交；只有你知道它原本是什么。",
-                    "Draw the target relic and reach the required match to submit; only you know what it originally was."),
-                PeekTooltip: ModText.Get("查看事件", "View event"),
+                ModText.Format(
+                    "DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.APPRAISAL_PROMPT",
+                    ("Relic", target.Title.GetFormattedText())),
+                ModText.Get("DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.DRAW_THE_TARGET_RELIC_AND_REACH_THE"),
+                PeekTooltip: ModText.Get("DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.VIEW_EVENT"),
                 InitialCanvasMode: DrawingCanvasMode.Relic,
                 AllowCanvasModeSwitch: false);
             RelicDrawingResult? drawing = await DrawingScreen.ShowRelicAsync(
@@ -204,7 +202,7 @@ public sealed class RelicAppraisalFair : ModEventTemplate
         else
         {
             ((StringVar)DynamicVars["Awarded"]).StringValue =
-                ModText.Get("无", "None");
+                ModText.Get("DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.NONE");
         }
 
         PrepareNextRoundTargets();

@@ -248,8 +248,10 @@ public partial class DrawingScreen : Control
                 ? Colors.Transparent
                 : DrawingCanvas.PaperColor,
             _options = new DrawingScreenOptions(
-                Localized($"编辑画作：{artworkName}", $"Edit artwork: {artworkName}"),
-                Localized("完成后会覆盖保存这幅 PNG 画作。", "Confirm to overwrite this PNG artwork."),
+                ModText.Format(
+                    "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.EDIT_ARTWORK",
+                    ("ArtworkName", artworkName)),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_TO_OVERWRITE_THIS_PNG_ARTWORK"),
                 AllowCanvasModeSwitch: false)
         };
         _active = screen;
@@ -604,7 +606,7 @@ public partial class DrawingScreen : Control
         {
             Label title = new()
             {
-                Text = _options?.Title ?? Localized("空白", "Blank"),
+                Text = _options?.Title ?? Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BLANK"),
                 HorizontalAlignment = HorizontalAlignment.Center
             };
             title.AddThemeFontSizeOverride("font_size", 30);
@@ -614,12 +616,8 @@ public partial class DrawingScreen : Control
         Label help = new()
         {
             Text = _options?.Help ?? (DrawingNetSync.IsMultiplayer
-                ? Localized(
-                    "所有玩家都可以共同作画；出牌者负责确认，被指定的玩家进行三选一。",
-                    "Everyone can draw together. The player who played the card confirms the drawing, and the targeted player chooses from three cards.")
-                : Localized(
-                    "绘制卡面后，让瓦库给出三个候选。",
-                    "Draw a card illustration and let VAKUU suggest three candidates.")),
+                ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.EVERYONE_CAN_DRAW_TOGETHER_THE_PLAYER_WHO")
+                : Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.DRAW_A_CARD_ILLUSTRATION_AND_LET_VAKUU")),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
@@ -684,19 +682,13 @@ public partial class DrawingScreen : Control
         colorAssignments.AddThemeConstantOverride("separation", 4);
         paletteArea.AddChild(colorAssignments);
         _leftColorButton = CreateMouseColorButton(
-            Localized("左键", "LMB"),
-            Localized(
-                "当前左键颜色；左键点击右侧色块即可替换",
-                "Current left mouse button color; left-click a swatch to replace it"));
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.LMB"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CURRENT_LEFT_MOUSE_BUTTON_COLOR_LEFT_CLICK"));
         _rightColorButton = CreateMouseColorButton(
-            Localized("右键", "RMB"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.RMB"),
             _relicTarget != null
-                ? Localized(
-                    "固定为透明；右键可擦除画布内容",
-                    "Locked to transparent; use the right mouse button to erase")
-                : Localized(
-                    "当前右键颜色；右键点击右侧色块即可替换",
-                    "Current right mouse button color; right-click a swatch to replace it"));
+                ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.LOCKED_TO_TRANSPARENT_USE_THE_RIGHT_MOUSE")
+                : Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CURRENT_RIGHT_MOUSE_BUTTON_COLOR_RIGHT_CLICK"));
         _rightColorButton.Disabled = _relicTarget != null;
         colorAssignments.AddChild(_leftColorButton);
         colorAssignments.AddChild(_rightColorButton);
@@ -723,9 +715,7 @@ public partial class DrawingScreen : Control
         Button openColorPicker = new()
         {
             Text = "🎨",
-            TooltipText = Localized(
-                "调色盘：从色图选择或输入 RGB",
-                "Color palette: choose from the color field or enter RGB values"),
+            TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.COLOR_PALETTE_CHOOSE_FROM_THE_COLOR_FIELD"),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             ClipText = true,
             FocusMode = FocusModeEnum.None
@@ -739,7 +729,7 @@ public partial class DrawingScreen : Control
             Button customColor = new()
             {
                 Disabled = true,
-                TooltipText = Localized("空白自定义颜色", "Empty custom color slot"),
+                TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.EMPTY_CUSTOM_COLOR_SLOT"),
                 CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
                 FocusMode = FocusModeEnum.None
             };
@@ -784,17 +774,13 @@ public partial class DrawingScreen : Control
             : InkBottleIconPath;
         _brushToolButton = CreateDrawingToolButton(
             ResourceLoader.Load<Texture2D>(brushIconPath, null, ResourceLoader.CacheMode.Reuse),
-            Localized("画笔", "Brush"),
-            Localized(
-                "使用左键或右键颜色绘制",
-                "Draw with the left or right mouse button color"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.BRUSH"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.DRAW_WITH_THE_LEFT_OR_RIGHT_MOUSE"),
             drawingToolGroup);
         _fillToolButton = CreateDrawingToolButton(
             ResourceLoader.Load<Texture2D>(fillIconPath, null, ResourceLoader.CacheMode.Reuse),
-            Localized("填充", "Fill"),
-            Localized(
-                "快捷键：按住 G 临时切换，松开回到画笔\n",
-                "Shortcut: hold G temporarily and release to return to the brush\n"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.FILL"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.SHORTCUT_HOLD_G_TEMPORARILY_AND_RELEASE_TO"),
             drawingToolGroup);
         _brushToolButton.Pressed += ActivateBrushTool;
         _fillToolButton.Pressed += ActivateFillTool;
@@ -818,9 +804,7 @@ public partial class DrawingScreen : Control
 
         _sizeLabel = new Label
         {
-            Text = Localized(
-                $"粗细：{DrawingCanvas.DefaultBrushSize} px",
-                $"Size: {DrawingCanvas.DefaultBrushSize} px"),
+            Text = FormatBrushSize(DrawingCanvas.DefaultBrushSize),
             VerticalAlignment = VerticalAlignment.Center,
             CustomMinimumSize = new Vector2(92f, 0f)
         };
@@ -833,9 +817,7 @@ public partial class DrawingScreen : Control
             Step = 1d,
             Value = DrawingCanvas.DefaultBrushSize,
             CustomMinimumSize = new Vector2(170f, 32f),
-            TooltipText = Localized(
-                "调整画笔粗细",
-                "Adjust brush size")
+            TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADJUST_BRUSH_SIZE")
         };
         _sizeSlider.ValueChanged += value =>
         {
@@ -849,26 +831,24 @@ public partial class DrawingScreen : Control
             {
                 _stampSize = size;
                 _canvas.SetStampSize(size);
-                _sizeLabel.Text = Localized($"印花：{size} px", $"Stamp: {size} px");
+                _sizeLabel.Text = FormatStampSize(size);
             }
             else
             {
                 _brushSize = size;
                 _canvas.SetBrushSize(size);
-                _sizeLabel.Text = Localized($"粗细：{size} px", $"Size: {size} px");
+                _sizeLabel.Text = FormatBrushSize(size);
             }
         };
         sizeRow.AddChild(_sizeSlider);
         if (_relicTarget != null)
         {
             Button outlineButton = CreateActionButton(
-                Localized("一键描边", "Auto Outline"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.AUTO_OUTLINE"),
                 new Color("24262C"),
                 new Color("969BA6"));
             outlineButton.CustomMinimumSize = new Vector2(108f, 36f);
-            outlineButton.TooltipText = Localized(
-                "在画作外侧添加一圈半透明黑色描边，可撤销",
-                "Add a semi-transparent black outline around the artwork; this can be undone");
+            outlineButton.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADD_A_SEMI_TRANSPARENT_BLACK_OUTLINE_AROUND");
             outlineButton.Pressed += _canvas.AddRelicOutline;
             sizeRow.AddChild(outlineButton);
         }
@@ -882,7 +862,7 @@ public partial class DrawingScreen : Control
 
         Label stampLabel = new()
         {
-            Text = Localized("角色印花：", "Character stamps:"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CHARACTER_STAMPS"),
             VerticalAlignment = VerticalAlignment.Center
         };
         stampRow.AddChild(stampLabel);
@@ -895,14 +875,10 @@ public partial class DrawingScreen : Control
         _status = new Label
         {
             Text = _historyEdit
-                ? Localized(
-                    "编辑完成后点击「确定」保存，或「取消」放弃修改。",
-                    "Confirm to save your edits, or Cancel to discard them.")
+                ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_TO_SAVE_YOUR_EDITS_OR_CANCEL")
                 : _isChooser
-                    ? Localized("完成后由你确认。", "Confirm the drawing when everyone is finished.")
-                    : Localized(
-                        "正在共同绘制，等待出牌者确认。",
-                        "Drawing together. Waiting for the player who played the card to confirm."),
+                    ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_THE_DRAWING_WHEN_EVERYONE_IS_FINISHED")
+                    : Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.DRAWING_TOGETHER_WAITING_FOR_THE_PLAYER_WHO"),
             Visible = false,
             MouseFilter = MouseFilterEnum.Ignore
         };
@@ -919,7 +895,7 @@ public partial class DrawingScreen : Control
         {
             // History editor buttons: 确定 / 取消 / 撤销.
             _guessButton = CreateActionButton(
-                Localized("确定", "Confirm"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM"),
                 new Color("176B72"),
                 new Color("75F0E6"),
                 primary: true);
@@ -930,47 +906,47 @@ public partial class DrawingScreen : Control
             buttons.AddChild(_guessButton);
 
             _cancelButton = CreateActionButton(
-                Localized("取消", "Cancel"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CANCEL"),
                 new Color("5B252B"),
                 new Color("E47A78"));
             _cancelButton.Pressed += OnHistoryEditCancelPressed;
             buttons.AddChild(_cancelButton);
 
             Button undo = CreateActionButton(
-                Localized("撤销", "Undo"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDO"),
                 new Color("253D58"),
                 new Color("79BCE8"));
-            undo.TooltipText = Localized(
-                $"撤回最近一次操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
-                $"Undo the most recent action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained");
+            undo.TooltipText = ModText.Format(
+                "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDO_RECENT_ACTION_TOOLTIP",
+                ("MaxUndoSteps", MaxUndoSteps));
             undo.Pressed += RequestUndo;
             buttons.AddChild(undo);
         }
         else
         {
             Button clear = CreateActionButton(
-                Localized("清空", "Clear"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CLEAR"),
                 new Color("5B252B"),
                 new Color("E47A78"));
             clear.Pressed += _canvas.ClearCanvas;
             buttons.AddChild(clear);
 
             Button undo = CreateActionButton(
-                Localized("撤回", "Undo"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDO_39FC7212"),
                 new Color("253D58"),
                 new Color("79BCE8"));
             undo.TooltipText = DrawingNetSync.IsMultiplayer
-                ? Localized(
-                    $"撤回你自己的最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
-                    $"Undo your most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained")
-                : Localized(
-                    $"撤回最近一次完整操作（Ctrl+Z；Ctrl+Y 重做），最多保留 {MaxUndoSteps} 步",
-                    $"Undo the most recent complete action (Ctrl+Z; Ctrl+Y to redo); up to {MaxUndoSteps} actions are retained");
+                ? ModText.Format(
+                    "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDO_YOUR_RECENT_ACTION_TOOLTIP",
+                    ("MaxUndoSteps", MaxUndoSteps))
+                : ModText.Format(
+                    "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDO_RECENT_COMPLETE_ACTION_TOOLTIP",
+                    ("MaxUndoSteps", MaxUndoSteps));
             undo.Pressed += RequestUndo;
             buttons.AddChild(undo);
 
             _guessButton = CreateActionButton(
-                Localized("确认", "Confirm"),
+                Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_04A21221"),
                 new Color("176B72"),
                 new Color("75F0E6"),
                 primary: true);
@@ -982,13 +958,11 @@ public partial class DrawingScreen : Control
             if (_relicTarget != null)
             {
                 _relicSkipButton = CreateActionButton(
-                    Localized("跳过创作", "Skip Creation"),
+                    Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.SKIP_CREATION"),
                     new Color("4A3B24"),
                     new Color("D5AA62"));
                 _relicSkipButton.Visible = false;
-                _relicSkipButton.TooltipText = Localized(
-                    "放弃本次绘画，使用遗物原来的名称和贴图",
-                    "Abandon this drawing and use the relic's original name and artwork");
+                _relicSkipButton.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ABANDON_THIS_DRAWING_AND_USE_THE_RELIC");
                 _relicSkipButton.Pressed += OpenRelicSkipConfirmation;
                 buttons.AddChild(_relicSkipButton);
             }
@@ -1071,7 +1045,7 @@ public partial class DrawingScreen : Control
         {
             Name = "PeekButton",
             Text = string.Empty,
-            TooltipText = _options?.PeekTooltip ?? Localized("观察战局", "View combat"),
+            TooltipText = _options?.PeekTooltip ?? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.VIEW_COMBAT"),
             FocusMode = FocusModeEnum.None,
             MouseFilter = MouseFilterEnum.Stop
         };
@@ -1177,8 +1151,8 @@ public partial class DrawingScreen : Control
             _tracingPanel.Visible = !peeking;
         }
         _peekButton.TooltipText = peeking
-            ? Localized("返回绘画", "Return to drawing")
-            : _options?.PeekTooltip ?? Localized("观察战局", "View combat");
+            ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.RETURN_TO_DRAWING")
+            : _options?.PeekTooltip ?? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.VIEW_COMBAT");
         _peekIcon.SetActive(peeking);
         AnimatePeekButton();
     }
@@ -1227,9 +1201,7 @@ public partial class DrawingScreen : Control
         if (TracingReferenceEnabled)
         {
             _canvasModeButton.Disabled = _finishing || _tracingLibraryOpen;
-            _canvasModeButton.TooltipText = Localized(
-                "选择参考卡牌",
-                "Choose a reference card");
+            _canvasModeButton.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CHOOSE_A_REFERENCE_CARD");
             UpdateTracingPanelLayout();
             return;
         }
@@ -1239,7 +1211,7 @@ public partial class DrawingScreen : Control
                              !_canvasModeLocked &&
                              !_finishing;
         _canvasModeButton.Disabled = !switchAllowed;
-        _canvasModeButton.TooltipText = Localized("切换画布", "Switch canvas");
+        _canvasModeButton.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.SWITCH_CANVAS");
         _canvasModeIcon?.SetMode(_canvasMode, !switchAllowed);
     }
 
@@ -1351,7 +1323,7 @@ public partial class DrawingScreen : Control
         catch (Exception ex)
         {
             Entry.Logger.Error($"[DrawAndGuessMod] Guess failed: {ex}");
-            _status.Text = Localized("识别失败：", "Recognition failed: ") + ex.Message;
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.RECOGNITION_FAILED") + ex.Message;
             _guessButton.Disabled = false;
             _finishing = false;
             RefreshCanvasModeButton();
@@ -1440,9 +1412,7 @@ public partial class DrawingScreen : Control
         {
             Text = string.Empty,
             TooltipText = colorName + (_relicTarget == null
-                ? Localized(
-                    "\n右键：设为右键颜色",
-                    "\nRight-click: set as the right mouse button color")
+                ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.RIGHT_CLICK_SET_AS_THE_RIGHT_MOUSE")
                 : string.Empty),
             CustomMinimumSize = new Vector2(30f, ColorButtonHeight),
             FocusMode = FocusModeEnum.None
@@ -1643,19 +1613,17 @@ public partial class DrawingScreen : Control
                 Color color = _customColors[index];
                 button.Disabled = false;
                 button.TooltipText =
-                    Localized("自定义 #", "Custom #") +
+                    Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CUSTOM") +
                     color.ToHtml(true).ToUpperInvariant() +
                     (_relicTarget == null
-                        ? Localized(
-                            "\n右键：设为右键颜色",
-                            "\nRight-click: set as the right mouse button color")
+                        ? Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.RIGHT_CLICK_SET_AS_THE_RIGHT_MOUSE")
                         : string.Empty);
                 ApplyColorButtonStyle(button, color);
             }
             else
             {
                 button.Disabled = true;
-                button.TooltipText = Localized("空白自定义颜色", "Empty custom color slot");
+                button.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.EMPTY_CUSTOM_COLOR_SLOT");
                 ApplyColorButtonStyle(button, new Color("2B3038"));
             }
         }
@@ -1704,7 +1672,7 @@ public partial class DrawingScreen : Control
 
         Label title = new()
         {
-            Text = Localized("添加自定义颜色", "Add Custom Color"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADD_CUSTOM_COLOR"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 24);
@@ -1766,7 +1734,7 @@ public partial class DrawingScreen : Control
         rgbColumn.AddChild(spacer);
         Button cancel = new()
         {
-            Text = Localized("取消", "Cancel"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CANCEL"),
             CustomMinimumSize = new Vector2(150f, 50f)
         };
         ApplyColorPickerCancelStyle(cancel);
@@ -1774,7 +1742,7 @@ public partial class DrawingScreen : Control
         rgbColumn.AddChild(cancel);
         _confirmColorButton = new Button
         {
-            Text = Localized("确认添加", "Add Color"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADD_COLOR"),
             CustomMinimumSize = new Vector2(150f, 50f)
         };
         UpdateConfirmColorButton(_leftColor);
@@ -1901,9 +1869,9 @@ public partial class DrawingScreen : Control
         Color foreground = lightColor ? new Color("171B20") : new Color("FFF8E8");
         Color hoverFill = lightColor ? normalized.Darkened(0.08f) : normalized.Lightened(0.10f);
         Color pressedFill = lightColor ? normalized.Darkened(0.16f) : normalized.Lightened(0.18f);
-        _confirmColorButton.TooltipText = Localized(
-            $"添加颜色 #{normalized.ToHtml(true).ToUpperInvariant()}",
-            $"Add color #{normalized.ToHtml(true).ToUpperInvariant()}");
+        _confirmColorButton.TooltipText = ModText.Format(
+            "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADD_COLOR_HEX",
+            ("Hex", normalized.ToHtml(true).ToUpperInvariant()));
         _confirmColorButton.AddThemeFontSizeOverride("font_size", 19);
         _confirmColorButton.AddThemeColorOverride("font_color", foreground);
         _confirmColorButton.AddThemeColorOverride("font_hover_color", foreground);
@@ -2006,20 +1974,16 @@ public partial class DrawingScreen : Control
             _sizeSlider.MinValue = DrawingCanvas.MinStampSize;
             _sizeSlider.MaxValue = DrawingCanvas.MaxStampSize;
             _sizeSlider.Value = _stampSize;
-            _sizeSlider.TooltipText = Localized(
-                "调整角色印花大小",
-                "Adjust character stamp size");
-            _sizeLabel.Text = Localized($"印花：{_stampSize} px", $"Stamp: {_stampSize} px");
+            _sizeSlider.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADJUST_CHARACTER_STAMP_SIZE");
+            _sizeLabel.Text = FormatStampSize(_stampSize);
         }
         else
         {
             _sizeSlider.MinValue = DrawingCanvas.MinBrushSize;
             _sizeSlider.MaxValue = DrawingCanvas.MaxBrushSize;
             _sizeSlider.Value = _brushSize;
-            _sizeSlider.TooltipText = Localized(
-                "调整画笔粗细",
-                "Adjust brush size");
-            _sizeLabel.Text = Localized($"粗细：{_brushSize} px", $"Size: {_brushSize} px");
+            _sizeSlider.TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ADJUST_BRUSH_SIZE");
+            _sizeLabel.Text = FormatBrushSize(_brushSize);
         }
         _syncingSizeSlider = false;
     }
@@ -2045,9 +2009,9 @@ public partial class DrawingScreen : Control
             }
             else
             {
-                _status.Text = Localized(
-                    "无法读取角色头像：" + characterName,
-                    "Could not load character portrait: " + characterName);
+                _status.Text = ModText.Format(
+                    "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.COULD_NOT_LOAD_CHARACTER_PORTRAIT",
+                    ("Character", characterName));
             }
         };
         tools.AddChild(button);
@@ -2222,9 +2186,7 @@ public partial class DrawingScreen : Control
         {
             _pendingCommands.Clear();
             _pendingMultiplayerOperations.Clear();
-            _status.Text = Localized(
-                "画布已同步。",
-                "The canvas has been synchronized.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.THE_CANVAS_HAS_BEEN_SYNCHRONIZED");
             return;
         }
 
@@ -2419,9 +2381,7 @@ public partial class DrawingScreen : Control
             }
 
             DrawingNetSync.SendUndoRequest(_owner.NetId, _sessionId);
-            _status.Text = Localized(
-                "已请求撤回你自己的最近一次操作。",
-                "Requested an undo of your most recent action.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REQUESTED_AN_UNDO_OF_YOUR_MOST_RECENT");
             return;
         }
 
@@ -2432,9 +2392,7 @@ public partial class DrawingScreen : Control
         }
 
         DrawingNetSync.SendUndoRequest(_owner.NetId, _sessionId);
-        _status.Text = Localized(
-            "已请求出牌者撤回最近一次操作。",
-            "Asked the player who played the card to undo the most recent action.");
+        _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ASKED_THE_PLAYER_WHO_PLAYED_THE_CARD");
     }
 
     private void RequestRedo()
@@ -2454,9 +2412,7 @@ public partial class DrawingScreen : Control
             }
 
             DrawingNetSync.SendRedoRequest(_owner.NetId, _sessionId);
-            _status.Text = Localized(
-                "已请求重做你自己的最近一次撤回操作。",
-                "Requested a redo of your most recently undone action.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REQUESTED_A_REDO_OF_YOUR_MOST_RECENTLY");
             return;
         }
 
@@ -2483,9 +2439,7 @@ public partial class DrawingScreen : Control
         LinkedListNode<DrawingOperationKey>? last = _undoableOperations.Last;
         if (last == null)
         {
-            _status.Text = Localized(
-                "没有可以撤回的操作。",
-                "There are no actions to undo.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.THERE_ARE_NO_ACTIONS_TO_UNDO");
             return;
         }
 
@@ -2507,9 +2461,9 @@ public partial class DrawingScreen : Control
         RefreshCanvasModeButton();
         _historyEpoch++;
         _pendingCommands.Clear();
-        _status.Text = Localized(
-            $"已撤回最近一次操作（剩余 {_undoableOperations.Count} 步可撤回）。",
-            $"Undid the most recent action ({_undoableOperations.Count} undoable actions remain).");
+        _status.Text = ModText.Format(
+            "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDID_RECENT_ACTION",
+            ("Remaining", _undoableOperations.Count));
         Entry.Logger.Debug($"[DrawAndGuessMod] Undo requested by {requesterId}: sender={operation.SenderId}, operation={operation.OperationId}, epoch={_historyEpoch}.");
         if (UsesCollaborativeNetworking)
         {
@@ -2542,9 +2496,7 @@ public partial class DrawingScreen : Control
 
         if (!_redoableOperations.TryPop(out DrawingOperationKey operation))
         {
-            _status.Text = Localized(
-                "没有可以重做的操作。",
-                "There are no actions to redo.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.THERE_ARE_NO_ACTIONS_TO_REDO");
             return;
         }
 
@@ -2565,9 +2517,9 @@ public partial class DrawingScreen : Control
             _historyEpoch = 1u;
         }
         _pendingCommands.Clear();
-        _status.Text = Localized(
-            $"已重做最近一次撤回操作（剩余 {_redoableOperations.Count} 步可重做）。",
-            $"Redid the most recently undone action ({_redoableOperations.Count} redoable actions remain).");
+        _status.Text = ModText.Format(
+            "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REDID_RECENT_ACTION",
+            ("Remaining", _redoableOperations.Count));
         Entry.Logger.Debug(
             $"[DrawAndGuessMod] Redo requested by {requesterId}: sender={operation.SenderId}, " +
             $"operation={operation.OperationId}, epoch={_historyEpoch}.");
@@ -2635,9 +2587,7 @@ public partial class DrawingScreen : Control
                 requesterId,
                 out CollaborativeDrawingHistory<DrawingPixelPatch>.Entry operation))
         {
-            _status.Text = Localized(
-                "你没有可以撤回的操作。",
-                "You have no actions to undo.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.YOU_HAVE_NO_ACTIONS_TO_UNDO");
             return;
         }
 
@@ -2653,9 +2603,7 @@ public partial class DrawingScreen : Control
             _historyEpoch = 1u;
         }
         _canvasStateSequence++;
-        _status.Text = Localized(
-            "已撤回你自己的最近一次操作。",
-            "Undid your most recent action.");
+        _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNDID_YOUR_MOST_RECENT_ACTION");
         Entry.Logger.Debug(
             $"[DrawAndGuessMod] Authoritative multiplayer undo: requester={requesterId}, " +
             $"operation={operation.Operation.OperationId}, sequence={operation.Sequence}, epoch={_historyEpoch}.");
@@ -2668,9 +2616,7 @@ public partial class DrawingScreen : Control
                 requesterId,
                 out CollaborativeDrawingHistory<DrawingPixelPatch>.Entry operation))
         {
-            _status.Text = Localized(
-                "你没有可以重做的操作。",
-                "You have no actions to redo.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.YOU_HAVE_NO_ACTIONS_TO_REDO");
             return;
         }
 
@@ -2686,9 +2632,7 @@ public partial class DrawingScreen : Control
             _historyEpoch = 1u;
         }
         _canvasStateSequence++;
-        _status.Text = Localized(
-            "已重做你自己的最近一次撤回操作。",
-            "Redid your most recently undone action.");
+        _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REDID_YOUR_MOST_RECENTLY_UNDONE_ACTION");
         Entry.Logger.Debug(
             $"[DrawAndGuessMod] Authoritative multiplayer redo: requester={requesterId}, " +
             $"operation={operation.Operation.OperationId}, sequence={operation.Sequence}, epoch={_historyEpoch}.");
@@ -2954,7 +2898,7 @@ public partial class DrawingScreen : Control
         _relicWorkTitleLabel = new Label
         {
             Text = _relicTarget?.Title.GetFormattedText() ??
-                   Localized("无题作品", "Untitled Work"),
+                   Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNTITLED_WORK"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -3016,7 +2960,7 @@ public partial class DrawingScreen : Control
 
         Label title = new()
         {
-            Text = Localized("为作品命名", "Title Your Work"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.TITLE_YOUR_WORK"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 26);
@@ -3028,9 +2972,7 @@ public partial class DrawingScreen : Control
             MaxLength = 32,
             CustomMinimumSize = new Vector2(440f, 48f),
             Alignment = HorizontalAlignment.Center,
-            TooltipText = Localized(
-                "鉴宝时只会显示这个名字；你可以用它伪装遗物。",
-                "Only this title is shown during appraisal; you may use it to disguise the relic.")
+            TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.ONLY_THIS_TITLE_IS_SHOWN_DURING_APPRAISAL")
         };
         _relicWorkTitleInput.AddThemeFontSizeOverride("font_size", 26);
         _relicWorkTitleInput.TextChanged += _ => UpdateRelicAssessmentState();
@@ -3038,7 +2980,7 @@ public partial class DrawingScreen : Control
         content.AddChild(_relicWorkTitleInput);
 
         Button confirm = CreateActionButton(
-            Localized("确认并提交", "Confirm and Submit"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_AND_SUBMIT"),
             new Color("176B72"),
             new Color("75F0E6"),
             primary: true);
@@ -3110,7 +3052,7 @@ public partial class DrawingScreen : Control
 
         Label title = new()
         {
-            Text = Localized("跳过创作？", "Skip Creation?"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.SKIP_CREATION_47006B69"),
             HorizontalAlignment = HorizontalAlignment.Center
         };
         title.AddThemeFontSizeOverride("font_size", 28);
@@ -3119,9 +3061,9 @@ public partial class DrawingScreen : Control
         string relicName = _relicTarget?.Title.GetFormattedText() ?? string.Empty;
         Label body = new()
         {
-            Text = Localized(
-                $"确认后将使用「{relicName}」原来的名称和贴图，本次不会保存为历史画作。",
-                $"The original name and artwork for \"{relicName}\" will be used, and this attempt will not be saved to drawing history."),
+            Text = ModText.Format(
+                "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_SKIP_RELIC",
+                ("Relic", relicName)),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
@@ -3136,7 +3078,7 @@ public partial class DrawingScreen : Control
         content.AddChild(buttons);
 
         Button cancel = CreateActionButton(
-            Localized("继续作画", "Keep Drawing"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.KEEP_DRAWING"),
             new Color("253D58"),
             new Color("79BCE8"));
         cancel.CustomMinimumSize = new Vector2(160f, 46f);
@@ -3144,7 +3086,7 @@ public partial class DrawingScreen : Control
         buttons.AddChild(cancel);
 
         Button confirm = CreateActionButton(
-            Localized("确认跳过", "Confirm Skip"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CONFIRM_SKIP"),
             new Color("5B252B"),
             new Color("E47A78"),
             primary: true);
@@ -3228,9 +3170,7 @@ public partial class DrawingScreen : Control
                 _relicSkipConfirmationOverlay.Visible = false;
             }
             UpdateRelicAssessmentState();
-            _status.Text = Localized(
-                "无法读取遗物原图，请继续作画。",
-                "The original relic artwork could not be loaded. Please continue drawing.");
+            _status.Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.THE_ORIGINAL_RELIC_ARTWORK_COULD_NOT_BE");
         }
     }
 
@@ -3355,7 +3295,7 @@ public partial class DrawingScreen : Control
 
         Label waiting = new()
         {
-            Text = Localized("等待其他玩家", "Waiting for other players"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.WAITING_FOR_OTHER_PLAYERS"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -3374,7 +3314,7 @@ public partial class DrawingScreen : Control
         string? title = _relicWorkTitleLabel?.Text;
         return string.IsNullOrWhiteSpace(title)
             ? _relicTarget?.Title.GetFormattedText() ??
-              Localized("无题作品", "Untitled Work")
+              Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.UNTITLED_WORK")
             : title.Trim();
     }
 
@@ -3465,7 +3405,7 @@ public partial class DrawingScreen : Control
         {
             Name = "TracingReferenceAddButton",
             Text = "+",
-            TooltipText = Localized("选择参考卡牌", "Choose a reference card"),
+            TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CHOOSE_A_REFERENCE_CARD"),
             FocusMode = FocusModeEnum.None,
             MouseFilter = MouseFilterEnum.Stop
         };
@@ -3484,15 +3424,13 @@ public partial class DrawingScreen : Control
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
             MouseFilter = MouseFilterEnum.Stop,
-            TooltipText = Localized(
-                "鼠标中键点击参考图取色，并设为左键颜色",
-                "Middle-click the reference to sample a color for LMB")
+            TooltipText = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.MIDDLE_CLICK_THE_REFERENCE_TO_SAMPLE_A")
         };
         _tracingReference.GuiInput += OnTracingReferenceInput;
         panel.AddChild(_tracingReference);
 
         _tracingChangeButton = CreateActionButton(
-            Localized("更换", "Change"),
+            Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CHANGE"),
             new Color("253D58"),
             new Color("79BCE8"));
         _tracingChangeButton.Visible = false;
@@ -3637,12 +3575,10 @@ public partial class DrawingScreen : Control
         {
             _tracingChangeButton.Visible = true;
         }
-        _tracingReference.TooltipText = Localized(
-                $"参考卡牌：{card.Title}",
-                $"Reference: {card.Title}") +
-            "\n" + Localized(
-                "鼠标中键取色，并设为左键颜色",
-                "Middle-click to sample a color for LMB");
+        _tracingReference.TooltipText = ModText.Format(
+                "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REFERENCE_CARD",
+                ("Card", card.Title)) +
+            "\n" + Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.MIDDLE_CLICK_TO_SAMPLE_A_COLOR_FOR");
         _ = RefreshTracingCandidateWarningAsync(card, ++_tracingSelectionVersion);
     }
 
@@ -3670,9 +3606,9 @@ public partial class DrawingScreen : Control
                 _owner,
                 _options?.CandidateScope ?? GuessCandidateScope.Default,
                 GetExcludedCandidateCardIds());
-            _tracingCandidateWarning.Text = Localized(
-                $"“{card.Title}”不在当前候选池中，瓦库不会猜到它。",
-                $"“{card.Title}” is outside the current candidate pool, so VAKUU cannot guess it.");
+            _tracingCandidateWarning.Text = ModText.Format(
+                "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REFERENCE_OUTSIDE_CANDIDATE_POOL",
+                ("Card", card.Title));
             _tracingCandidateWarning.Visible = !isCandidate;
         }
         catch (Exception ex)
@@ -3804,9 +3740,7 @@ public partial class DrawingScreen : Control
 
         Label targetLabel = new()
         {
-            Text = Localized(
-                "参考图配色已提取至下方",
-                "Reference colors are available below"),
+            Text = Localized("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.REFERENCE_COLORS_ARE_AVAILABLE_BELOW"),
             HorizontalAlignment = HorizontalAlignment.Center,
             AutowrapMode = TextServer.AutowrapMode.WordSmart
         };
@@ -4078,9 +4012,23 @@ public partial class DrawingScreen : Control
         };
     }
 
-    private static string Localized(string simplifiedChinese, string english)
+    private static string Localized(string key)
     {
-        return ModText.Get(simplifiedChinese, english);
+        return ModText.Get(key);
+    }
+
+    private static string FormatBrushSize(int size)
+    {
+        return ModText.Format(
+            "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.BRUSH_SIZE",
+            ("Size", size));
+    }
+
+    private static string FormatStampSize(int size)
+    {
+        return ModText.Format(
+            "DRAW_AND_GUESS_MOD.DRAWING_SCREEN.STAMP_SIZE",
+            ("Size", size));
     }
 
     private sealed partial class CanvasModeIconControl : Control

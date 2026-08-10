@@ -111,13 +111,13 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         content.AddThemeConstantOverride("separation", 5);
         margin.AddChild(content);
 
-        Label title = CreateLabel(Text("作画设置", "Drawing Settings"), 34, FontType.Bold);
+        Label title = CreateLabel(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.DRAWING_SETTINGS"), 34, FontType.Bold);
         title.HorizontalAlignment = HorizontalAlignment.Center;
         content.AddChild(title);
 
         string subtitleText = _isHost
-            ? Text("房主设置将应用并同步给所有玩家。", "Changes are applied and synchronized to all players.")
-            : Text("当前设置由房主控制，本地仅可查看。", "The host controls these settings. This view is read-only.");
+            ? Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.CHANGES_ARE_APPLIED_AND_SYNCHRONIZED_TO_ALL")
+            : Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.THE_HOST_CONTROLS_THESE_SETTINGS_THIS_VIEW");
         Label subtitle = CreateLabel(subtitleText, 20);
         subtitle.HorizontalAlignment = HorizontalAlignment.Center;
         subtitle.AddThemeColorOverride("font_color", new Color("B9C2C8"));
@@ -128,9 +128,7 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         {
             FocusMode = FocusModeEnum.All,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            TooltipText = Text(
-                "关闭后，本局不会生成“空白”、相关事件以及绘本遗物；如果涅奥当前给出了死亡绘本，只会替换这一项。",
-                "Disable this to remove Blank, related events, and sketchbook relics from this run. If Death Sketchbook is currently offered by Neow, only that choice will be replaced.")
+            TooltipText = Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.DISABLE_THIS_TO_REMOVE_BLANK_RELATED_EVENTS")
         };
         _gameplayEnabledToggle.AddThemeFontSizeOverride("font_size", 21);
         ApplyGameFont(_gameplayEnabledToggle);
@@ -140,44 +138,42 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
             SetRuleControlsEditable(_isHost && enabled);
         };
         content.AddChild(CreateSettingRow(
-            Text("开启“你画瓦猜”玩法", "Enable Draw & Guess Gameplay"),
+            Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.ENABLE_DRAW_GUESS_GAMEPLAY"),
             _gameplayEnabledToggle));
 
         _initialBlankOption = CreateOptionButton();
-        AddOption(_initialBlankOption, Text("不获得", "None"), (int)InitialBlankMode.None);
-        AddOption(_initialBlankOption, Text("随机一名玩家", "One Random Player"), (int)InitialBlankMode.RandomPlayer);
-        AddOption(_initialBlankOption, Text("全体玩家", "All Players"), (int)InitialBlankMode.AllPlayers);
-        content.AddChild(CreateSettingRow(Text("初始空白", "Starting Blank"), _initialBlankOption));
+        AddOption(_initialBlankOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.NONE"), (int)InitialBlankMode.None);
+        AddOption(_initialBlankOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.ONE_RANDOM_PLAYER"), (int)InitialBlankMode.RandomPlayer);
+        AddOption(_initialBlankOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.ALL_PLAYERS"), (int)InitialBlankMode.AllPlayers);
+        content.AddChild(CreateSettingRow(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.STARTING_BLANK"), _initialBlankOption));
 
         _drawingTimeOption = CreateOptionButton();
-        AddOption(_drawingTimeOption, Text("无限制", "Unlimited"), 0);
-        AddOption(_drawingTimeOption, Text("30 秒", "30 Seconds"), 30);
-        AddOption(_drawingTimeOption, Text("60 秒", "60 Seconds"), 60);
-        AddOption(_drawingTimeOption, Text("90 秒", "90 Seconds"), 90);
-        AddOption(_drawingTimeOption, Text("120 秒", "120 Seconds"), 120);
-        content.AddChild(CreateSettingRow(Text("作画时间", "Drawing Time"), _drawingTimeOption));
+        AddOption(_drawingTimeOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.UNLIMITED"), 0);
+        AddOption(_drawingTimeOption, Text("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.30_SECONDS"), 30);
+        AddOption(_drawingTimeOption, Text("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.60_SECONDS"), 60);
+        AddOption(_drawingTimeOption, Text("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.90_SECONDS"), 90);
+        AddOption(_drawingTimeOption, Text("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.120_SECONDS"), 120);
+        content.AddChild(CreateSettingRow(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.DRAWING_TIME"), _drawingTimeOption));
 
         _noRepeatCheck = CreateToggle();
         _noRepeatCheck.Toggled += _ => RefreshToggleText(_noRepeatCheck);
-        content.AddChild(CreateSettingRow(Text("绘画不重复", "No Repeat Cards"), _noRepeatCheck));
+        content.AddChild(CreateSettingRow(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.NO_REPEAT_CARDS"), _noRepeatCheck));
 
         _skipDeckCheck = CreateToggle();
         _skipDeckCheck.Toggled += _ => RefreshToggleText(_skipDeckCheck);
-        content.AddChild(CreateSettingRow(Text("绘画不加入卡组", "Do Not Add Drawn Cards to Deck"), _skipDeckCheck));
+        content.AddChild(CreateSettingRow(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.DO_NOT_ADD_DRAWN_CARDS_TO_DECK"), _skipDeckCheck));
 
         _cardRestrictionOption = CreateOptionButton();
-        AddOption(_cardRestrictionOption, Text("无限制", "Unlimited"), (int)DrawingCardRestriction.None);
-        AddOption(_cardRestrictionOption, Text("不能画出先古牌", "No Ancient Cards"), (int)DrawingCardRestriction.ExcludeAncient);
-        AddOption(_cardRestrictionOption, Text("只能画出自己职业的卡牌", "Own Character Cards Only"), (int)DrawingCardRestriction.CurrentCharacter);
-        content.AddChild(CreateSettingRow(Text("画图限制", "Card Restriction"), _cardRestrictionOption));
+        AddOption(_cardRestrictionOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.UNLIMITED"), (int)DrawingCardRestriction.None);
+        AddOption(_cardRestrictionOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.NO_ANCIENT_CARDS"), (int)DrawingCardRestriction.ExcludeAncient);
+        AddOption(_cardRestrictionOption, Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.OWN_CHARACTER_CARDS_ONLY"), (int)DrawingCardRestriction.CurrentCharacter);
+        content.AddChild(CreateSettingRow(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.CARD_RESTRICTION"), _cardRestrictionOption));
 
         _treasureRoomRelicDrawingCheck = CreateToggle();
-        _treasureRoomRelicDrawingCheck.TooltipText = Text(
-            "多人模式下，进入宝箱房后每名玩家会绘制一个由原版宝箱逻辑生成的遗物；全部提交后自动开箱。开启时不会出现“鉴宝大会”事件。",
-            "In multiplayer, each player draws a relic generated by the vanilla chest logic. The chest opens after every drawing is submitted, and Relic Appraisal Fair will not appear while this is enabled.");
+        _treasureRoomRelicDrawingCheck.TooltipText = Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.IN_MULTIPLAYER_EACH_PLAYER_DRAWS_A_RELIC");
         _treasureRoomRelicDrawingCheck.Toggled += _ => RefreshToggleText(_treasureRoomRelicDrawingCheck);
         HBoxContainer treasureRoomRelicDrawingRow = CreateSettingRow(
-            Text("宝箱房画遗物", "Draw Relics in Treasure Rooms"),
+            Text("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DRAW_RELICS_IN_TREASURE_ROOMS"),
             _treasureRoomRelicDrawingCheck);
         treasureRoomRelicDrawingRow.Visible = _runState.Players.Count > 1;
         content.AddChild(treasureRoomRelicDrawingRow);
@@ -186,10 +182,10 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
 
         content.AddChild(new HSeparator());
         HBoxContainer precacheHeader = new();
-        Label precacheTitle = CreateLabel(Text("卡牌预缓存", "Card Pre-cache"), 22, FontType.Bold);
+        Label precacheTitle = CreateLabel(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.CARD_PRE_CACHE"), 22, FontType.Bold);
         precacheTitle.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         precacheHeader.AddChild(precacheTitle);
-        _precacheButton = CreateButton(Text("开始预缓存", "Start Pre-cache"), false);
+        _precacheButton = CreateButton(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.START_PRE_CACHE"), false);
         _precacheButton.CustomMinimumSize = new Vector2(160f, 42f);
         _precacheButton.Pressed += StartPrecache;
         precacheHeader.AddChild(_precacheButton);
@@ -240,10 +236,10 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         HBoxContainer actions = new();
         actions.Alignment = BoxContainer.AlignmentMode.End;
         actions.AddThemeConstantOverride("separation", 12);
-        _closeButton = CreateButton(_isHost ? Text("取消", "Cancel") : Text("关闭", "Close"), false);
+        _closeButton = CreateButton(_isHost ? Text("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.CANCEL") : Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.CLOSE"), false);
         _closeButton.Pressed += Close;
         actions.AddChild(_closeButton);
-        _applyButton = CreateButton(Text("应用", "Apply"), true);
+        _applyButton = CreateButton(Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.APPLY"), true);
         _applyButton.Pressed += Apply;
         _applyButton.Visible = _isHost;
         actions.AddChild(_applyButton);
@@ -301,7 +297,7 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         catch (Exception ex)
         {
             Entry.Logger.Error($"[DrawAndGuessMod] Failed to apply Neow drawing settings: {ex}");
-            _statusLabel.Text = Text("应用失败：", "Failed to apply: ") + ex.Message;
+            _statusLabel.Text = Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.FAILED_TO_APPLY") + ex.Message;
         }
     }
 
@@ -313,8 +309,8 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
     private static void RefreshToggleText(CheckButton toggle)
     {
         toggle.Text = toggle.ButtonPressed
-            ? Text("开启", "Enabled")
-            : Text("关闭", "Disabled");
+            ? Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.ENABLED")
+            : Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.DISABLED");
     }
 
     private void StartPrecache()
@@ -333,13 +329,13 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         bool running = DrawAndGuessSettings.IsPretraining;
         _precacheButton.Disabled = running;
         _precacheButton.Text = running
-            ? Text("正在预缓存…", "Pre-caching...")
-            : Text("开始预缓存", "Start Pre-cache");
+            ? Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.PRE_CACHING")
+            : Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.START_PRE_CACHE");
         _precacheProgressBar.Value = DrawAndGuessSettings.PretrainingProgress;
         _precacheThumbnail.Texture = DrawAndGuessSettings.CurrentPretrainingThumbnail;
         _precacheThumbnail.Visible = running && _precacheThumbnail.Texture != null;
         _precacheProgressLabel.Text = string.IsNullOrWhiteSpace(DrawAndGuessSettings.CurrentPretrainingStatus)
-            ? Text("尚未开始预缓存。", "Pre-cache has not started yet.")
+            ? Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.PRE_CACHE_HAS_NOT_STARTED_YET")
             : DrawAndGuessSettings.CurrentPretrainingStatus;
     }
 
@@ -360,7 +356,7 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
             LoadCurrentValues();
             if (!_isHost)
             {
-                _statusLabel.Text = Text("房主已更新设置。", "The host updated the settings.");
+                _statusLabel.Text = Text("DRAW_AND_GUESS_MOD.NEOW_RUN_SETTINGS_SCREEN.THE_HOST_UPDATED_THE_SETTINGS");
             }
         }).CallDeferred();
     }
@@ -517,8 +513,8 @@ internal sealed partial class NeowRunSettingsScreen : Control, IScreenContext
         NModalContainer.Instance?.Clear();
     }
 
-    private static string Text(string simplifiedChinese, string english)
+    private static string Text(string key)
     {
-        return ModText.Get(simplifiedChinese, english);
+        return ModText.Get(key);
     }
 }

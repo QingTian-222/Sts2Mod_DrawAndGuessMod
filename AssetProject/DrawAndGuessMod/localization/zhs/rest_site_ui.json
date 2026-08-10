@@ -1,0 +1,4 @@
+{
+  "OPTION_DRAW_AND_GUESS_DEATH_NOTE.description": "绘制一张卡面。它会从本局游戏中[red]彻底消失[/red]。（无论它在哪里。）",
+  "OPTION_DRAW_AND_GUESS_DEATH_NOTE.name": "绘画"
+}

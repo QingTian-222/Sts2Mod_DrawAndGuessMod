@@ -106,7 +106,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
 
         string targetDisplayName = GetChallengeDisplayName(target);
         SetStringVar("Target", targetDisplayName);
-        SetStringVar("Chosen", ModText.Get("无", "None"));
+        SetStringVar("Chosen", ModText.Get("DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.NONE"));
         DynamicVars["Reward"].BaseValue = 0;
 
         _challengeNumber++;
@@ -114,18 +114,14 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
             $"[DrawAndGuessMod] Gallery challenge {_challengeNumber} started for {EventOwner.NetId}: " +
             $"mode={_mode}, target={target.Id.Entry}, session={sessionId}.");
         DrawingScreenOptions screenOptions = new(
-            ModText.Get(
-                $"目标：{targetDisplayName}",
-                $"Target: {targetDisplayName}"),
+            ModText.Format(
+                "DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.TARGET",
+                ("Target", targetDisplayName)),
             _mode == ChallengeMode.Timed
-                ? ModText.Get(
-                    "在倒计时结束前完成画作。确认后，从瓦库猜出的三张牌中选出目标牌。",
-                    "Finish before time runs out, then choose the target from VAKUU's three guesses.")
-                : ModText.Get(
-                    "完成画作后，从瓦库猜出的三张牌中选出目标牌。",
-                    "Finish the drawing, then choose the target from VAKUU's three guesses."),
+                ? ModText.Get("DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.FINISH_BEFORE_TIME_RUNS_OUT_THEN_CHOOSE")
+                : ModText.Get("DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.FINISH_THE_DRAWING_THEN_CHOOSE_THE_TARGET"),
             _mode == ChallengeMode.Timed ? TimedChallengeSeconds : null,
-            ModText.Get("查看事件", "View event"));
+            ModText.Get("DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.VIEW_EVENT"));
 
         screenOptions = screenOptions with
         {
@@ -295,15 +291,9 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
     {
         return _timedSuccessCount switch
         {
-            1 => ModText.Get(
-                "[jitter]瓦库嘴角微微上扬，或许多画一些能有意想不到的奖励。[/jitter]",
-                "[jitter]The corner of VAKUU's mouth lifts slightly. Perhaps drawing a few more will bring an unexpected reward.[/jitter]"),
-            2 => ModText.Get(
-                "[jitter]瓦库有些期待了。[/jitter]",
-                "[jitter]VAKUU is beginning to look expectant.[/jitter]"),
-            _ => ModText.Get(
-                "[jitter]瓦库很满意。[/jitter]",
-                "[jitter]VAKUU is very pleased.[/jitter]")
+            1 => ModText.Get("DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.THE_CORNER_OF_VAKUU_S_MOUTH_LIFTS"),
+            2 => ModText.Get("DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.VAKUU_IS_BEGINNING_TO_LOOK_EXPECTANT"),
+            _ => ModText.Get("DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.VAKUU_IS_VERY_PLEASED")
         };
     }
 
@@ -435,9 +425,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         IReadOnlyList<CardModel> candidates = CardArtClassifier.GetChallengeCandidates(HostPlayer);
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException(ModText.Get(
-                "当前识别范围中没有可用于挑战的卡牌。",
-                "There are no cards available for a gallery challenge under the current recognition settings."));
+            throw new InvalidOperationException(ModText.Get("DRAW_AND_GUESS_MOD.VAKUUS_INFINITE_GALLERY.THERE_ARE_NO_CARDS_AVAILABLE_FOR_A"));
         }
 
         GalleryChallengeRoll roll = GalleryChallengeStore.ReserveRoll(HostPlayer);

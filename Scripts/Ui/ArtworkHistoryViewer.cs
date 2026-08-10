@@ -56,13 +56,11 @@ internal static class ArtworkHistoryViewer
     {
         Button button = new()
         {
-            Text = ModText.Get("打开画作保存路径", "Open Artwork Folder"),
+            Text = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.OPEN_ARTWORK_FOLDER"),
             FocusMode = Control.FocusModeEnum.None,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             CustomMinimumSize = new Vector2(0f, 34f),
-            TooltipText = ModText.Get(
-                "在文件管理器中打开保存画作 PNG 与索引的目录。",
-                "Open the folder that stores the artwork PNGs and index in the file manager.")
+            TooltipText = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.OPEN_THE_FOLDER_THAT_STORES_THE_ARTWORK")
         };
         button.Pressed += () => OS.ShellShowInFileManager(DrawingHistoryStore.EnsureHistoryDirectory());
         return button;
@@ -85,9 +83,7 @@ internal static class ArtworkHistoryViewer
         {
             Label empty = new()
             {
-                Text = ModText.Get(
-                    "还没有历史画作。完成一次「空白」绘画、画廊挑战或遗物鉴定后，这里会显示对应的卡图。",
-                    "No artwork history yet. Finish a Blank drawing, a gallery challenge, or a relic appraisal and it will appear here."),
+                Text = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.NO_ARTWORK_HISTORY_YET_FINISH_A_BLANK"),
                 AutowrapMode = TextServer.AutowrapMode.WordSmart,
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             };
@@ -190,8 +186,8 @@ internal static class ArtworkHistoryViewer
         LineEdit nameInput = new()
         {
             Text = entry.Name,
-            PlaceholderText = ModText.Get("作品名称", "Artwork name"),
-            TooltipText = ModText.Get("修改名称后点击“重命名”保存。", "Edit the name, then select Rename to save it."),
+            PlaceholderText = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.ARTWORK_NAME"),
+            TooltipText = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.EDIT_THE_NAME_THEN_SELECT_RENAME_TO"),
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             CustomMinimumSize = new Vector2(0f, 30f)
         };
@@ -227,7 +223,7 @@ internal static class ArtworkHistoryViewer
         actions.AddThemeConstantOverride("separation", 6);
         info.AddChild(actions);
 
-        Button rename = CreateActionButton(ModText.Get("重命名", "Rename"));
+        Button rename = CreateActionButton(ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.RENAME"));
         rename.Pressed += () =>
         {
             if (DrawingHistoryStore.TryRename(
@@ -243,39 +239,39 @@ internal static class ArtworkHistoryViewer
             }
             else
             {
-                rename.TooltipText = ModText.Get("名称不能为空，或保存失败。", "The name cannot be empty, or saving failed.");
+                rename.TooltipText = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.THE_NAME_CANNOT_BE_EMPTY_OR_SAVING");
             }
         };
         actions.AddChild(rename);
 
-        Button edit = CreateActionButton(ModText.Get("编辑", "Edit"));
+        Button edit = CreateActionButton(ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.EDIT"));
         edit.Pressed += () => Callable.From(() =>
         {
             _ = EditAsync(entry, refreshEntries);
         }).CallDeferred();
         actions.AddChild(edit);
 
-        Button copy = CreateActionButton(ModText.Get("复制", "Copy"));
+        Button copy = CreateActionButton(ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.COPY"));
         copy.Pressed += () =>
         {
             byte[]? png = DrawingHistoryStore.LoadPng(entry.FileName);
             string error = png == null
-                ? ModText.Get("找不到 PNG 文件。", "PNG file was not found.")
+                ? ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.PNG_FILE_WAS_NOT_FOUND")
                 : string.Empty;
             if (png != null && ArtworkClipboard.TryCopyPng(png, out error))
             {
-                copy.Text = ModText.Get("已复制", "Copied");
+                copy.Text = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.COPIED");
             }
             else
             {
-                copy.TooltipText = ModText.Get(
-                    "复制图片失败：" + error,
-                    "Failed to copy image: " + error);
+                copy.TooltipText = ModText.Format(
+                    "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.FAILED_TO_COPY_IMAGE",
+                    ("Error", error));
             }
         };
         actions.AddChild(copy);
 
-        Button delete = CreateActionButton(ModText.Get("删除", "Delete"));
+        Button delete = CreateActionButton(ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.DELETE"));
         delete.Pressed += () =>
         {
             if (DrawingHistoryStore.TryDelete(entry.Key))
@@ -284,7 +280,7 @@ internal static class ArtworkHistoryViewer
             }
             else
             {
-                delete.TooltipText = ModText.Get("删除画作失败。", "Failed to delete the artwork.");
+                delete.TooltipText = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.FAILED_TO_DELETE_THE_ARTWORK");
             }
         };
         actions.AddChild(delete);
@@ -350,16 +346,21 @@ internal static class ArtworkHistoryViewer
                     relic => string.Equals(relic.Id.Entry, entry.TargetId, StringComparison.Ordinal));
                 string relicName = relic == null ? entry.TargetId : relic.Title.GetFormattedText();
                 return string.IsNullOrWhiteSpace(entry.WorkTitle)
-                    ? ModText.Get($"遗物：{relicName}", $"Relic: {relicName}")
-                    : ModText.Get(
-                        $"遗物：{relicName}（作品名：{entry.WorkTitle}）",
-                        $"Relic: {relicName} (Work: {entry.WorkTitle})");
+                    ? ModText.Format(
+                        "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.RELIC",
+                        ("Relic", relicName))
+                    : ModText.Format(
+                        "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.RELIC_WITH_WORK_TITLE",
+                        ("Relic", relicName),
+                        ("WorkTitle", entry.WorkTitle));
             }
 
             CardModel? card = ModelDb.AllCards.FirstOrDefault(
                 card => string.Equals(card.Id.Entry, entry.TargetId, StringComparison.Ordinal));
             string cardName = card == null ? entry.TargetId : card.Title;
-            return ModText.Get($"卡牌：{cardName}", $"Card: {cardName}");
+            return ModText.Format(
+                "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.CARD",
+                ("Card", cardName));
         }
         catch (Exception ex)
         {

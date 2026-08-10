@@ -54,12 +54,10 @@ public sealed class DeathNoteRestSiteOption : ModRestSiteOptionTemplate
 
         uint sessionId = CreateSessionId(runState);
         DrawingScreenOptions screenOptions = new(
-            ModText.Get("\u6b7b\u4ea1\u7ed8\u672c", "Death Sketchbook"),
-            ModText.Get(
-                "\u7ed8\u5236\u4e00\u5f20\u5361\u9762\uff0c\u7136\u540e\u4ece\u74e6\u5e93\u731c\u6d4b\u7684\u4e09\u5f20\u724c\u4e2d\u9009\u62e9\u4e00\u5f20\u3002\u5b83\u5c06\u4ece\u672c\u5c40\u6e38\u620f\u4e2d\u5f7b\u5e95\u6d88\u5931\u3002",
-                "Draw a card illustration, then choose one of VAKUU's three guesses. It will disappear completely from this run."),
+            ModText.Get("DRAW_AND_GUESS_MOD.DEATH_NOTE_REST_SITE_OPTION.DEATH_SKETCHBOOK"),
+            ModText.Get("DRAW_AND_GUESS_MOD.DEATH_NOTE_REST_SITE_OPTION.DRAW_A_CARD_ILLUSTRATION_THEN_CHOOSE_ONE"),
             DrawAndGuessSettings.DrawingTimeLimitSeconds,
-            ModText.Get("\u67e5\u770b\u706b\u5806", "View rest site"),
+            ModText.Get("DRAW_AND_GUESS_MOD.DEATH_NOTE_REST_SITE_OPTION.VIEW_REST_SITE"),
             CloseWhenRestSiteEnds: true,
             CandidateScope: GuessCandidateScope.PartyCharactersAndShared);
 

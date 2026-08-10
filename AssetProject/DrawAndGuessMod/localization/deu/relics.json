@@ -1,0 +1,10 @@
+{
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.description": "Du kannst an Raststätten [gold]Zeichnen[/gold]. Gezeichnete Karten verschwinden vollständig aus diesem Run. Beim Aufheben erhältst du einen zufälligen [red]Fluch[/red].",
+  "DRAW_AND_GUESS_MOD_DEATH_NOTE_ERASED_CARDS.infoText": "Vom Todesskizzenbuch ausgelöschte Karten",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.flavor": "Man sagt, in einer anderen Welt gebe es ein ähnliches Notizbuch.",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.title": "Todesskizzenbuch",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.description": "Bewahrt alle Kartenzeichnungen auf, die während dieses Runs von allen Spielern angefertigt wurden. Beim Durchblättern kannst du eine davon als dauerhaftes Kartenbild festlegen.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.flavor": "",
+  "DRAW_AND_GUESS_MOD_MEMORIAL_SKETCHBOOK_CARDS.infoText": "Mit Linksklick ansehen. Aktiviere „Als dauerhaftes Kartenbild festlegen“ und wähle anschließend eine Zeichnung aus.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.title": "Erinnerungsskizzenbuch"
+}

@@ -199,9 +199,7 @@ internal static class CardArtClassifier
 
         if (generatedFeatures.Count == 0)
         {
-            throw new InvalidOperationException(ModText.Get(
-                "当前没有可用于建立识别缓存的卡牌图片。",
-                "No card images are available for building the recognition cache."));
+            throw new InvalidOperationException(ModText.Get("DRAW_AND_GUESS_MOD.CARD_ART_CLASSIFIER.NO_CARD_IMAGES_ARE_AVAILABLE_FOR_BUILDING"));
         }
 
         string modelPath = GetUserModelPath();
@@ -229,9 +227,7 @@ internal static class CardArtClassifier
         List<TrainingSample> candidates = filteredCandidates.ToList();
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException(ModText.Get(
-                "当前设置下没有可用于识别的卡牌立绘。",
-                "No card illustrations are available under the current recognition settings."));
+            throw new InvalidOperationException(ModText.Get("DRAW_AND_GUESS_MOD.CARD_ART_CLASSIFIER.NO_CARD_ILLUSTRATIONS_ARE_AVAILABLE_UNDER_THE"));
         }
 
         double[] drawingFeatures = ExtractFeatures(drawing, treatAsSketch: true);

@@ -1,0 +1,10 @@
+{
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.description": "휴게소에서 [gold]그리기[/gold]를 할 수 있습니다. 그린 카드는 이번 게임에서 완전히 사라집니다. 획득 시 무작위 [red]저주[/red] 1장을 얻습니다.",
+  "DRAW_AND_GUESS_MOD_DEATH_NOTE_ERASED_CARDS.infoText": "죽음의 그림책으로 지워진 카드",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.flavor": "다른 세계에도 이와 비슷한 노트가 있다고 한다.",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.title": "죽음의 그림책",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.description": "이번 게임에서 모든 플레이어가 그린 카드 작품을 전부 보관합니다. 책을 펼쳐 원하는 작품을 영구 카드 삽화로 설정할 수 있습니다.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.flavor": "",
+  "DRAW_AND_GUESS_MOD_MEMORIAL_SKETCHBOOK_CARDS.infoText": "왼쪽 클릭으로 확인합니다. ‘영구 카드 삽화로 설정’을 켠 뒤 교체할 작품을 선택하세요.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.title": "기념 그림책"
+}

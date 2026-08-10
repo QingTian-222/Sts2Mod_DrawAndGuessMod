@@ -182,13 +182,11 @@ internal static class TreasureRoomRelicDrawingFlow
             localPlayer.NetId);
         RelicModel target = FindRelic(targetRelicId);
         DrawingScreenOptions options = new(
-            ModText.Get(
-                $"目标：{target.Title.GetFormattedText()}",
-                $"Target: {target.Title.GetFormattedText()}"),
-            ModText.Get(
-                "绘画目标遗物，达到匹配度即可提交；只有你知道它原本是什么。",
-                "Draw the target relic and reach the required match to submit; only you know what it originally was."),
-            PeekTooltip: ModText.Get("查看宝箱房", "View treasure room"),
+            ModText.Format(
+                "DRAW_AND_GUESS_MOD.TREASURE_ROOM_RELIC_DRAWING_FLOW.TARGET",
+                ("Target", target.Title.GetFormattedText())),
+            ModText.Get("DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR.DRAW_THE_TARGET_RELIC_AND_REACH_THE"),
+            PeekTooltip: ModText.Get("DRAW_AND_GUESS_MOD.TREASURE_ROOM_RELIC_DRAWING_FLOW.VIEW_TREASURE_ROOM"),
             InitialCanvasMode: DrawingCanvasMode.Relic,
             AllowCanvasModeSwitch: false);
         RelicDrawingResult? drawing = null;
@@ -298,7 +296,7 @@ internal static class TreasureRoomRelicDrawingFlow
         screen.AddChild(backstop);
         Label label = new()
         {
-            Text = ModText.Get("等待其他玩家", "Waiting for other players"),
+            Text = ModText.Get("DRAW_AND_GUESS_MOD.DRAWING_SCREEN.WAITING_FOR_OTHER_PLAYERS"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             MouseFilter = Control.MouseFilterEnum.Ignore

@@ -6,7 +6,6 @@ using System.Runtime.Loader;
 using DrawAndGuessMod.Scripts.Ai;
 using DrawAndGuessMod.Scripts.Assets;
 using DrawAndGuessMod.Scripts.Config;
-using DrawAndGuessMod.Scripts.Localization;
 using DrawAndGuessMod.Scripts.Networking;
 using DrawAndGuessMod.Scripts.Patches;
 using DrawAndGuessMod.Scripts.RestSite;
@@ -52,9 +51,6 @@ public static class Entry
             ErasedCardStore.Register();
             GalleryChallengeStore.Register();
             MemorialSketchbookStore.Register();
-            CardLocalization.Install();
-            EventLocalization.Install();
-            RelicLocalization.Install();
             CardArtClassifier.Preload();
             RelicArtClassifier.Preload();
 

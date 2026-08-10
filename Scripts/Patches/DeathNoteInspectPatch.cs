@@ -44,7 +44,7 @@ internal static class DeathNoteInspectPatch
                     MemorialSketchbookCardViewer.HasArtworks(memorialSketchbook),
                 _ => false
             };
-            viewButton.Text = ModText.Get("\u7ffb\u9605", "Browse");
+            viewButton.Text = ModText.Get("DRAW_AND_GUESS_MOD.DEATH_NOTE_INSPECT_PATCH.BROWSE");
             ApplyLocalizedButtonFont(viewButton);
             viewButton.Visible = relic != null;
             viewButton.Disabled = !hasCards;

@@ -1,0 +1,10 @@
+{
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.description": "你可以在火堆[gold]繪畫[/gold]，[gold]繪畫[/gold]的卡牌會從本局遊戲中[jitter][red]徹底消失[/red][/jitter]。\n拾起時，獲得一張隨機[red]詛咒[/red]。",
+  "DRAW_AND_GUESS_MOD_DEATH_NOTE_ERASED_CARDS.infoText": "被死亡繪本消除的卡牌",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.flavor": "聽說在另一個世界，也有一本類似的筆記本。",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.title": "死亡繪本",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.description": "儲存本局所有玩家的每一幅卡牌畫作。翻閱時可將任意一頁設為永久卡面。",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.flavor": "",
+  "DRAW_AND_GUESS_MOD_MEMORIAL_SKETCHBOOK_CARDS.infoText": "左鍵檢視；勾選「設為永久卡面」後，點選畫作即可替換。",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.title": "紀念繪本"
+}

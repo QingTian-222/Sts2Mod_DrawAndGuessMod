@@ -244,15 +244,13 @@ internal static class MemorialPermanentSelectionPatch
 
         if (state.Mode == InspectMode.Memorial)
         {
-            state.Label.SetTextAutoSize(ModText.Get(
-                "设为永久卡面",
-                "Set as Permanent Artwork"));
+            state.Label.SetTextAutoSize(ModText.Get("DRAW_AND_GUESS_MOD.MEMORIAL_PERMANENT_SELECTION_PATCH.SET_AS_PERMANENT_ARTWORK"));
             state.Toggle.IsTicked = MemorialSketchbookStore.IsPermanentArtwork(artwork!);
             state.Toggle.Enable();
             return;
         }
 
-        state.Label.SetTextAutoSize(ModText.Get("手绘风", "Hand-drawn Style"));
+        state.Label.SetTextAutoSize(ModText.Get("DRAW_AND_GUESS_MOD.MEMORIAL_PERMANENT_SELECTION_PATCH.HAND_DRAWN_STYLE"));
         bool hasArtwork = MemorialSketchbookStore.HasPermanentArtwork(card);
         state.Toggle.IsTicked = hasArtwork &&
                                  MemorialSketchbookStore.IsPermanentArtworkEnabled(card);

@@ -1,0 +1,4 @@
+{
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.description": "Draw a card illustration. VAKUU adds the {IfUpgraded:show:[gold]upgraded[/gold] }card it guesses to your [gold]Hand[/gold] and [gold]Deck[/gold].",
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.title": "Blank"
+}

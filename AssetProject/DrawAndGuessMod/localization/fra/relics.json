@@ -1,0 +1,10 @@
+{
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.description": "Vous pouvez [gold]Dessiner[/gold] aux Feux de camp. Les cartes que vous dessinez disparaissent entièrement de cette partie. À l’obtention, recevez une [red]Malédiction[/red] aléatoire.",
+  "DRAW_AND_GUESS_MOD_DEATH_NOTE_ERASED_CARDS.infoText": "Cartes effacées par le Carnet funeste",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.flavor": "On raconte qu’un carnet semblable existe dans un autre monde.",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.title": "Carnet funeste",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.description": "Conserve toutes les cartes dessinées par tous les joueurs au cours de cette partie. Feuilletez-le pour définir une œuvre comme illustration permanente.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.flavor": "",
+  "DRAW_AND_GUESS_MOD_MEMORIAL_SKETCHBOOK_CARDS.infoText": "Clic gauche pour examiner. Activez « Définir comme illustration permanente », puis choisissez l’œuvre à utiliser.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.title": "Album souvenir"
+}

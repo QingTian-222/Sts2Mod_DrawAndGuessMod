@@ -323,9 +323,9 @@ internal static class RelicAppraisalFairRelicHoverPatch
         string artist = PlatformUtil.GetPlayerNameRaw(
             RunManager.Instance.NetService.Platform,
             presentation.ArtistId);
-        string description = ModText.Get(
-            $"署名：{artist}",
-            $"Signed by: {artist}");
+        string description = ModText.Format(
+            "DRAW_AND_GUESS_MOD.RELIC_APPRAISAL_FAIR_ARTWORK_PATCH.SIGNED_BY",
+            ("Artist", artist));
         HoverTip hoverTip = new(
             RelicAppraisalFairRelicNamePatch.CreateWorkTitle(
                 presentation.WorkTitle),

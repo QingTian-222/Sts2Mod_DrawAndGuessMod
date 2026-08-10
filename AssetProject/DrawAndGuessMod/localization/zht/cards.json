@@ -1,0 +1,4 @@
+{
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.description": "繪製一張卡面，瓦庫會把它猜測的{IfUpgraded:show:[gold]升級過的[/gold]}卡牌加入你的[gold]手牌[/gold]和[gold]牌組[/gold]。",
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.title": "空白"
+}

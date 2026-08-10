@@ -1,0 +1,10 @@
+{
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.description": "You can [gold]Draw[/gold] at Rest Sites. Cards you draw disappear completely from this run. Upon pickup, obtain a random [red]Curse[/red].",
+  "DRAW_AND_GUESS_MOD_DEATH_NOTE_ERASED_CARDS.infoText": "Cards erased by Death Sketchbook",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.flavor": "Heard that in another world, there is also a similar notebook.",
+  "DRAW_AND_GUESS_MOD_RELIC_DEATH_NOTE.title": "Death Sketchbook",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.description": "Keeps every card drawing made by every player this run. Browse it to choose permanent card artwork.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.flavor": "",
+  "DRAW_AND_GUESS_MOD_MEMORIAL_SKETCHBOOK_CARDS.infoText": "Left-click to inspect. Enable Set as Permanent Artwork, then select a drawing to replace its card art.",
+  "DRAW_AND_GUESS_MOD_RELIC_MEMORIAL_SKETCHBOOK.title": "Memorial Sketchbook"
+}

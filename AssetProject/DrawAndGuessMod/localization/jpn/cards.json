@@ -1,0 +1,4 @@
+{
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.description": "カードイラストを描く。VAKUUは推測した{IfUpgraded:show:[gold]アップグレード済みの[/gold]}カードを[gold]手札[/gold]と[gold]デッキ[/gold]に加える。",
+  "DRAW_AND_GUESS_MOD_CARD_BLANK.title": "空白"
+}

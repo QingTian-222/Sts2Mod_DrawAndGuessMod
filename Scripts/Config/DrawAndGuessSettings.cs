@@ -41,8 +41,8 @@ internal static class DrawAndGuessSettings
         ModSettingsHostSurface.RunPause |
         ModSettingsHostSurface.CombatPause;
     private static bool _pretraining;
-    private static string _pretrainingStatusChinese = string.Empty;
-    private static string _pretrainingStatusEnglish = string.Empty;
+    private static string _pretrainingStatusKey = string.Empty;
+    private static (string Name, object Value)[] _pretrainingStatusVariables = [];
     private static double _pretrainingProgress;
     private static ProgressBar? _pretrainingProgressBar;
     private static Label? _pretrainingProgressLabel;
@@ -54,7 +54,9 @@ internal static class DrawAndGuessSettings
     private static IReadOnlyList<CandidatePoolInfo>? _detectedCandidatePools;
     private static string _candidatePoolDetectionError = string.Empty;
     private static VBoxContainer? _candidatePoolControls;
-    private static string PretrainingStatus => Localized(_pretrainingStatusChinese, _pretrainingStatusEnglish);
+    private static string PretrainingStatus => string.IsNullOrEmpty(_pretrainingStatusKey)
+        ? string.Empty
+        : ModText.Format(_pretrainingStatusKey, _pretrainingStatusVariables);
 
     internal static bool IsPretraining => _pretraining;
     internal static double PretrainingProgress => _pretrainingProgress;
@@ -281,39 +283,31 @@ internal static class DrawAndGuessSettings
     private static void BuildSettingsPage(ModSettingsPageBuilder page)
     {
         page
-            .WithModDisplayName(LocalizedText("你画瓦猜", "Draw & Guess"))
-            .WithTitle(LocalizedText("你画瓦猜", "Draw & Guess"))
+            .WithModDisplayName(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DRAW_GUESS"))
+            .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DRAW_GUESS"))
             .WithSortOrder(0)
-            .WithDescription(LocalizedText(
-                "选择一个分类查看详细设置。",
-                "Choose a category to view its settings."))
+            .WithDescription(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CHOOSE_A_CATEGORY_TO_VIEW_ITS_SETTINGS"))
             .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
             .AddSection("settings_categories", section => section
-                .WithTitle(LocalizedText("设置分类", "Settings Categories"))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SETTINGS_CATEGORIES"))
                 .AddSubpage(
                     "open_ai_settings",
-                    LocalizedText("AI 设置", "AI Settings"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.AI_SETTINGS"),
                     AiSettingsPageId,
-                    LocalizedText("打开", "Open"),
-                    LocalizedText(
-                        "识别缓存、识别范围、多人卡牌、模型选择和候选卡池高级选项。",
-                        "Recognition cache, scope, multiplayer cards, model selection, and advanced candidate-pool options."))
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.OPEN"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.RECOGNITION_CACHE_SCOPE_MULTIPLAYER_CARDS_MODEL_SELECTION"))
                 .AddSubpage(
                     "open_game_settings",
-                    LocalizedText("游戏设置", "Game Settings"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.GAME_SETTINGS"),
                     GameSettingsPageId,
-                    LocalizedText("打开", "Open"),
-                    LocalizedText(
-                        "调整“空白”、作画时间限制和参考图等游戏体验选项。",
-                        "Configure Blank, drawing time limits, reference images, and other gameplay options."))
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.OPEN"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CONFIGURE_BLANK_DRAWING_TIME_LIMITS_REFERENCE_IMAGES"))
                 .AddSubpage(
                     "open_artwork_history",
-                    LocalizedText("历史画作", "Artwork History"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ARTWORK_HISTORY"),
                     ArtworkHistoryPageId,
-                    LocalizedText("打开", "Open"),
-                    LocalizedText(
-                        "查看所有已完成的卡牌及遗物画作。",
-                        "Browse all completed card and relic drawings.")));
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.OPEN"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BROWSE_ALL_COMPLETED_CARD_AND_RELIC_DRAWINGS")));
     }
 
     public static bool TreasureRoomRelicDrawingEnabled
@@ -333,102 +327,84 @@ internal static class DrawAndGuessSettings
 
     private static void BuildAiSettingsPage(ModSettingsPageBuilder page)
     {
-        if (string.IsNullOrEmpty(_pretrainingStatusChinese))
+        if (string.IsNullOrEmpty(_pretrainingStatusKey))
         {
-            SetPretrainingStatus(
-                "读取当前安装的原版及模组卡牌图片并建立识别缓存，使新卡牌能够参与猜测，并减少游戏中的等待时间。",
-                "Scan images from the base game and installed card mods to build a recognition cache. This lets new cards participate in guesses and reduces in-game waiting.");
+            SetPretrainingStatus("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SCAN_IMAGES_FROM_THE_BASE_GAME_AND_INSTALLED");
         }
 
         page
             .AsChildOf(Entry.ModId)
-            .WithTitle(LocalizedText("AI 设置", "AI Settings"))
+            .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.AI_SETTINGS"))
             .WithSortOrder(10)
-            .WithDescription(LocalizedText(
-                "管理识别模型、缓存和 AI 候选范围。",
-                "Manage recognition models, caches, and AI candidate pools."))
+            .WithDescription(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.MANAGE_RECOGNITION_MODELS_CACHES_AND_AI_CANDIDATE"))
             .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
             .AddSection("model_training", section => section
-                .WithTitle(LocalizedText("卡牌识别缓存", "Card Recognition Cache"))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CARD_RECOGNITION_CACHE"))
                 .AddCustom(
                     "pretraining_progress",
-                    LocalizedText("卡牌扫描进度", "Card Scan Progress"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CARD_SCAN_PROGRESS"),
                     BuildPretrainingProgressControl,
-                    LocalizedText(
-                        "显示当前卡牌图片的分析进度。",
-                        "Shows progress while card images are being analyzed."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SHOWS_PROGRESS_WHILE_CARD_IMAGES_ARE_BEING"),
                     () => _pretraining)
                 .AddButton(
                     "pretrain_current_cards",
-                    LocalizedText("识别缓存", "Recognition Cache"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.RECOGNITION_CACHE"),
                     DynamicText(() => _pretraining
-                        ? Localized("正在分析卡牌图片……", "Analyzing card images...")
-                        : Localized("扫描卡牌并建立识别缓存", "Scan Cards and Build Cache")),
+                        ? Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ANALYZING_CARD_IMAGES")
+                        : Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SCAN_CARDS_AND_BUILD_CACHE")),
                     StartPretraining,
                     ModSettingsButtonTone.Accent,
                     DynamicText(() => PretrainingStatus))
                 .WithEntryEnabledWhen("pretrain_current_cards", () => !_pretraining))
             .AddSection("guess_pool", section => section
-                .WithTitle(LocalizedText("AI 候选牌池", "AI Candidate Pool"))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.AI_CANDIDATE_POOL"))
                 .AddChoice(
                     "card_pool_scope",
-                    LocalizedText("识别范围", "Recognition Scope"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.RECOGNITION_SCOPE"),
                     CardPoolScopeBinding,
                     new[]
                     {
-                        new ModSettingsChoiceOption<int>((int)GuessCardPoolScope.AllCards, LocalizedText("全卡池", "All Cards")),
-                        new ModSettingsChoiceOption<int>((int)GuessCardPoolScope.CurrentCharacter, LocalizedText("当前角色卡池", "Current Character"))
+                        new ModSettingsChoiceOption<int>((int)GuessCardPoolScope.AllCards, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ALL_CARDS")),
+                        new ModSettingsChoiceOption<int>((int)GuessCardPoolScope.CurrentCharacter, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CURRENT_CHARACTER"))
                     },
-                    LocalizedText(
-                        "全卡池：从所有可见卡牌中猜测。当前角色卡池：只从当前角色自己的卡牌中猜测。",
-                        "All Cards: guess from every visible card. Current Character: only guess cards from the current character's card pool."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ALL_CARDS_GUESS_FROM_EVERY_VISIBLE_CARD"),
                     ModSettingsChoicePresentation.Dropdown)
                 .AddToggle(
                     "include_multiplayer_cards",
-                    LocalizedText("启用多人卡牌", "Include Multiplayer Cards"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.INCLUDE_MULTIPLAYER_CARDS"),
                     IncludeMultiplayerCardsBinding,
-                    LocalizedText(
-                        "开启后，AI 候选中可以包含仅限多人模式的卡牌；关闭时会排除这些牌。",
-                        "Allow multiplayer-only cards to appear among AI candidates. Disable this to exclude them."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ALLOW_MULTIPLAYER_ONLY_CARDS_TO_APPEAR_AMONG"),
                     () => true)
                 .AddChoice(
                     "recognition_model_accuracy",
-                    LocalizedText("识别模型准确度", "Recognition Model"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.RECOGNITION_MODEL"),
                     RecognitionModelAccuracyBinding,
                     new[]
                     {
-                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Waku, LocalizedText("瓦库", "VAKUU")),
-                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Jibao, LocalizedText("鸡煲", "Defect")),
+                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Waku, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.VAKUU")),
+                        new ModSettingsChoiceOption<int>((int)RecognitionModelAccuracy.Jibao, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DEFECT")),
                         new ModSettingsChoiceOption<int>(
                             (int)RecognitionModelAccuracy.SketchAdapter,
-                            LocalizedText("自训练适配器（实验性）", "Trained Adapter (Experimental)"))
+                            LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.TRAINED_ADAPTER_EXPERIMENTAL"))
                     },
-                    LocalizedText(
-                        "瓦库：基础模型。鸡煲：更加智能的神经网络。自训练适配器：或许对简笔画有更高识别性。",
-                        "VAKUU: basic model. Defect: better nn model. Trained Adapter: Higher recognition of simple drawings."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.VAKUU_BASIC_MODEL_DEFECT_BETTER_NN_MODEL"),
                     ModSettingsChoicePresentation.Dropdown))
             .AddSection("advanced_candidate_pools", section => section
-                .WithTitle(LocalizedText("高级选项", "Advanced Options"))
-                .WithDescription(LocalizedText(
-                    "单独关闭不希望参与识别的候选卡池。新检测到的卡池默认开启。",
-                    "Disable individual card pools that should not participate in recognition. Newly detected pools are enabled by default."))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ADVANCED_OPTIONS"))
+                .WithDescription(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DISABLE_INDIVIDUAL_CARD_POOLS_THAT_SHOULD_NOT"))
                 .Collapsible(true)
                 .AddButton(
                     "detect_candidate_card_pools",
-                    LocalizedText("检测卡池", "Detect Card Pools"),
-                    LocalizedText("检测/重新检测已加载的卡池", "Detect / Re-detect Loaded Card Pools"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DETECT_CARD_POOLS"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DETECT_RE_DETECT_LOADED_CARD_POOLS"),
                     DetectCandidateCardPools,
                     ModSettingsButtonTone.Accent,
-                    LocalizedText(
-                        "在所有模组加载完成后读取候选卡池，并刷新下方的独立开关列表。",
-                        "Read candidate card pools after all mods have loaded and refresh the individual toggles below."))
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.READ_CANDIDATE_CARD_POOLS_AFTER_ALL_MODS"))
                 .AddCustom(
                     "candidate_card_pools",
-                    LocalizedText("候选卡池", "Candidate Card Pools"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CANDIDATE_CARD_POOLS"),
                     BuildCandidatePoolControls,
-                    LocalizedText(
-                        "关闭的卡池不会出现在识别结果中；已经建立的识别缓存不会被删除。",
-                        "Disabled pools will not appear in recognition results. Existing recognition cache data is kept."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DISABLED_POOLS_WILL_NOT_APPEAR_IN_RECOGNITION"),
                     () => true));
     }
 
@@ -436,86 +412,70 @@ internal static class DrawAndGuessSettings
     {
         page
             .AsChildOf(Entry.ModId)
-            .WithTitle(LocalizedText("游戏设置", "Game Settings"))
+            .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.GAME_SETTINGS"))
             .WithSortOrder(20)
-            .WithDescription(LocalizedText(
-                "调整“空白”和绘画界面的游戏体验。",
-                "Configure Blank and the drawing interface."))
+            .WithDescription(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CONFIGURE_BLANK_AND_THE_DRAWING_INTERFACE"))
             .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
             .AddSection("blank_rules", section => section
-                .WithTitle(LocalizedText("空白", "Blank"))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BLANK"))
                 .AddToggle(
                     "exclude_previously_selected_blank_cards",
-                    LocalizedText(
-                        "空白不再猜测已选择的卡牌",
-                        "Exclude Cards Previously Selected by Blank"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.EXCLUDE_CARDS_PREVIOUSLY_SELECTED_BY_BLANK"),
                     ExcludePreviouslySelectedBlankCardsBinding,
-                    LocalizedText(
-                        "开启后，本局中任何玩家通过“空白”选择过的卡牌都不会再次出现在“空白”的候选中。多人模式共享记录并使用房主设置。默认开启。",
-                        "Previously selected Blank cards will no longer appear among Blank's candidates. Multiplayer shares one history and uses the host's setting. Enabled by default."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.PREVIOUSLY_SELECTED_BLANK_CARDS_WILL_NO_LONGER"),
                     () => true)
                 .AddToggle(
                     "blank_generated_card_skips_deck",
-                    LocalizedText(
-                        "空白生成的卡片不进入卡组",
-                        "Do Not Add Blank's Card to Deck"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DO_NOT_ADD_BLANK_S_CARD_TO"),
                     BlankGeneratedCardSkipsDeckBinding,
-                    LocalizedText(
-                        "开启后，“空白”生成的卡牌只加入被指定玩家的手牌，不会加入卡组。默认关闭。",
-                        "When enabled, the card generated by Blank is added only to the targeted player's Hand, not their Deck. Disabled by default."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.WHEN_ENABLED_THE_CARD_GENERATED_BY_BLANK"),
                     () => true)
                 .AddChoice(
                     "drawing_time_limit",
-                    LocalizedText("作画时间限制", "Drawing Time Limit"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DRAWING_TIME_LIMIT"),
                     DrawingTimeLimitPresetBinding,
                     new[]
                     {
-                        new ModSettingsChoiceOption<int>(0, LocalizedText("关闭", "Off")),
-                        new ModSettingsChoiceOption<int>(15, LocalizedText("15 秒", "15 Seconds")),
-                        new ModSettingsChoiceOption<int>(30, LocalizedText("30 秒", "30 Seconds")),
-                        new ModSettingsChoiceOption<int>(60, LocalizedText("60 秒", "60 Seconds")),
-                        new ModSettingsChoiceOption<int>(90, LocalizedText("90 秒", "90 Seconds")),
-                        new ModSettingsChoiceOption<int>(120, LocalizedText("120 秒", "120 Seconds")),
-                        new ModSettingsChoiceOption<int>(-1, LocalizedText("自定义", "Custom"))
+                        new ModSettingsChoiceOption<int>(0, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.OFF")),
+                        new ModSettingsChoiceOption<int>(15, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.15_SECONDS")),
+                        new ModSettingsChoiceOption<int>(30, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.30_SECONDS")),
+                        new ModSettingsChoiceOption<int>(60, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.60_SECONDS")),
+                        new ModSettingsChoiceOption<int>(90, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.90_SECONDS")),
+                        new ModSettingsChoiceOption<int>(120, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.120_SECONDS")),
+                        new ModSettingsChoiceOption<int>(-1, LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CUSTOM"))
                     },
-                    LocalizedText(
-                        "限制普通“空白”的作画时间。倒计时结束时会自动确认画作；多人模式使用房主的设置。默认关闭。",
-                        "Limit drawing time for the regular Blank card. The drawing is confirmed automatically when time expires. Multiplayer uses the host's setting. Disabled by default."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.LIMIT_DRAWING_TIME_FOR_THE_REGULAR_BLANK"),
                     ModSettingsChoicePresentation.Dropdown)
                 .AddIntSlider(
                     "custom_drawing_time_limit_seconds",
-                    LocalizedText("自定义秒数", "Custom Seconds"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CUSTOM_SECONDS"),
                     CustomDrawingTimeLimitSecondsBinding,
                     1,
                     600,
                     1,
-                    value => Localized($"{value} 秒", $"{value} sec"),
-                    LocalizedText(
-                        "自定义普通“空白”的作画时间，范围为 1 至 600 秒。",
-                        "Set a custom drawing time for the regular Blank card, from 1 to 600 seconds."))
+                    value => ModText.Format(
+                        "DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SECONDS_VALUE",
+                        ("Seconds", value)),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SET_A_CUSTOM_DRAWING_TIME_FOR_THE"))
                 .WithEntryVisibleWhen(
                     "custom_drawing_time_limit_seconds",
                     () => NormalizeDrawingTimeLimitPreset(DrawingTimeLimitPresetBinding.Read()) == -1))
             .AddSection("drawing_ui", section => section
-                .WithTitle(LocalizedText("绘画界面", "Drawing Interface"))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DRAWING_INTERFACE"))
                 .AddToggle(
                     "treasure_room_relic_drawing_enabled",
-                    LocalizedText("宝箱房画遗物", "Draw Relics in Treasure Rooms"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DRAW_RELICS_IN_TREASURE_ROOMS"),
                     TreasureRoomRelicDrawingEnabledBinding,
-                    LocalizedText(
-                        "多人模式下，进入宝箱房后每名玩家会绘制一个由原版宝箱逻辑生成的遗物，全部提交后自动开箱。开启时不会出现“鉴宝大会”事件。默认开启；本局最终使用房主在涅奥界面确认的设置。",
-                        "In multiplayer, each player draws a relic generated by the vanilla treasure-room logic. The chest opens after every drawing is submitted. Relic Appraisal Fair will not appear while enabled. Enabled by default; the host's Neow setting controls the current run."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.IN_MULTIPLAYER_EACH_PLAYER_DRAWS_A_RELIC"),
                     () => true)
                 .WithEntryVisibleWhen(
                     "treasure_room_relic_drawing_enabled",
                     IsCurrentRunMultiplayer)
                 .AddToggle(
                     "tracing_enabled",
-                    LocalizedText("参考图", "Reference Image"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.REFERENCE_IMAGE"),
                     TracingEnabledBinding,
-                    LocalizedText(
-                        "将“切换画布”替换为参考图按钮。点击后可从原版卡牌图鉴界面选择一张卡牌；鼠标中键点击参考图可吸色并设为左键颜色。",
-                        "Replace Switch Canvas with a reference button. Choose a card from the game's card library, then middle-click its art to sample a color for LMB."),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.REPLACE_SWITCH_CANVAS_WITH_A_REFERENCE_BUTTON"),
                     () => true));
     }
 
@@ -523,21 +483,17 @@ internal static class DrawAndGuessSettings
     {
         page
             .AsChildOf(Entry.ModId)
-            .WithTitle(LocalizedText("历史画作", "Artwork History"))
+            .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ARTWORK_HISTORY"))
             .WithSortOrder(30)
-            .WithDescription(LocalizedText(
-                "查看已完成的「空白」、画廊挑战和遗物鉴定画作。",
-                "Browse completed Blank, gallery challenge, and relic appraisal drawings."))
+            .WithDescription(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BROWSE_COMPLETED_BLANK_GALLERY_CHALLENGE_AND_RELIC"))
             .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
             .AddSection("artworks", section => section
-                .WithTitle(LocalizedText("画作", "Artworks"))
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ARTWORKS"))
                 .AddCustom(
                     "artwork_entries",
-                    LocalizedText("历史记录", "History"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.HISTORY"),
                     ArtworkHistoryViewer.BuildSettingsControl,
-                    LocalizedText(
-                        "按完成时间从新到旧排列。重命名、编辑和删除会立即刷新列表。",
-                        "Entries are ordered newest first. Rename, edit, and delete refresh the list immediately.")));
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ENTRIES_ARE_ORDERED_NEWEST_FIRST_RENAME_EDIT")));
     }
 
     private static IModSettingsValueBinding<bool> CreateCandidatePoolBinding(string poolKey)
@@ -626,9 +582,7 @@ internal static class DrawAndGuessSettings
             {
                 container.AddChild(new Label
                 {
-                    Text = Localized(
-                        "点击“检测已加载的卡池”后，这里会显示当前游戏中的所有候选卡池。",
-                        "Click \"Detect Loaded Card Pools\" to show all candidate card pools currently available in the game."),
+                    Text = Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CLICK_DETECT_LOADED_CARD_POOLS_TO_SHOW"),
                     AutowrapMode = TextServer.AutowrapMode.WordSmart,
                     SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
                 });
@@ -641,10 +595,10 @@ internal static class DrawAndGuessSettings
                 container.AddChild(new Label
                 {
                     Text = string.IsNullOrWhiteSpace(_candidatePoolDetectionError)
-                        ? Localized("没有检测到候选卡池。", "No candidate card pools were detected.")
-                        : Localized(
-                            "检测卡池失败：" + _candidatePoolDetectionError,
-                            "Card-pool detection failed: " + _candidatePoolDetectionError),
+                        ? Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.NO_CANDIDATE_CARD_POOLS_WERE_DETECTED")
+                        : ModText.Format(
+                            "DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CARD_POOL_DETECTION_FAILED",
+                            ("Error", _candidatePoolDetectionError)),
                     AutowrapMode = TextServer.AutowrapMode.WordSmart,
                     SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
                 });
@@ -653,9 +607,9 @@ internal static class DrawAndGuessSettings
 
             container.AddChild(new Label
             {
-                Text = Localized(
-                    $"已检测到 {pools.Count} 个候选卡池。",
-                    $"{pools.Count} candidate card pools detected."),
+                Text = ModText.Format(
+                    "DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CANDIDATE_CARD_POOLS_DETECTED",
+                    ("Count", pools.Count)),
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             });
 
@@ -688,9 +642,7 @@ internal static class DrawAndGuessSettings
             Entry.Logger.Warn($"[DrawAndGuessMod] Failed to build candidate card-pool controls: {ex.Message}");
             container.AddChild(new Label
             {
-                Text = Localized(
-                    "候选卡池尚未准备完成，请稍后重新打开设置。",
-                    "Candidate card pools are not ready yet. Please reopen settings later."),
+                Text = Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CANDIDATE_CARD_POOLS_ARE_NOT_READY_YET"),
                 AutowrapMode = TextServer.AutowrapMode.WordSmart,
                 SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
             });
@@ -834,13 +786,13 @@ internal static class DrawAndGuessSettings
             : pool.Title;
         return pool.GetType().Name switch
         {
-            "ColorlessCardPool" => Localized("无色", "Colorless"),
-            "CurseCardPool" => Localized("诅咒", "Curse"),
-            "DeprecatedCardPool" => Localized("已弃用", "Deprecated"),
-            "EventCardPool" => Localized("事件", "Event"),
-            "QuestCardPool" => Localized("任务", "Quest"),
-            "StatusCardPool" => Localized("状态", "Status"),
-            "TokenCardPool" => Localized("衍生", "Token"),
+            "ColorlessCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.COLORLESS"),
+            "CurseCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.CURSE"),
+            "DeprecatedCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.DEPRECATED"),
+            "EventCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.EVENT"),
+            "QuestCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.QUEST"),
+            "StatusCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.STATUS"),
+            "TokenCardPool" => Localized("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.TOKEN"),
             _ => rawName
         };
     }
@@ -865,9 +817,7 @@ internal static class DrawAndGuessSettings
         _pretraining = true;
         _pretrainingProgress = 0d;
         _hasPretrainingThumbnail = false;
-        SetPretrainingStatus(
-            "正在分析当前所有已注册卡牌的图片，请稍候……",
-            "Analyzing all currently registered card images. Please wait...");
+        SetPretrainingStatus("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ANALYZING_ALL_CURRENTLY_REGISTERED_CARD_IMAGES");
         UpdateProgressControls();
         host?.RequestRefresh();
         Callable.From(() =>
@@ -883,13 +833,16 @@ internal static class DrawAndGuessSettings
             CardPretrainingResult result = await CardArtClassifier.PretrainCurrentCardsAsync(UpdatePretrainingProgress);
             _pretrainingProgress = 100d;
             SetPretrainingStatus(
-                $"扫描完成：共处理 {result.TotalCards} 张卡牌，跳过 {result.SkippedCards} 张；识别缓存已更新。",
-                $"Scan complete: processed {result.TotalCards} cards and skipped {result.SkippedCards}. The recognition cache has been updated.");
+                "DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SCAN_COMPLETE",
+                ("TotalCards", result.TotalCards),
+                ("SkippedCards", result.SkippedCards));
             UpdateProgressControls();
         }
         catch (Exception ex)
         {
-            SetPretrainingStatus("扫描失败：" + ex.Message, "Scan failed: " + ex.Message);
+            SetPretrainingStatus(
+                "DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.SCAN_FAILED",
+                ("Error", ex.Message));
             Entry.Logger.Error($"[DrawAndGuessMod] Card-art cache scan failed: {ex}");
             UpdateProgressControls();
         }
@@ -957,8 +910,10 @@ internal static class DrawAndGuessSettings
             ? 100d
             : progress.ProcessedCards * 100d / progress.TotalCards;
         SetPretrainingStatus(
-            $"正在分析 {progress.ProcessedCards} / {progress.TotalCards}：{progress.CurrentCardId}",
-            $"Analyzing {progress.ProcessedCards} / {progress.TotalCards}: {progress.CurrentCardId}");
+            "DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ANALYZING_PROGRESS",
+            ("ProcessedCards", progress.ProcessedCards),
+            ("TotalCards", progress.TotalCards),
+            ("CurrentCardId", progress.CurrentCardId));
         UpdatePretrainingThumbnail(progress.Thumbnail);
         UpdateProgressControls();
     }
@@ -1009,9 +964,9 @@ internal static class DrawAndGuessSettings
         PretrainingChanged?.Invoke();
     }
 
-    private static ModSettingsText LocalizedText(string simplifiedChinese, string english)
+    private static ModSettingsText LocalizedText(string key)
     {
-        return ModSettingsText.DynamicFullRefreshOnly(() => Localized(simplifiedChinese, english));
+        return ModSettingsText.DynamicFullRefreshOnly(() => Localized(key));
     }
 
     private static ModSettingsText DynamicText(Func<string> resolver)
@@ -1019,15 +974,15 @@ internal static class DrawAndGuessSettings
         return ModSettingsText.DynamicFullRefreshOnly(resolver);
     }
 
-    private static void SetPretrainingStatus(string simplifiedChinese, string english)
+    private static void SetPretrainingStatus(string key, params (string Name, object Value)[] variables)
     {
-        _pretrainingStatusChinese = simplifiedChinese;
-        _pretrainingStatusEnglish = english;
+        _pretrainingStatusKey = key;
+        _pretrainingStatusVariables = variables;
     }
 
-    private static string Localized(string simplifiedChinese, string english)
+    private static string Localized(string key)
     {
-        return ModText.Get(simplifiedChinese, english);
+        return ModText.Get(key);
     }
 
     private static bool IsCurrentRunMultiplayer()
