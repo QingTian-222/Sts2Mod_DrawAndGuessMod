@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using DrawAndGuessMod.Scripts.Relics;
 using DrawAndGuessMod.Scripts.State;
@@ -113,17 +114,34 @@ internal static class ErasedGeneratedCardsPatch
     }
 }
 
-[HarmonyPatch(typeof(CardPileCmd), nameof(CardPileCmd.Add), new[]
-{
-    typeof(IEnumerable<CardModel>),
-    typeof(CardPile),
-    typeof(CardPilePosition),
-    typeof(AbstractModel),
-    typeof(bool),
-    typeof(bool)
-})]
+[HarmonyPatch]
 internal static class ErasedCardPilePatch
 {
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        Type[] sharedParameters =
+        [
+            typeof(IEnumerable<CardModel>),
+            typeof(CardPile),
+            typeof(CardPilePosition),
+            typeof(AbstractModel),
+            typeof(bool)
+        ];
+
+        return typeof(CardPileCmd)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(method => method.Name == nameof(CardPileCmd.Add))
+            .Where(method =>
+            {
+                ParameterInfo[] parameters = method.GetParameters();
+                return parameters.Length is 5 or 6 &&
+                       sharedParameters
+                           .Select((type, index) => parameters[index].ParameterType == type)
+                           .All(matches => matches) &&
+                       (parameters.Length == 5 || parameters[5].ParameterType == typeof(bool));
+            });
+    }
+
     [HarmonyPostfix]
     private static void Postfix(ref Task<IReadOnlyList<CardPileAddResult>> __result)
     {

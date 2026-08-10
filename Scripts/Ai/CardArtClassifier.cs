@@ -636,10 +636,10 @@ internal static class CardArtClassifier
     private static List<CardModel> GetEligibleCards()
     {
         return ModelDb.AllCards
-            .Concat(ModelDb.All.OfType<CardModel>())
+            .Concat(DrawAndGuessMod.Scripts.Compatibility.ModelDbCompat.GetAll<CardModel>())
             .Where(card =>
                 card is not Blank &&
-                !card.IsMock &&
+                !DrawAndGuessMod.Scripts.Compatibility.ModelDbCompat.IsMock(card) &&
                 card.ShouldShowInCardLibrary &&
                 card.Type != CardType.None)
             .GroupBy(card => card.Id)

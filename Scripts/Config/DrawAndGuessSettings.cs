@@ -695,8 +695,8 @@ internal static class DrawAndGuessSettings
     private static List<CandidatePoolInfo> GetCandidateCardPools()
     {
         List<CandidatePoolInfo> result = new();
-        foreach (CardPoolModel pool in ModelDb.All
-                     .OfType<CardPoolModel>()
+        foreach (CardPoolModel pool in DrawAndGuessMod.Scripts.Compatibility.ModelDbCompat
+                     .GetAll<CardPoolModel>()
                       .Concat(ModelDb.AllCardPools)
                       .GroupBy(GetCardPoolKey, StringComparer.Ordinal)
                       .Select(group => group.First())
@@ -765,8 +765,8 @@ internal static class DrawAndGuessSettings
 
     private static string GetCardPoolDisplayName(CandidatePoolInfo poolInfo)
     {
-        string? characterName = ModelDb.All
-            .OfType<CharacterModel>()
+        string? characterName = DrawAndGuessMod.Scripts.Compatibility.ModelDbCompat
+            .GetAll<CharacterModel>()
             .Concat(ModelDb.AllCharacters)
             .GroupBy(character => character.Id)
             .Select(group => group.First())
