@@ -149,7 +149,7 @@ def write_model(output_path: Path, samples: list[tuple[str, np.ndarray]]) -> Non
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("sts_source", type=Path, help="Path to game-src/Sts110")
+    parser.add_argument("sts_source", type=Path, help="Path to extracted game assets")
     parser.add_argument("output", type=Path, help="Output card_features.bin")
     args = parser.parse_args()
 

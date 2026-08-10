@@ -16,6 +16,7 @@ Scripts/Preview/.semantic-cache/
 card_features.local.bin
 dist/
 /public/update.json
+/.cache-0.107-*/
 
 # Local maintainer release tools
 /tools/release.ps1

@@ -141,13 +141,13 @@ internal static class RelicAppraisalFairTreasureFlow
             collection.Initialize(runState);
             RelicAppraisalFairArtworkStore.SetPickingActive(true);
             collection.InitializeRelics();
-            collection.AnimIn();
+            PlayCollectionAnimation(collection, nameof(collection.AnimIn), backstop);
             collection.DefaultFocusedControl?.TryGrabFocus();
 
             await collection.RelicPickingFinished();
             IReadOnlyDictionary<ulong, string> awards =
                 await resultCompletion.Task;
-            collection.AnimOut();
+            PlayCollectionAnimation(collection, nameof(collection.AnimOut), backstop);
             await collection.ToSignal(
                 collection.GetTree().CreateTimer(0.35d, processAlways: true),
                 SceneTreeTimer.SignalName.Timeout);
@@ -182,6 +182,39 @@ internal static class RelicAppraisalFairTreasureFlow
         {
             CollectSceneOwnedNodes(child, owner, result);
         }
+    }
+
+    private static void PlayCollectionAnimation(
+        NTreasureRoomRelicCollection collection,
+        string methodName,
+        Node chestVisual)
+    {
+        MethodInfo? withChest = typeof(NTreasureRoomRelicCollection).GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.Public,
+            null,
+            [typeof(Node)],
+            null);
+        if (withChest != null)
+        {
+            withChest.Invoke(collection, [chestVisual]);
+            return;
+        }
+
+        MethodInfo? withoutChest = typeof(NTreasureRoomRelicCollection).GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.Public,
+            null,
+            Type.EmptyTypes,
+            null);
+        if (withoutChest == null)
+        {
+            throw new MissingMethodException(
+                typeof(NTreasureRoomRelicCollection).FullName,
+                methodName);
+        }
+
+        withoutChest.Invoke(collection, null);
     }
 
     private static void PrepareSynchronizer(

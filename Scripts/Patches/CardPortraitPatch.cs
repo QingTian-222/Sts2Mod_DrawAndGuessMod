@@ -2,7 +2,9 @@ using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.State;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Nodes.Cards;
 
 namespace DrawAndGuessMod.Scripts.Patches;
 
@@ -15,41 +17,47 @@ internal static class CardPortraitPatch
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(CardModel __instance, ref Texture2D __result)
     {
-        if (__instance is Blank)
+        if (TryGetOverrideTexture(__instance, out Texture2D texture))
         {
-            __result = GetBlankTexture();
-            return;
+            __result = texture;
+        }
+    }
+
+    internal static bool TryGetOverrideTexture(CardModel card, out Texture2D texture)
+    {
+        if (card is Blank)
+        {
+            texture = GetBlankTexture();
+            return true;
         }
 
         if (MemorialArtworkPreviewRegistry.TryGet(
-                __instance,
+                card,
                 out _,
                 out Texture2D previewTexture))
         {
-            __result = previewTexture;
-            return;
+            texture = previewTexture;
+            return true;
         }
 
-        bool hasPermanentArtwork = MemorialSketchbookStore.HasPermanentArtwork(__instance);
+        bool hasPermanentArtwork = MemorialSketchbookStore.HasPermanentArtwork(card);
         if (MemorialSketchbookStore.TryGetPermanentTexture(
-                __instance,
+                card,
                 out Texture2D permanentTexture))
         {
-            __result = permanentTexture;
-            return;
+            texture = permanentTexture;
+            return true;
         }
 
         // A disabled permanent drawing must reveal the original card art rather
         // than falling through to this run's temporary drawing for the same ID.
         if (hasPermanentArtwork)
         {
-            return;
+            texture = null!;
+            return false;
         }
 
-        if (ArtworkStore.TryGetTexture(__instance, out Texture2D texture))
-        {
-            __result = texture;
-        }
+        return ArtworkStore.TryGetTexture(card, out texture);
     }
 
     private static Texture2D GetBlankTexture()
@@ -83,5 +91,37 @@ internal static class CardPortraitPatch
 
         _blankTexture = ImageTexture.CreateFromImage(image);
         return _blankTexture;
+    }
+}
+
+// In 0.107 NCard.Reload reads the very small CardModel.Portrait getter directly.
+// The JIT can inline that getter and bypass its Harmony patch, so apply the same
+// override once more at the final UI assignment point. This also keeps runtime
+// drawings above static card-art replacement mods.
+[HarmonyPatch(typeof(NCard), "Reload")]
+internal static class NCardPortraitPatch
+{
+    [HarmonyPostfix]
+    [HarmonyPriority(Priority.Last)]
+    private static void Postfix(NCard __instance)
+    {
+        CardModel? model = __instance.Model;
+        if (model == null ||
+            !CardPortraitPatch.TryGetOverrideTexture(
+                model,
+                out Texture2D texture))
+        {
+            return;
+        }
+
+        string portraitNode = model.Rarity == CardRarity.Ancient
+            ? "%AncientPortrait"
+            : "%Portrait";
+        TextureRect? portrait =
+            __instance.GetNodeOrNull<TextureRect>(portraitNode);
+        if (portrait != null)
+        {
+            portrait.Texture = texture;
+        }
     }
 }

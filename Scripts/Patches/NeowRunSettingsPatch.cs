@@ -171,15 +171,18 @@ internal static class NeowRunSettingsPatch
 
     private static bool ConflictsWithVisibleChoice(RelicModel replacement, IReadOnlyList<EventOption> currentOptions)
     {
+        if (string.Equals(replacement.GetType().Name, "NeowsSacrifice", StringComparison.Ordinal))
+        {
+            return HasVisibleRelic<PhialHolster>(currentOptions) ||
+                   HasVisibleRelic<LostCoffer>(currentOptions);
+        }
+
         return replacement switch
         {
             CursedPearl => HasVisibleRelic<GoldenPearl>(currentOptions),
             HeftyTablet => HasVisibleRelic<ArcaneScroll>(currentOptions),
             LeafyPoultice => HasVisibleRelic<NewLeaf>(currentOptions),
             PrecariousShears => HasVisibleRelic<PreciseScissors>(currentOptions),
-            NeowsSacrifice =>
-                HasVisibleRelic<PhialHolster>(currentOptions) ||
-                HasVisibleRelic<LostCoffer>(currentOptions),
             LargeCapsule =>
                 HasVisibleRelic<LavaRock>(currentOptions) ||
                 HasVisibleRelic<SmallCapsule>(currentOptions),

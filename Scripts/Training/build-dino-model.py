@@ -69,10 +69,14 @@ def main() -> None:
     parser.add_argument("onnx_output", type=Path)
     parser.add_argument("features_output", type=Path)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument(
+        "--reuse-onnx",
+        action="store_true",
+        help="Reuse an existing ONNX model and only rebuild the card embedding cache",
+    )
     args = parser.parse_args()
 
-    backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0, img_size=INPUT_SIZE).eval()
-    model = NormalizedDino(backbone).eval()
+    model: NormalizedDino | None = None
     transform = create_transform(
         input_size=(3, INPUT_SIZE, INPUT_SIZE),
         interpolation="bicubic",
@@ -83,25 +87,31 @@ def main() -> None:
         is_training=False,
     )
 
-    args.onnx_output.parent.mkdir(parents=True, exist_ok=True)
-    fp32_output = args.onnx_output.with_name(args.onnx_output.stem + ".fp32.tmp.onnx")
     dummy = torch.zeros((1, 3, INPUT_SIZE, INPUT_SIZE), dtype=torch.float32)
-    with torch.inference_mode():
-        torch.onnx.export(
-            model,
-            (dummy,),
-            fp32_output,
-            input_names=["image"],
-            output_names=["embedding"],
-            opset_version=18,
-            dynamo=True,
-            external_data=False,
-        )
+    if args.reuse_onnx:
+        if not args.onnx_output.is_file():
+            raise FileNotFoundError(f"Existing ONNX model not found: {args.onnx_output}")
+    else:
+        backbone = timm.create_model(MODEL_NAME, pretrained=True, num_classes=0, img_size=INPUT_SIZE).eval()
+        model = NormalizedDino(backbone).eval()
+        args.onnx_output.parent.mkdir(parents=True, exist_ok=True)
+        fp32_output = args.onnx_output.with_name(args.onnx_output.stem + ".fp32.tmp.onnx")
+        with torch.inference_mode():
+            torch.onnx.export(
+                model,
+                (dummy,),
+                fp32_output,
+                input_names=["image"],
+                output_names=["embedding"],
+                opset_version=18,
+                dynamo=True,
+                external_data=False,
+            )
 
-    fp16_model = OnnxModel(onnx.load(fp32_output))
-    fp16_model.convert_float_to_float16(use_symbolic_shape_infer=False, keep_io_types=True)
-    fp16_model.save_model_to_file(args.onnx_output, use_external_data_format=False)
-    fp32_output.unlink(missing_ok=True)
+        fp16_model = OnnxModel(onnx.load(fp32_output))
+        fp16_model.convert_float_to_float16(use_symbolic_shape_infer=False, keep_io_types=True)
+        fp16_model.save_model_to_file(args.onnx_output, use_external_data_format=False)
+        fp32_output.unlink(missing_ok=True)
 
     portraits = discover_portraits(args.sts_source.resolve())
     session = ort.InferenceSession(str(args.onnx_output.resolve()), providers=["CPUExecutionProvider"])
@@ -126,13 +136,16 @@ def main() -> None:
         raise RuntimeError(f"Unexpected feature shape: {features.shape}")
     write_features(args.features_output.resolve(), card_ids, features)
 
-    onnx_embedding = session.run(["embedding"], {"image": dummy.numpy()})[0]
-    torch_embedding = model(dummy).detach().numpy()
-    max_error = float(np.max(np.abs(onnx_embedding - torch_embedding)))
-    print(
-        f"Wrote {args.onnx_output.resolve()} and {args.features_output.resolve()} "
-        f"for {len(card_ids)} cards; ONNX max error={max_error:.8f}"
-    )
+    if model is None:
+        print(f"Reused {args.onnx_output.resolve()} and wrote {args.features_output.resolve()} for {len(card_ids)} cards")
+    else:
+        onnx_embedding = session.run(["embedding"], {"image": dummy.numpy()})[0]
+        torch_embedding = model(dummy).detach().numpy()
+        max_error = float(np.max(np.abs(onnx_embedding - torch_embedding)))
+        print(
+            f"Wrote {args.onnx_output.resolve()} and {args.features_output.resolve()} "
+            f"for {len(card_ids)} cards; ONNX max error={max_error:.8f}"
+        )
 
 
 if __name__ == "__main__":

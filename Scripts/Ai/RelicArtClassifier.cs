@@ -44,9 +44,19 @@ internal static class RelicArtClassifier
     private static IReadOnlyList<RelicModel> GetRawEligibleRelics()
     {
         return ModelDb.AllRelics
-            .Where(relic => !relic.IsMock)
+            .Where(relic => !IsMockModel(relic))
             .OrderBy(relic => relic.Id.Entry, StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static bool IsMockModel(RelicModel relic)
+    {
+        Type type = relic.GetType();
+        string fullName = type.FullName ?? string.Empty;
+        return relic.Id.ToString().Contains("mock", StringComparison.OrdinalIgnoreCase)
+               || type.Name.Contains("mock", StringComparison.OrdinalIgnoreCase)
+               || fullName.Contains(".Mocks.", StringComparison.OrdinalIgnoreCase)
+               || fullName.Contains(".Mock.", StringComparison.OrdinalIgnoreCase);
     }
 
     public static RelicArtAssessment? AssessTarget(Image drawing, RelicModel target)
