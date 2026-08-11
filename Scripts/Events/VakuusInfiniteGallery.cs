@@ -12,6 +12,7 @@ using DrawAndGuessMod.Scripts.State;
 using DrawAndGuessMod.Scripts.Ui;
 using MegaCrit.Sts2.Core.CardSelection;
 using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Events;
@@ -130,7 +131,9 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
                 : DrawingCanvasMode.Standard,
             AllowCanvasModeSwitch = false
         };
-        DrawingResult? drawing = await DrawingScreen.ShowAsync(HostPlayer, sessionId, screenOptions);
+        (DrawingResult? drawing, ulong drawerNetId) = DrawingNetSync.IsMultiplayer
+            ? await DrawAndVoteAsync(sessionId, screenOptions)
+            : (await DrawingScreen.ShowAsync(HostPlayer, sessionId, screenOptions), HostPlayer.NetId);
         if (drawing == null)
         {
             ResolveFailure();
@@ -140,7 +143,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         RunState runState = (RunState)EventOwner.RunState;
         string? memorialArtworkId = await MemorialSketchbookStore.CaptureCardDrawingAsync(
             runState,
-            HostPlayer.NetId,
+            drawerNetId,
             sessionId,
             drawing);
 
@@ -170,7 +173,7 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         ArtworkStore.Set(EventOwner.RunState, selected, drawing.PngBytes);
         DrawingHistoryStore.RecordCard(
             EventOwner.RunState,
-            HostPlayer.NetId,
+            drawerNetId,
             sessionId,
             selected,
             drawing.PngBytes);
@@ -184,6 +187,61 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
             $"[DrawAndGuessMod] Gallery challenge {_challengeNumber} failed for {EventOwner.NetId}: " +
             $"target={target.Id.Entry}, selected={selected.Id.Entry}.");
         ResolveFailure();
+    }
+
+    private async Task<(DrawingResult? Drawing, ulong DrawerNetId)> DrawAndVoteAsync(
+        uint sessionId,
+        DrawingScreenOptions screenOptions)
+    {
+        if (LocalContext.IsMe(EventOwner))
+        {
+            DrawingResult? localDrawing = await DrawingScreen.ShowPrivateAsync(
+                EventOwner,
+                CreatePrivateDrawingSessionId(sessionId, EventOwner.NetId),
+                screenOptions);
+            GalleryDrawingSubmission localSubmission = new(
+                EventOwner.NetId,
+                localDrawing?.PngBytes ?? [],
+                localDrawing?.Guess.NearestCards
+                    .Take(3)
+                    .Select(card => card.Id.Entry)
+                    .ToList() ?? []);
+            DrawingNetSync.PublishGallerySubmission(sessionId, localSubmission);
+        }
+
+        GalleryDrawingSubmission[] submissions = await Task.WhenAll(
+            EventOwner.RunState.Players
+                .OrderBy(player => player.NetId)
+                .Select(player => DrawingNetSync.WaitForGallerySubmissionAsync(
+                    sessionId,
+                    player.NetId)));
+        ulong winnerId = await GalleryDrawingVoteScreen.RunAsync(
+            sessionId,
+            (RunState)EventOwner.RunState,
+            submissions);
+        GalleryDrawingSubmission? winner = submissions.FirstOrDefault(
+            submission => submission.OwnerId == winnerId);
+        if (winner == null || winner.PngBytes.Length == 0)
+        {
+            return (null, 0ul);
+        }
+
+        List<CardModel> nearestCards = winner.CardIds
+            .Select(cardId => ModelDb.AllCards.FirstOrDefault(card =>
+                string.Equals(card.Id.Entry, cardId, StringComparison.Ordinal)))
+            .OfType<CardModel>()
+            .ToList();
+        if (nearestCards.Count == 0)
+        {
+            return (null, winner.OwnerId);
+        }
+
+        CardGuess guess = new(
+            nearestCards[0],
+            0,
+            0d,
+            nearestCards);
+        return (new DrawingResult(winner.PngBytes, guess, false), winner.OwnerId);
     }
 
     private async Task<CardModel?> SelectGuessAsync(uint sessionId, IReadOnlyList<CardModel> choices)
@@ -469,6 +527,11 @@ public sealed class VakuusInfiniteGallery : ModEventTemplate
         uint ownerHash = (uint)(ownerId ^ ownerId >> 32);
         uint eventHash = unchecked(DrawingNetSync.GalleryEventEpoch * 0x9E3779B9u);
         return 0xA7000000u ^ ownerHash ^ eventHash ^ (uint)_challengeNumber;
+    }
+
+    private static uint CreatePrivateDrawingSessionId(uint sessionId, ulong ownerId)
+    {
+        return sessionId ^ (uint)(ownerId ^ ownerId >> 32) ^ 0x51A7E123u;
     }
 
     private string OptionKey(string page, string option)

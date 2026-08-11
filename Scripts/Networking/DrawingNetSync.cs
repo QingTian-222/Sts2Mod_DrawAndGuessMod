@@ -15,6 +15,11 @@ internal sealed record RelicAppraisalFairSubmission(
     byte[] PngBytes,
     bool UseOriginalPresentation = false);
 
+internal sealed record GalleryDrawingSubmission(
+    ulong OwnerId,
+    byte[] PngBytes,
+    IReadOnlyList<string> CardIds);
+
 internal static class DrawingNetSync
 {
     private static RunLocationTargetedMessageBuffer? _registeredBuffer;
@@ -23,6 +28,10 @@ internal static class DrawingNetSync
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), TaskCompletionSource<string>> ChallengeTargetWaiters = new();
     private static readonly Dictionary<uint, string> CardSelections = new();
     private static readonly Dictionary<uint, TaskCompletionSource<string>> CardSelectionWaiters = new();
+    private static readonly Dictionary<(uint SessionId, ulong OwnerId), GalleryDrawingSubmission> GallerySubmissions = new();
+    private static readonly Dictionary<(uint SessionId, ulong OwnerId), TaskCompletionSource<GalleryDrawingSubmission>> GallerySubmissionWaiters = new();
+    private static readonly Dictionary<(uint SessionId, ulong VoterId), ulong> GalleryVotes = new();
+    private static readonly Dictionary<(uint SessionId, ulong VoterId), TaskCompletionSource<ulong>> GalleryVoteWaiters = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), List<(DrawingSyncMessage Message, ulong SenderId)>> PendingBatches = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingCanvasStateMessage> PendingCanvasStates = new();
     private static readonly Dictionary<(ulong OwnerId, uint SessionId), DrawingTimerSyncMessage> PendingTimers = new();
@@ -102,6 +111,18 @@ internal static class DrawingNetSync
         }
         CardSelections.Clear();
         CardSelectionWaiters.Clear();
+        foreach (TaskCompletionSource<GalleryDrawingSubmission> waiter in GallerySubmissionWaiters.Values)
+        {
+            waiter.TrySetCanceled();
+        }
+        foreach (TaskCompletionSource<ulong> waiter in GalleryVoteWaiters.Values)
+        {
+            waiter.TrySetCanceled();
+        }
+        GallerySubmissions.Clear();
+        GallerySubmissionWaiters.Clear();
+        GalleryVotes.Clear();
+        GalleryVoteWaiters.Clear();
     }
 
     public static void BeginRelicAppraisalFair()
@@ -243,6 +264,15 @@ internal static class DrawingNetSync
     {
         EnsureRegistered();
         AcceptCardSelection(sessionId, selectedCardId);
+        if (IsMultiplayer && IsLocalHost)
+        {
+            RunManager.Instance.NetService.SendMessage(new GalleryCardSelectionMessage
+            {
+                SessionId = sessionId,
+                SelectedCardId = selectedCardId,
+                LocationValue = _registeredBuffer!.CurrentLocation
+            });
+        }
     }
 
     public static Task<string> WaitForCardSelectionAsync(uint sessionId)
@@ -257,6 +287,65 @@ internal static class DrawingNetSync
         {
             waiter = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             CardSelectionWaiters[sessionId] = waiter;
+        }
+        return waiter.Task;
+    }
+
+    public static void PublishGallerySubmission(uint sessionId, GalleryDrawingSubmission submission)
+    {
+        EnsureRegistered();
+        AcceptGallerySubmission(sessionId, submission);
+        RunManager.Instance.NetService.SendMessage(new GalleryDrawingSubmissionMessage
+        {
+            SessionId = sessionId,
+            OwnerId = submission.OwnerId,
+            PngBytes = submission.PngBytes,
+            CardIds = new List<string>(submission.CardIds),
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
+    public static Task<GalleryDrawingSubmission> WaitForGallerySubmissionAsync(uint sessionId, ulong ownerId)
+    {
+        EnsureRegistered();
+        (uint SessionId, ulong OwnerId) key = (sessionId, ownerId);
+        if (GallerySubmissions.TryGetValue(key, out GalleryDrawingSubmission? submission))
+        {
+            return Task.FromResult(submission);
+        }
+        if (!GallerySubmissionWaiters.TryGetValue(key, out TaskCompletionSource<GalleryDrawingSubmission>? waiter))
+        {
+            waiter = new TaskCompletionSource<GalleryDrawingSubmission>(TaskCreationOptions.RunContinuationsAsynchronously);
+            GallerySubmissionWaiters[key] = waiter;
+        }
+        return waiter.Task;
+    }
+
+    public static void PublishGalleryVote(uint sessionId, ulong voterId, ulong candidateOwnerId)
+    {
+        EnsureRegistered();
+        AcceptGalleryVote(sessionId, voterId, candidateOwnerId);
+        RunManager.Instance.NetService.SendMessage(new GalleryDrawingVoteMessage
+        {
+            SessionId = sessionId,
+            VoterId = voterId,
+            CandidateOwnerId = candidateOwnerId,
+            LocationValue = _registeredBuffer!.CurrentLocation
+        });
+    }
+
+    public static Task<ulong> WaitForGalleryVoteAsync(uint sessionId, ulong voterId)
+    {
+        EnsureRegistered();
+        (uint SessionId, ulong VoterId) key = (sessionId, voterId);
+        if (GalleryVotes.TryGetValue(key, out ulong candidateOwnerId))
+        {
+            return Task.FromResult(candidateOwnerId);
+        }
+        if (!GalleryVoteWaiters.TryGetValue(key, out TaskCompletionSource<ulong>? waiter))
+        {
+            waiter = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
+            GalleryVoteWaiters[key] = waiter;
         }
         return waiter.Task;
     }
@@ -413,6 +502,9 @@ internal static class DrawingNetSync
         if (_registeredBuffer != null)
         {
             _registeredBuffer.UnregisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
+            _registeredBuffer.UnregisterMessageHandler<GalleryCardSelectionMessage>(OnCardSelectionReceived);
+            _registeredBuffer.UnregisterMessageHandler<GalleryDrawingSubmissionMessage>(OnGallerySubmissionReceived);
+            _registeredBuffer.UnregisterMessageHandler<GalleryDrawingVoteMessage>(OnGalleryVoteReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingSyncMessage>(OnCommandsReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingUndoRequestMessage>(OnUndoRequestReceived);
             _registeredBuffer.UnregisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
@@ -425,6 +517,9 @@ internal static class DrawingNetSync
         }
 
         current.RegisterMessageHandler<DrawingChallengeTargetMessage>(OnChallengeTargetReceived);
+        current.RegisterMessageHandler<GalleryCardSelectionMessage>(OnCardSelectionReceived);
+        current.RegisterMessageHandler<GalleryDrawingSubmissionMessage>(OnGallerySubmissionReceived);
+        current.RegisterMessageHandler<GalleryDrawingVoteMessage>(OnGalleryVoteReceived);
         current.RegisterMessageHandler<DrawingSyncMessage>(OnCommandsReceived);
         current.RegisterMessageHandler<DrawingUndoRequestMessage>(OnUndoRequestReceived);
         current.RegisterMessageHandler<DrawingRedoRequestMessage>(OnRedoRequestReceived);
@@ -464,6 +559,58 @@ internal static class DrawingNetSync
         if (CardSelectionWaiters.Remove(sessionId, out TaskCompletionSource<string>? waiter))
         {
             waiter.TrySetResult(selectedCardId);
+        }
+    }
+
+    private static void OnCardSelectionReceived(GalleryCardSelectionMessage message, ulong senderId)
+    {
+        if (senderId != HostNetId)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected gallery card selection from non-host {senderId}.");
+            return;
+        }
+        AcceptCardSelection(message.SessionId, message.SelectedCardId);
+    }
+
+    private static void OnGallerySubmissionReceived(GalleryDrawingSubmissionMessage message, ulong senderId)
+    {
+        if (senderId != message.OwnerId)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected gallery drawing from {senderId}; expected {message.OwnerId}.");
+            return;
+        }
+        AcceptGallerySubmission(
+            message.SessionId,
+            new GalleryDrawingSubmission(message.OwnerId, message.PngBytes, message.CardIds));
+    }
+
+    private static void AcceptGallerySubmission(uint sessionId, GalleryDrawingSubmission submission)
+    {
+        (uint SessionId, ulong OwnerId) key = (sessionId, submission.OwnerId);
+        GallerySubmissions[key] = submission;
+        if (GallerySubmissionWaiters.Remove(key, out TaskCompletionSource<GalleryDrawingSubmission>? waiter))
+        {
+            waiter.TrySetResult(submission);
+        }
+    }
+
+    private static void OnGalleryVoteReceived(GalleryDrawingVoteMessage message, ulong senderId)
+    {
+        if (senderId != message.VoterId)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Rejected gallery vote from {senderId}; expected {message.VoterId}.");
+            return;
+        }
+        AcceptGalleryVote(message.SessionId, message.VoterId, message.CandidateOwnerId);
+    }
+
+    private static void AcceptGalleryVote(uint sessionId, ulong voterId, ulong candidateOwnerId)
+    {
+        (uint SessionId, ulong VoterId) key = (sessionId, voterId);
+        GalleryVotes[key] = candidateOwnerId;
+        if (GalleryVoteWaiters.Remove(key, out TaskCompletionSource<ulong>? waiter))
+        {
+            waiter.TrySetResult(candidateOwnerId);
         }
     }
 

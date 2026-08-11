@@ -45,6 +45,116 @@ public sealed class DrawingChallengeTargetMessage : INetMessage, IPacketSerializ
     }
 }
 
+public sealed class GalleryCardSelectionMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public uint SessionId { get; set; }
+    public string SelectedCardId { get; set; } = "";
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteUInt(SessionId);
+        writer.WriteString(SelectedCardId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        SessionId = reader.ReadUInt();
+        SelectedCardId = reader.ReadString();
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
+public sealed class GalleryDrawingSubmissionMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    private const int MaxPngBytes = 2 * 1024 * 1024;
+    private const int MaxCardIds = 3;
+
+    public uint SessionId { get; set; }
+    public ulong OwnerId { get; set; }
+    public List<string> CardIds { get; set; } = new();
+    public byte[] PngBytes { get; set; } = [];
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteUInt(SessionId);
+        writer.WriteULong(OwnerId);
+        int cardCount = Math.Min(CardIds.Count, MaxCardIds);
+        writer.WriteByte((byte)cardCount, 2);
+        for (int index = 0; index < cardCount; index++)
+        {
+            writer.WriteString(CardIds[index]);
+        }
+        writer.WriteInt(PngBytes.Length);
+        writer.WriteBytes(PngBytes, PngBytes.Length);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        SessionId = reader.ReadUInt();
+        OwnerId = reader.ReadULong();
+        int cardCount = reader.ReadByte(2);
+        CardIds = new List<string>(cardCount);
+        for (int index = 0; index < cardCount; index++)
+        {
+            CardIds.Add(reader.ReadString());
+        }
+        int pngLength = reader.ReadInt();
+        if (pngLength < 0 || pngLength > MaxPngBytes)
+        {
+            throw new InvalidDataException($"Invalid gallery drawing PNG size: {pngLength}");
+        }
+        PngBytes = new byte[pngLength];
+        reader.ReadBytes(PngBytes, pngLength);
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
+public sealed class GalleryDrawingVoteMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
+{
+    public uint SessionId { get; set; }
+    public ulong VoterId { get; set; }
+    public ulong CandidateOwnerId { get; set; }
+    public RunLocation LocationValue { get; set; }
+
+    public bool ShouldBroadcast => true;
+    public NetTransferMode Mode => NetTransferMode.Reliable;
+    public LogLevel LogLevel => LogLevel.Debug;
+    public bool ShouldBuffer => true;
+    public RunLocation Location => LocationValue;
+
+    public void Serialize(PacketWriter writer)
+    {
+        writer.WriteUInt(SessionId);
+        writer.WriteULong(VoterId);
+        writer.WriteULong(CandidateOwnerId);
+        writer.Write(LocationValue);
+    }
+
+    public void Deserialize(PacketReader reader)
+    {
+        SessionId = reader.ReadUInt();
+        VoterId = reader.ReadULong();
+        CandidateOwnerId = reader.ReadULong();
+        LocationValue = reader.Read<RunLocation>();
+    }
+}
+
 public sealed class DrawingSyncMessage : INetMessage, IPacketSerializable, IRunLocationTargetedMessage
 {
     public ulong OwnerId { get; set; }

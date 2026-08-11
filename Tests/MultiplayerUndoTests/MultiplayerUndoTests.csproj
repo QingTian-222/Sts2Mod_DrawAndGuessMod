@@ -11,5 +11,7 @@
              Link="CollaborativeDrawingHistory.cs" />
     <Compile Include="..\..\Scripts\State\BlankReplaySequence.cs"
              Link="BlankReplaySequence.cs" />
+    <Compile Include="..\..\Scripts\State\GalleryVoteResolver.cs"
+             Link="GalleryVoteResolver.cs" />
   </ItemGroup>
 </Project>
