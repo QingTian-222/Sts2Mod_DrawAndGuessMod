@@ -26,7 +26,7 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.27.1" GeneratePathProperty="true" />
     <PackageReference Include="System.Numerics.Tensors" Version="9.0.0" GeneratePathProperty="true" />
-    <PackageReference Include="STS2.RitsuLib" Version="0.5.11" />
+    <PackageReference Include="STS2.RitsuLib" Version="0.5.12" />
   </ItemGroup>
 
   <ItemGroup>
@@ -47,18 +47,18 @@
   </ItemGroup>
 
   <Target Name="Generate Card Art Model" BeforeTargets="BeforeBuild"
-          Condition="!Exists('Models\card_features.bin') and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts110\images\packed\card_portraits')">
-    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\train-card-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts110&quot; &quot;$(MSBuildProjectDirectory)\Models\card_features.bin&quot;" />
+          Condition="!Exists('Models\card_features.bin') and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts111\images\packed\card_portraits')">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\train-card-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts111&quot; &quot;$(MSBuildProjectDirectory)\Models\card_features.bin&quot;" />
   </Target>
 
   <Target Name="Generate DINOv2 Model" BeforeTargets="BeforeBuild"
-          Condition="(!Exists('Models\dinov2_vits14.onnx') or !Exists('Models\card_dino_features.bin')) and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts110\images\packed\card_portraits')">
-    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\build-dino-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts110&quot; &quot;$(MSBuildProjectDirectory)\Models\dinov2_vits14.onnx&quot; &quot;$(MSBuildProjectDirectory)\Models\card_dino_features.bin&quot;" />
+          Condition="(!Exists('Models\dinov2_vits14.onnx') or !Exists('Models\card_dino_features.bin')) and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts111\images\packed\card_portraits')">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\build-dino-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts111&quot; &quot;$(MSBuildProjectDirectory)\Models\dinov2_vits14.onnx&quot; &quot;$(MSBuildProjectDirectory)\Models\card_dino_features.bin&quot;" />
   </Target>
 
   <Target Name="Generate Relic Art Model" BeforeTargets="BeforeBuild"
-          Condition="!Exists('Models\relic_features.bin') and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts110\images\relics')">
-    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\train-relic-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts110&quot; &quot;$(MSBuildProjectDirectory)\Models\relic_features.bin&quot;" />
+          Condition="!Exists('Models\relic_features.bin') and Exists('$(MSBuildProjectDirectory)\..\..\game-src\Sts111\images\relics')">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\Scripts\Training\train-relic-model.py&quot; &quot;$(MSBuildProjectDirectory)\..\..\game-src\Sts111&quot; &quot;$(MSBuildProjectDirectory)\Models\relic_features.bin&quot;" />
   </Target>
 
   <Target Name="CopyUniversalOnnxRuntime" AfterTargets="CopyFilesToOutputDirectory">

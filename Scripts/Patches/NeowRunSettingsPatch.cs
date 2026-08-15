@@ -128,7 +128,7 @@ internal static class NeowRunSettingsPatch
                 }
 
                 int ownerSlot = runState.GetPlayerSlotIndex(neow.Owner!);
-                ulong mixedSeed = runState.Rng.Seed ^
+                ulong mixedSeed = DrawAndGuessMod.Scripts.Compatibility.RunRngCompat.GetSeed(runState.Rng) ^
                                   ((ulong)(ownerSlot + 1) * 0x9E3779B97F4A7C15UL);
                 EventOption replacement = replacements[(int)(mixedSeed % (ulong)replacements.Count)];
                 EventOption deathNoteOption = options[deathNoteIndex];

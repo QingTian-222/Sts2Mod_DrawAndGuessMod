@@ -24,7 +24,7 @@ SCRIPT_PATH = Path(__file__).resolve()
 MOD_ROOT = SCRIPT_PATH.parents[2]
 WORKSPACE_ROOT = SCRIPT_PATH.parents[4]
 TRAINING_SCRIPT = MOD_ROOT / "Scripts" / "Training" / "train-card-model.py"
-DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts110"
+DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts111"
 DEFAULT_MODEL = MOD_ROOT / "Models" / "card_features.bin"
 DEFAULT_DINO_CACHE = MOD_ROOT / "Scripts" / "Preview" / ".semantic-cache" / "dinov2-vits14-lvd142m-224.npz"
 DEFAULT_RELIC_DINO_CACHE = (
@@ -718,7 +718,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DrawAndGuessMod 游戏外识别预览")
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="game-src/Sts110 路径")
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="game-src/Sts111 路径")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="card_features.bin 路径")
     parser.add_argument("--dino-model", default="vit_small_patch14_dinov2.lvd142m", help="timm DINOv2模型名")
     parser.add_argument("--dino-cache", type=Path, default=DEFAULT_DINO_CACHE, help="卡图DINOv2向量缓存")

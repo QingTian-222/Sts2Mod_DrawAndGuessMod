@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using DrawAndGuessMod.Scripts.Compatibility;
 using DrawAndGuessMod.Scripts.Relics;
 using DrawAndGuessMod.Scripts.State;
 using HarmonyLib;
@@ -77,7 +78,8 @@ internal static class DeathNoteNeowPatch
         }
 
         int ownerSlot = neow.Owner.RunState.GetPlayerSlotIndex(neow.Owner);
-        int designatedSlot = (int)(neow.Owner.RunState.Rng.Seed % (ulong)playerCount);
+        ulong runSeed = RunRngCompat.GetSeed(neow.Owner.RunState.Rng);
+        int designatedSlot = (int)(runSeed % (ulong)playerCount);
         return ownerSlot == designatedSlot;
     }
 }
