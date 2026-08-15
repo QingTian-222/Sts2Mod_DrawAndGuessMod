@@ -1,0 +1,16 @@
+{
+  "$schema": "https://sts2-ritsulib.ritsukage.com/ritsulib-update.schema.json",
+  "schema": "ritsulib.update.v1",
+  "latest_version": "0.9.0",
+  "release_page_url": "https://github.com/QingTian-222/Sts2Mod_DrawAndGuessMod/releases/tag/v0.9.0",
+  "localized": {
+    "eng": {
+      "title": "Draw & Guess compatibility update available",
+      "message": "Latest version for game v0.107: {latest_version}. Installed version: {current_version}. Download the game-0.107 archive. Multiplayer requires every player to use the same version."
+    },
+    "zhs": {
+      "title": "你画瓦猜兼容版有新版本",
+      "message": "游戏 v0.107 对应的最新版本：{latest_version}；当前版本：{current_version}。请下载名称中含 game-0.107 的压缩包。联机时所有玩家必须使用相同版本。"
+    }
+  }
+}
