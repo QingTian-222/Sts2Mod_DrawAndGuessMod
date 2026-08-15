@@ -12,7 +12,7 @@ internal static class DrawAndGuessUpdateChecker
 {
     private const string UnknownVersion = "0.0.0";
     private static readonly Uri ManifestUri = new(
-        "https://qingtian-222.github.io/Sts2Mod_DrawAndGuessMod/update.json");
+        "https://qingtian-222.github.io/Sts2Mod_DrawAndGuessMod/update-0.107.json");
     private static readonly Uri ReleasePageUri = new(
         "https://github.com/QingTian-222/Sts2Mod_DrawAndGuessMod/releases");
     private static Assembly? _pendingAssembly;

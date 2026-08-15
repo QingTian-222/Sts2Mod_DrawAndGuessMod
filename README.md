@@ -49,7 +49,7 @@
 
 ## 依赖
 
-- Slay the Spire 2 `0.107` 正式分支或 `0.110` 测试分支；请从 GitHub Release 下载名称与游戏分支匹配的压缩包。创意工坊会按游戏分支分发对应版本。
+- Slay the Spire 2 `0.107` 兼容分支；请从 GitHub Release 下载名称中含 `game-0.107` 的压缩包。创意工坊会按游戏分支分发对应版本。
 - [STS2-RitsuLib](https://www.nuget.org/packages/STS2.RitsuLib/) `0.5.11` 或更高版本（自动选择 0.107 兼容构建）。
 - 游戏内 DINOv2 推理使用随模组发布的 ONNX Runtime，普通玩家不需要安装 Python、PyTorch 或其他 AI 环境。
 - Windows 上使用“鸡煲（DINOv2）”识别模型需要 [Microsoft Visual C++ 2015–2022 Redistributable（x64）](https://aka.ms/vc14/vc_redist.x64.exe)。
@@ -191,7 +191,7 @@ A drawing-based card guessing mod for *Slay the Spire 2*. After playing **Blank*
 
 ## Requirements
 
-- *Slay the Spire 2* `0.107` public branch or `0.110` public-beta branch. Download the archive whose name matches the game branch from GitHub Releases; Steam Workshop distributes the matching item version automatically.
+- *Slay the Spire 2* `0.107` compatibility branch. Download the archive whose name contains `game-0.107` from GitHub Releases; Steam Workshop distributes the matching item version automatically.
 - [STS2-RitsuLib](https://www.nuget.org/packages/STS2.RitsuLib/) `0.5.11` or later, which automatically selects its 0.107 compatibility build.
 - In-game DINOv2 inference uses the ONNX Runtime distributed with the mod. Regular players do not need Python, PyTorch, or any other AI development environment.
 - On Windows, the Defect (DINOv2) recognition model requires the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vc14/vc_redist.x64.exe).
