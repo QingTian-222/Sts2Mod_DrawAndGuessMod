@@ -271,6 +271,44 @@ public partial class DrawingScreen : Control
         return screen._historyEditCompletion.Task;
     }
 
+    public static Task<DrawingResult?> ShowPrivateAsync(
+        Player owner,
+        uint sessionId,
+        DrawingScreenOptions options)
+    {
+        if (_active != null && GodotObject.IsInstanceValid(_active) ||
+            Engine.GetMainLoop() is not SceneTree tree)
+        {
+            return Task.FromResult<DrawingResult?>(null);
+        }
+
+        Player paletteOwner = LocalContext.GetMe(owner.RunState) ?? owner;
+        DrawingScreen screen = new()
+        {
+            Name = "DrawAndGuessMod_PrivateDrawingScreen",
+            _owner = owner,
+            _paletteOwner = paletteOwner,
+            _sessionId = sessionId,
+            _isChooser = true,
+            _isTimerAuthority = true,
+            _receivedAuthoritativeBlankSettings = true,
+            _options = options,
+            _canvasMode = options.InitialCanvasMode,
+            _rightColor = options.InitialCanvasMode == DrawingCanvasMode.Relic
+                ? Colors.Transparent
+                : DrawingCanvas.PaperColor,
+            _remainingSeconds = options.TimeLimitSeconds,
+            _timerDurationSeconds = options.TimeLimitSeconds,
+            _privateDrawing = true
+        };
+        screen._customColors.AddRange(
+            DrawingPaletteStore.GetColors(paletteOwner)
+                .Select(color => new Color(color.R, color.G, color.B, 1f)));
+        _active = screen;
+        tree.Root.AddChild(screen);
+        return screen._completion.Task;
+    }
+
     public static Task<RelicDrawingResult?> ShowRelicAsync(
         Player owner,
         uint sessionId,
@@ -1305,15 +1343,18 @@ public partial class DrawingScreen : Control
             bool skipAddingToDeck = DrawingRunRules.GetBlankGeneratedCardSkipsDeck(_owner.RunState);
             _status.Text = "";
             FlushCommands();
-            DrawingNetSync.SendFinal(new DrawingFinalMessage
+            if (!_privateDrawing)
             {
-                OwnerId = _owner.NetId,
-                SessionId = _sessionId,
-                SkipAddingToDeck = skipAddingToDeck,
-                CanvasMode = _canvasMode,
-                CardIds = guess.NearestCards.Select(card => card.Id.Entry).ToList(),
-                PngBytes = png
-            });
+                DrawingNetSync.SendFinal(new DrawingFinalMessage
+                {
+                    OwnerId = _owner.NetId,
+                    SessionId = _sessionId,
+                    SkipAddingToDeck = skipAddingToDeck,
+                    CanvasMode = _canvasMode,
+                    CardIds = guess.NearestCards.Select(card => card.Id.Entry).ToList(),
+                    PngBytes = png
+                });
+            }
             await ToSignal(GetTree().CreateTimer(0.6d, processAlways: true), SceneTreeTimer.SignalName.Timeout);
             Complete(new DrawingResult(
                 png,

@@ -114,6 +114,7 @@ public static class Entry
         MemorialSketchbookStore.ActivateRun(runState);
         RelicAppraisalFairArtworkStore.Reset();
         RelicAppraisalFairTreasureFlow.Reset();
+        GalleryDrawingVoteScreen.Reset();
         DeathNoteRestSiteOption.ResetSessions();
         DrawingNetSync.Reset();
     }

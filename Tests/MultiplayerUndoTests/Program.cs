@@ -2,6 +2,7 @@ using DrawAndGuessMod.Scripts.Ui;
 using DrawAndGuessMod.Scripts.State;
 
 RunBlankReplaySequenceScenario();
+RunGalleryVoteScenario();
 RunSelectiveUndoScenario();
 RunCoveredStrokeScenario();
 RunFixedFillPatchScenario();
@@ -11,6 +12,18 @@ RunRedoBranchInvalidationScenario();
 RunOtherPlayerCommitPreservesRedoScenario();
 RunCoveredStrokeRedoScenario();
 Console.WriteLine("All multiplayer drawing interaction tests passed.");
+
+static void RunGalleryVoteScenario()
+{
+    Assert(GalleryVoteResolver.Resolve([10ul, 20ul, 30ul], [20ul, 20ul, 10ul]) == 20ul,
+        "The candidate with the most gallery votes must win.");
+    Assert(GalleryVoteResolver.Resolve([30ul, 10ul], [30ul, 10ul]) == 10ul,
+        "A tied gallery vote must resolve to the lowest owner id on every peer.");
+    Assert(GalleryVoteResolver.Resolve([10ul, 20ul], [999ul, 20ul]) == 20ul,
+        "Votes for unknown gallery candidates must be ignored.");
+    Assert(GalleryVoteResolver.Resolve([], [10ul]) == 0ul,
+        "A gallery vote without candidates must report no winner.");
+}
 
 static void RunBlankReplaySequenceScenario()
 {
