@@ -271,6 +271,27 @@ internal static class ArtworkHistoryViewer
         };
         actions.AddChild(copy);
 
+        if (string.Equals(entry.Kind, "card", StringComparison.Ordinal) ||
+            string.Equals(entry.Kind, "relic", StringComparison.Ordinal))
+        {
+            Button collect = CreateActionButton(string.Empty);
+            collect.CustomMinimumSize = new Vector2(112f, 30f);
+            RefreshCollectionButton(collect, entry);
+            collect.Pressed += () =>
+            {
+                if (TrySaveToCollection(entry))
+                {
+                    RefreshCollectionButton(collect, entry);
+                }
+                else
+                {
+                    collect.TooltipText = ModText.Get(
+                        "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.FAILED_TO_ADD_TO_COLLECTION");
+                }
+            };
+            actions.AddChild(collect);
+        }
+
         Button delete = CreateActionButton(ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.DELETE"));
         delete.Pressed += () =>
         {
@@ -286,6 +307,102 @@ internal static class ArtworkHistoryViewer
         actions.AddChild(delete);
 
         return row;
+    }
+
+    private static void RefreshCollectionButton(Button button, DrawingHistoryEntry entry)
+    {
+        string artworkId = BuildHistoryArtworkId(entry);
+        bool isCollected;
+        if (string.Equals(entry.Kind, "card", StringComparison.Ordinal))
+        {
+            CardModel? card = ResolveCard(entry.TargetId);
+            if (card == null)
+            {
+                DisableCollectionButton(button);
+                return;
+            }
+
+            isCollected = MemorialSketchbookStore.IsCardArtworkInCollection(
+                card.Id.ToString(),
+                artworkId);
+        }
+        else
+        {
+            RelicModel? relic = ResolveRelic(entry.TargetId);
+            if (relic == null)
+            {
+                DisableCollectionButton(button);
+                return;
+            }
+
+            isCollected = MemorialSketchbookStore.IsRelicArtworkInCollection(
+                relic.Id.ToString(),
+                artworkId);
+        }
+
+        button.Text = ModText.Get(isCollected
+            ? "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.UPDATE_COLLECTION"
+            : "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.ADD_TO_COLLECTION");
+        button.Disabled = isCollected;
+        button.TooltipText = ModText.Get(isCollected
+            ? "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.UPDATE_THE_SAVED_PERMANENT_ARTWORK"
+            : "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.USE_THIS_DRAWING_AS_THE_PERMANENT_CARD_ARTWORK");
+    }
+
+    private static void DisableCollectionButton(Button button)
+    {
+        button.Text = ModText.Get("DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.ADD_TO_COLLECTION");
+        button.Disabled = true;
+        button.TooltipText = ModText.Get(
+            "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.CARD_IS_NOT_CURRENTLY_LOADED");
+    }
+
+    private static bool TrySaveToCollection(DrawingHistoryEntry entry)
+    {
+        byte[]? png = DrawingHistoryStore.LoadPng(entry.FileName);
+        if (png == null || png.Length == 0)
+        {
+            return false;
+        }
+
+        if (string.Equals(entry.Kind, "relic", StringComparison.Ordinal))
+        {
+            RelicModel? relic = ResolveRelic(entry.TargetId);
+            return relic != null && MemorialSketchbookStore.SaveRelicArtworkToCollection(
+                BuildHistoryArtworkId(entry),
+                relic,
+                png);
+        }
+
+        return TryBuildPermanentArtwork(entry, png, out MemorialArtworkData artwork) &&
+               MemorialSketchbookStore.SaveArtworkToCollection(artwork);
+    }
+
+    private static bool TryBuildPermanentArtwork(
+        DrawingHistoryEntry entry,
+        byte[] png,
+        out MemorialArtworkData artwork)
+    {
+        artwork = null!;
+        CardModel? card = ResolveCard(entry.TargetId);
+        if (card == null)
+        {
+            return false;
+        }
+
+        byte[] adapted = ArtworkStore.AdaptToCardPortrait(card, png);
+        artwork = new MemorialArtworkData
+        {
+            ArtworkId = BuildHistoryArtworkId(entry),
+            CardId = card.Id.ToString(),
+            PngBase64 = Convert.ToBase64String(adapted)
+        };
+        return true;
+    }
+
+    private static string BuildHistoryArtworkId(DrawingHistoryEntry entry)
+    {
+        return $"history:{entry.Key}";
     }
 
     private static Button CreateActionButton(string text)
@@ -355,8 +472,7 @@ internal static class ArtworkHistoryViewer
                         ("WorkTitle", entry.WorkTitle));
             }
 
-            CardModel? card = ModelDb.AllCards.FirstOrDefault(
-                card => string.Equals(card.Id.Entry, entry.TargetId, StringComparison.Ordinal));
+            CardModel? card = ResolveCard(entry.TargetId);
             string cardName = card == null ? entry.TargetId : card.Title;
             return ModText.Format(
                 "DRAW_AND_GUESS_MOD.ARTWORK_HISTORY_VIEWER.CARD",
@@ -367,6 +483,20 @@ internal static class ArtworkHistoryViewer
             Entry.Logger.Warn($"[DrawAndGuessMod] Failed to resolve history entry display name: {ex.Message}");
             return entry.TargetId;
         }
+    }
+
+    private static CardModel? ResolveCard(string cardId)
+    {
+        return ModelDb.AllCards.FirstOrDefault(card =>
+            string.Equals(card.Id.Entry, cardId, StringComparison.Ordinal) ||
+            string.Equals(card.Id.ToString(), cardId, StringComparison.Ordinal));
+    }
+
+    private static RelicModel? ResolveRelic(string relicId)
+    {
+        return ModelDb.AllRelics.FirstOrDefault(relic =>
+            string.Equals(relic.Id.Entry, relicId, StringComparison.Ordinal) ||
+            string.Equals(relic.Id.ToString(), relicId, StringComparison.Ordinal));
     }
 
     private static Texture2D? LoadThumbnail(DrawingHistoryEntry entry)

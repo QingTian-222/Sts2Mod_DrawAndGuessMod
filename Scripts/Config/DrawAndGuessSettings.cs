@@ -36,6 +36,7 @@ internal static class DrawAndGuessSettings
     private const string AiSettingsPageId = "ai_settings";
     private const string GameSettingsPageId = "game_settings";
     private const string ArtworkHistoryPageId = "artwork_history";
+    private const string FavoriteArtworkPageId = "favorite_artwork";
     private const ModSettingsHostSurface SettingsHostSurfaces =
         ModSettingsHostSurface.MainMenu |
         ModSettingsHostSurface.RunPause |
@@ -272,6 +273,10 @@ internal static class DrawAndGuessSettings
                 Entry.ModId,
                 BuildArtworkHistoryPage,
                 ArtworkHistoryPageId);
+            RitsuLibFramework.RegisterModSettings(
+                Entry.ModId,
+                BuildFavoriteArtworkPage,
+                FavoriteArtworkPageId);
         }
         catch (Exception ex)
         {
@@ -307,7 +312,13 @@ internal static class DrawAndGuessSettings
                     LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ARTWORK_HISTORY"),
                     ArtworkHistoryPageId,
                     LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.OPEN"),
-                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BROWSE_ALL_COMPLETED_CARD_AND_RELIC_DRAWINGS")));
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BROWSE_ALL_COMPLETED_CARD_AND_RELIC_DRAWINGS"))
+                .AddSubpage(
+                    "open_favorite_artwork",
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.MY_COLLECTION"),
+                    FavoriteArtworkPageId,
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.OPEN"),
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BROWSE_PERMANENT_CARD_ARTWORKS")));
     }
 
     public static bool TreasureRoomRelicDrawingEnabled
@@ -494,6 +505,23 @@ internal static class DrawAndGuessSettings
                     LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.HISTORY"),
                     ArtworkHistoryViewer.BuildSettingsControl,
                     LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ENTRIES_ARE_ORDERED_NEWEST_FIRST_RENAME_EDIT")));
+    }
+
+    private static void BuildFavoriteArtworkPage(ModSettingsPageBuilder page)
+    {
+        page
+            .AsChildOf(Entry.ModId)
+            .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.MY_COLLECTION"))
+            .WithSortOrder(40)
+            .WithDescription(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.BROWSE_PERMANENT_CARD_ARTWORKS"))
+            .WithVisibleOnHostSurfaces(SettingsHostSurfaces)
+            .AddSection("favorite_artworks", section => section
+                .WithTitle(LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.PERMANENT_CARD_ARTWORKS"))
+                .AddCustom(
+                    "favorite_artwork_entries",
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.MY_COLLECTION"),
+                    FavoriteArtworkViewer.BuildSettingsControl,
+                    LocalizedText("DRAW_AND_GUESS_MOD.DRAW_AND_GUESS_SETTINGS.ADD_CARD_DRAWINGS_FROM_ARTWORK_HISTORY")));
     }
 
     private static IModSettingsValueBinding<bool> CreateCandidatePoolBinding(string poolKey)

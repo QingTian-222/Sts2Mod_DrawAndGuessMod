@@ -1,3 +1,4 @@
+using System.Reflection;
 using DrawAndGuessMod.Scripts.Cards;
 using DrawAndGuessMod.Scripts.State;
 using Godot;
@@ -94,13 +95,27 @@ internal static class CardPortraitPatch
     }
 }
 
-[HarmonyPatch(typeof(NCard), "Reload")]
+[HarmonyPatch]
 internal static class NCardPortraitPatch
 {
+    [HarmonyTargetMethods]
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        // UpdateVisuals can refresh only the portrait after Reload has finished.
+        // Apply directly to the node even if a patched/inlined getter was bypassed.
+        yield return AccessTools.Method(typeof(NCard), "Reload");
+        yield return AccessTools.Method(typeof(NCard), "UpdatePortrait");
+    }
+
     [HarmonyPostfix]
     [HarmonyPriority(Priority.Last)]
     private static void Postfix(NCard __instance)
     {
+        if (!__instance.IsNodeReady())
+        {
+            return;
+        }
+
         CardModel? model = __instance.Model;
         if (model == null ||
             !CardPortraitPatch.TryGetOverrideTexture(
@@ -115,7 +130,7 @@ internal static class NCardPortraitPatch
             : "%Portrait";
         TextureRect? portrait =
             __instance.GetNodeOrNull<TextureRect>(portraitNode);
-        if (portrait != null)
+        if (portrait != null && portrait.Texture != texture)
         {
             portrait.Texture = texture;
         }

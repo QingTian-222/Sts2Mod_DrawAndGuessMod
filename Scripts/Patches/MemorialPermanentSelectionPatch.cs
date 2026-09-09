@@ -295,7 +295,10 @@ internal static class MemorialPermanentSelectionPatch
                 }
                 else
                 {
-                    MemorialSketchbookStore.ClearPermanentArtwork(artwork);
+                    MemorialSketchbookStore.SetPermanentArtworkEnabled(
+                        artwork.CardId,
+                        artwork.ArtworkId,
+                        enabled: false);
                 }
             }
             else if (state.Mode == InspectMode.CardLibrary &&

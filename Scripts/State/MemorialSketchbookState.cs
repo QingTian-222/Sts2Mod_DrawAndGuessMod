@@ -21,6 +21,7 @@ public sealed class MemorialSketchbookProfileData
 {
     public List<MemorialRunArchive> Runs { get; set; } = new();
     public List<PermanentCardArtworkData> PermanentArtworks { get; set; } = new();
+    public List<PermanentRelicArtworkData> PermanentRelicArtworks { get; set; } = new();
 }
 
 public sealed class MemorialRunArchive
@@ -37,4 +38,12 @@ public sealed class PermanentCardArtworkData
     public string ArtworkId { get; set; } = string.Empty;
     public string PngBase64 { get; set; } = string.Empty;
     public bool Enabled { get; set; } = true;
+}
+
+public sealed class PermanentRelicArtworkData
+{
+    public string RelicId { get; set; } = string.Empty;
+    public string ArtworkId { get; set; } = string.Empty;
+    public string PngBase64 { get; set; } = string.Empty;
+    public bool Enabled { get; set; }
 }

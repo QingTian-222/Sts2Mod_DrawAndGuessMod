@@ -26,6 +26,8 @@ internal static class MemorialSketchbookStore
     private static readonly SemaphoreSlim RelicOwnershipGate = new(1, 1);
     private static readonly Dictionary<string, CachedPermanentTexture> PermanentTextureCache =
         new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, CachedPermanentRelicTextures> PermanentRelicTextureCache =
+        new(StringComparer.Ordinal);
 
     public static void Register()
     {
@@ -60,6 +62,7 @@ internal static class MemorialSketchbookStore
     public static void ActivateRun(RunState runState)
     {
         PermanentTextureCache.Clear();
+        PermanentRelicTextureCache.Clear();
         SynchronizeProfileArchive(runState);
     }
 
@@ -208,11 +211,21 @@ internal static class MemorialSketchbookStore
         }
     }
 
-    public static void SetPermanentArtwork(MemorialArtworkData artwork)
+    public static bool SetPermanentArtwork(MemorialArtworkData artwork)
+    {
+        return SaveCardArtwork(artwork, enableArtwork: true);
+    }
+
+    public static bool SaveArtworkToCollection(MemorialArtworkData artwork)
+    {
+        return SaveCardArtwork(artwork, enableArtwork: false);
+    }
+
+    private static bool SaveCardArtwork(MemorialArtworkData artwork, bool enableArtwork)
     {
         if (string.IsNullOrWhiteSpace(artwork.CardId) || string.IsNullOrWhiteSpace(artwork.PngBase64))
         {
-            return;
+            return false;
         }
 
         try
@@ -222,29 +235,44 @@ internal static class MemorialSketchbookStore
             {
                 profile.PermanentArtworks ??= new List<PermanentCardArtworkData>();
                 PermanentCardArtworkData? existing = profile.PermanentArtworks.FirstOrDefault(
-                    item => string.Equals(item.CardId, artwork.CardId, StringComparison.Ordinal));
+                    item => string.Equals(item.CardId, artwork.CardId, StringComparison.Ordinal) &&
+                            string.Equals(item.ArtworkId, artwork.ArtworkId, StringComparison.Ordinal));
                 if (existing == null)
                 {
-                    profile.PermanentArtworks.Add(new PermanentCardArtworkData
+                    existing = new PermanentCardArtworkData
                     {
                         CardId = artwork.CardId,
                         ArtworkId = artwork.ArtworkId,
                         PngBase64 = artwork.PngBase64,
-                        Enabled = true
-                    });
-                    return;
+                        Enabled = false
+                    };
+                    profile.PermanentArtworks.Add(existing);
+                }
+                else
+                {
+                    existing.PngBase64 = artwork.PngBase64;
                 }
 
-                existing.ArtworkId = artwork.ArtworkId;
-                existing.PngBase64 = artwork.PngBase64;
-                existing.Enabled = true;
+                if (enableArtwork)
+                {
+                    foreach (PermanentCardArtworkData candidate in profile.PermanentArtworks.Where(
+                                 item => string.Equals(
+                                     item.CardId,
+                                     artwork.CardId,
+                                     StringComparison.Ordinal)))
+                    {
+                        candidate.Enabled = ReferenceEquals(candidate, existing);
+                    }
+                }
             });
             store.Save(ProfileDataKey);
             PermanentTextureCache.Remove(artwork.CardId);
+            return true;
         }
         catch (Exception ex)
         {
             Entry.Logger.Warn($"[DrawAndGuessMod] Failed to save permanent card artwork: {ex.Message}");
+            return false;
         }
     }
 
@@ -258,9 +286,10 @@ internal static class MemorialSketchbookStore
                 .GetDataStore(Entry.ModId)
                 .Get<MemorialSketchbookProfileData>(ProfileDataKey);
             PermanentCardArtworkData? artwork = profile?.PermanentArtworks?.FirstOrDefault(
-                item => string.Equals(item.CardId, cardId, StringComparison.Ordinal));
+                item => string.Equals(item.CardId, cardId, StringComparison.Ordinal) &&
+                        item.Enabled &&
+                        !string.IsNullOrWhiteSpace(item.PngBase64));
             if (artwork == null ||
-                !artwork.Enabled ||
                 string.IsNullOrWhiteSpace(artwork.PngBase64))
             {
                 PermanentTextureCache.Remove(cardId);
@@ -294,53 +323,360 @@ internal static class MemorialSketchbookStore
 
     public static bool HasPermanentArtwork(CardModel card)
     {
-        return TryGetPermanentArtwork(card.Id.ToString(), out _);
+        return HasCollectedCardArtwork(card.Id.ToString());
     }
 
-    public static bool IsPermanentArtworkEnabled(CardModel card)
+    public static bool IsCardArtworkInCollection(string cardId, string artworkId)
     {
-        return TryGetPermanentArtwork(card.Id.ToString(), out PermanentCardArtworkData? artwork) &&
-               artwork != null &&
-               artwork.Enabled;
+        return TryGetCardArtwork(cardId, artworkId, out _);
     }
 
-    public static bool IsPermanentArtwork(MemorialArtworkData artwork)
+    public static IReadOnlyList<PermanentCardArtworkData> GetPermanentArtworks()
     {
-        return TryGetPermanentArtwork(artwork.CardId, out PermanentCardArtworkData? permanent) &&
-               permanent != null &&
-               string.Equals(permanent.ArtworkId, artwork.ArtworkId, StringComparison.Ordinal);
+        try
+        {
+            MemorialSketchbookProfileData? profile = RitsuLibFramework
+                .GetDataStore(Entry.ModId)
+                .Get<MemorialSketchbookProfileData>(ProfileDataKey);
+            return profile?.PermanentArtworks?
+                       .Where(artwork =>
+                           !string.IsNullOrWhiteSpace(artwork.CardId) &&
+                           !string.IsNullOrWhiteSpace(artwork.PngBase64))
+                       .GroupBy(
+                           artwork => $"{artwork.CardId}\0{artwork.ArtworkId}",
+                           StringComparer.Ordinal)
+                       .Select(group => group.Last())
+                       .Select(artwork => new PermanentCardArtworkData
+                       {
+                           CardId = artwork.CardId,
+                           ArtworkId = artwork.ArtworkId,
+                           PngBase64 = artwork.PngBase64,
+                           Enabled = artwork.Enabled
+                       })
+                       .ToList()
+                   ?? [];
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to read permanent card artworks: {ex.Message}");
+            return [];
+        }
     }
 
-    public static void SetPermanentArtworkEnabled(CardModel card, bool enabled)
+    public static bool SaveRelicArtworkToCollection(
+        string artworkId,
+        RelicModel relic,
+        byte[] pngBytes)
     {
-        string cardId = card.Id.ToString();
+        if (string.IsNullOrWhiteSpace(artworkId) || pngBytes.Length == 0)
+        {
+            return false;
+        }
+
+        Image validationImage = new();
+        if (validationImage.LoadPngFromBuffer(pngBytes) != Error.Ok)
+        {
+            return false;
+        }
+
+        string relicId = relic.Id.ToString();
+        string pngBase64 = Convert.ToBase64String(pngBytes);
+        try
+        {
+            var store = RitsuLibFramework.GetDataStore(Entry.ModId);
+            store.Modify<MemorialSketchbookProfileData>(ProfileDataKey, profile =>
+            {
+                profile.PermanentRelicArtworks ??= new List<PermanentRelicArtworkData>();
+                PermanentRelicArtworkData? existing = profile.PermanentRelicArtworks.FirstOrDefault(
+                    item => string.Equals(item.RelicId, relicId, StringComparison.Ordinal) &&
+                            string.Equals(item.ArtworkId, artworkId, StringComparison.Ordinal));
+                if (existing == null)
+                {
+                    profile.PermanentRelicArtworks.Add(new PermanentRelicArtworkData
+                    {
+                        RelicId = relicId,
+                        ArtworkId = artworkId,
+                        PngBase64 = pngBase64,
+                        Enabled = false
+                    });
+                    return;
+                }
+
+                existing.PngBase64 = pngBase64;
+            });
+            store.Save(ProfileDataKey);
+            PermanentRelicTextureCache.Remove(relicId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to save relic artwork to collection: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static IReadOnlyList<PermanentRelicArtworkData> GetPermanentRelicArtworks()
+    {
+        try
+        {
+            MemorialSketchbookProfileData? profile = RitsuLibFramework
+                .GetDataStore(Entry.ModId)
+                .Get<MemorialSketchbookProfileData>(ProfileDataKey);
+            return profile?.PermanentRelicArtworks?
+                       .Where(artwork =>
+                           !string.IsNullOrWhiteSpace(artwork.RelicId) &&
+                           !string.IsNullOrWhiteSpace(artwork.PngBase64))
+                       .GroupBy(
+                           artwork => $"{artwork.RelicId}\0{artwork.ArtworkId}",
+                           StringComparer.Ordinal)
+                       .Select(group => group.Last())
+                       .Select(artwork => new PermanentRelicArtworkData
+                       {
+                           RelicId = artwork.RelicId,
+                           ArtworkId = artwork.ArtworkId,
+                           PngBase64 = artwork.PngBase64,
+                           Enabled = artwork.Enabled
+                       })
+                       .ToList()
+                   ?? [];
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to read permanent relic artworks: {ex.Message}");
+            return [];
+        }
+    }
+
+    public static bool HasPermanentRelicArtwork(RelicModel relic)
+    {
+        return HasCollectedRelicArtwork(relic.Id.ToString());
+    }
+
+    public static bool IsRelicArtworkInCollection(string relicId, string artworkId)
+    {
+        return TryGetRelicArtwork(relicId, artworkId, out _);
+    }
+
+    public static bool SetPermanentRelicArtworkEnabled(string relicId, bool enabled)
+    {
+        return SetPermanentRelicArtworkEnabledCore(relicId, artworkId: null, enabled);
+    }
+
+    public static bool SetPermanentRelicArtworkEnabled(
+        string relicId,
+        string artworkId,
+        bool enabled)
+    {
+        return SetPermanentRelicArtworkEnabledCore(relicId, artworkId, enabled);
+    }
+
+    private static bool SetPermanentRelicArtworkEnabledCore(
+        string relicId,
+        string? artworkId,
+        bool enabled)
+    {
+        try
+        {
+            var store = RitsuLibFramework.GetDataStore(Entry.ModId);
+            bool found = false;
+            bool changed = false;
+            store.Modify<MemorialSketchbookProfileData>(ProfileDataKey, profile =>
+            {
+                List<PermanentRelicArtworkData> candidates = profile.PermanentRelicArtworks?
+                    .Where(item => string.Equals(item.RelicId, relicId, StringComparison.Ordinal))
+                    .ToList() ?? [];
+                PermanentRelicArtworkData? selected = artworkId == null
+                    ? candidates.FirstOrDefault(item => item.Enabled) ?? candidates.FirstOrDefault()
+                    : candidates.FirstOrDefault(item => string.Equals(
+                        item.ArtworkId,
+                        artworkId,
+                        StringComparison.Ordinal));
+                if (selected == null)
+                {
+                    return;
+                }
+
+                found = true;
+                foreach (PermanentRelicArtworkData candidate in candidates)
+                {
+                    bool nextEnabled = enabled && ReferenceEquals(candidate, selected);
+                    if (candidate.Enabled != nextEnabled)
+                    {
+                        candidate.Enabled = nextEnabled;
+                        changed = true;
+                    }
+                }
+            });
+            if (!changed)
+            {
+                return found;
+            }
+
+            store.Save(ProfileDataKey);
+            PermanentRelicTextureCache.Remove(relicId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to toggle permanent relic artwork: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static bool ClearPermanentRelicArtwork(string relicId)
+    {
+        return ClearPermanentRelicArtworkCore(relicId, artworkId: null);
+    }
+
+    public static bool ClearPermanentRelicArtwork(string relicId, string artworkId)
+    {
+        return ClearPermanentRelicArtworkCore(relicId, artworkId);
+    }
+
+    private static bool ClearPermanentRelicArtworkCore(string relicId, string? artworkId)
+    {
+        if (string.IsNullOrWhiteSpace(relicId))
+        {
+            return false;
+        }
+
         try
         {
             var store = RitsuLibFramework.GetDataStore(Entry.ModId);
             bool changed = false;
             store.Modify<MemorialSketchbookProfileData>(ProfileDataKey, profile =>
             {
-                PermanentCardArtworkData? artwork = profile.PermanentArtworks?.FirstOrDefault(
-                    item => string.Equals(item.CardId, cardId, StringComparison.Ordinal));
-                if (artwork == null || artwork.Enabled == enabled)
+                profile.PermanentRelicArtworks ??= new List<PermanentRelicArtworkData>();
+                changed = profile.PermanentRelicArtworks.RemoveAll(item =>
+                    string.Equals(item.RelicId, relicId, StringComparison.Ordinal) &&
+                    (artworkId == null || string.Equals(
+                        item.ArtworkId,
+                        artworkId,
+                        StringComparison.Ordinal))) > 0;
+            });
+            if (!changed)
+            {
+                return false;
+            }
+
+            store.Save(ProfileDataKey);
+            PermanentRelicTextureCache.Remove(relicId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to remove permanent relic artwork: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static bool TryGetPermanentRelicTexture(RelicModel relic, out Texture2D texture)
+    {
+        if (TryGetPermanentRelicTextures(relic, out CachedPermanentRelicTextures textures))
+        {
+            texture = textures.Artwork;
+            return true;
+        }
+
+        texture = null!;
+        return false;
+    }
+
+    public static bool TryGetPermanentRelicTriggerTexture(RelicModel relic, out Texture2D texture)
+    {
+        if (TryGetPermanentRelicTextures(relic, out CachedPermanentRelicTextures textures))
+        {
+            texture = textures.TriggerArtwork;
+            return true;
+        }
+
+        texture = null!;
+        return false;
+    }
+
+    public static bool IsPermanentArtworkEnabled(CardModel card)
+    {
+        return TryGetActivePermanentArtwork(card.Id.ToString(), out _);
+    }
+
+    public static bool IsPermanentArtwork(MemorialArtworkData artwork)
+    {
+        return TryGetCardArtwork(
+                   artwork.CardId,
+                   artwork.ArtworkId,
+                   out PermanentCardArtworkData? permanent) &&
+               permanent != null &&
+               permanent.Enabled;
+    }
+
+    public static void SetPermanentArtworkEnabled(CardModel card, bool enabled)
+    {
+        SetPermanentArtworkEnabled(card.Id.ToString(), enabled);
+    }
+
+    public static bool SetPermanentArtworkEnabled(string cardId, bool enabled)
+    {
+        return SetPermanentArtworkEnabledCore(cardId, artworkId: null, enabled);
+    }
+
+    public static bool SetPermanentArtworkEnabled(
+        string cardId,
+        string artworkId,
+        bool enabled)
+    {
+        return SetPermanentArtworkEnabledCore(cardId, artworkId, enabled);
+    }
+
+    private static bool SetPermanentArtworkEnabledCore(
+        string cardId,
+        string? artworkId,
+        bool enabled)
+    {
+        try
+        {
+            var store = RitsuLibFramework.GetDataStore(Entry.ModId);
+            bool found = false;
+            bool changed = false;
+            store.Modify<MemorialSketchbookProfileData>(ProfileDataKey, profile =>
+            {
+                List<PermanentCardArtworkData> candidates = profile.PermanentArtworks?
+                    .Where(item => string.Equals(item.CardId, cardId, StringComparison.Ordinal))
+                    .ToList() ?? [];
+                PermanentCardArtworkData? selected = artworkId == null
+                    ? candidates.FirstOrDefault(item => item.Enabled) ?? candidates.FirstOrDefault()
+                    : candidates.FirstOrDefault(item => string.Equals(
+                        item.ArtworkId,
+                        artworkId,
+                        StringComparison.Ordinal));
+                if (selected == null)
                 {
                     return;
                 }
 
-                artwork.Enabled = enabled;
-                changed = true;
+                found = true;
+                foreach (PermanentCardArtworkData candidate in candidates)
+                {
+                    bool nextEnabled = enabled && ReferenceEquals(candidate, selected);
+                    if (candidate.Enabled != nextEnabled)
+                    {
+                        candidate.Enabled = nextEnabled;
+                        changed = true;
+                    }
+                }
             });
             if (!changed)
             {
-                return;
+                return found;
             }
 
             store.Save(ProfileDataKey);
             PermanentTextureCache.Remove(cardId);
+            return true;
         }
         catch (Exception ex)
         {
             Entry.Logger.Warn($"[DrawAndGuessMod] Failed to toggle permanent card artwork: {ex.Message}");
+            return false;
         }
     }
 
@@ -371,18 +707,203 @@ internal static class MemorialSketchbookStore
         }
     }
 
-    private static bool TryGetPermanentArtwork(string cardId, out PermanentCardArtworkData? artwork)
+    public static bool ClearPermanentArtwork(string cardId)
     {
-        artwork = null;
+        return ClearPermanentArtworkCore(cardId, artworkId: null);
+    }
+
+    public static bool ClearPermanentArtwork(string cardId, string artworkId)
+    {
+        return ClearPermanentArtworkCore(cardId, artworkId);
+    }
+
+    private static bool ClearPermanentArtworkCore(string cardId, string? artworkId)
+    {
+        if (string.IsNullOrWhiteSpace(cardId))
+        {
+            return false;
+        }
+
         try
         {
-            MemorialSketchbookProfileData? profile = RitsuLibFramework
+            var store = RitsuLibFramework.GetDataStore(Entry.ModId);
+            bool changed = false;
+            store.Modify<MemorialSketchbookProfileData>(ProfileDataKey, profile =>
+            {
+                profile.PermanentArtworks ??= new List<PermanentCardArtworkData>();
+                changed = profile.PermanentArtworks.RemoveAll(item =>
+                    string.Equals(item.CardId, cardId, StringComparison.Ordinal) &&
+                    (artworkId == null || string.Equals(
+                        item.ArtworkId,
+                        artworkId,
+                        StringComparison.Ordinal))) > 0;
+            });
+            if (!changed)
+            {
+                return false;
+            }
+
+            store.Save(ProfileDataKey);
+            PermanentTextureCache.Remove(cardId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[DrawAndGuessMod] Failed to remove permanent card artwork: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool TryGetPermanentRelicTextures(
+        RelicModel relic,
+        out CachedPermanentRelicTextures textures)
+    {
+        string relicId = relic.Id.ToString();
+        textures = default;
+        if (!TryGetActivePermanentRelicArtwork(
+                relicId,
+                out PermanentRelicArtworkData? artwork) ||
+            artwork == null)
+        {
+            PermanentRelicTextureCache.Remove(relicId);
+            return false;
+        }
+
+        if (PermanentRelicTextureCache.TryGetValue(relicId, out textures) &&
+            string.Equals(textures.ArtworkId, artwork.ArtworkId, StringComparison.Ordinal) &&
+            string.Equals(textures.PngBase64, artwork.PngBase64, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        try
+        {
+            Image image = new();
+            if (image.LoadPngFromBuffer(Convert.FromBase64String(artwork.PngBase64)) != Error.Ok)
+            {
+                return false;
+            }
+
+            Texture2D fullTexture = ImageTexture.CreateFromImage(image);
+            Image triggerImage = Image.CreateFromData(
+                image.GetWidth(),
+                image.GetHeight(),
+                false,
+                image.GetFormat(),
+                image.GetData());
+            triggerImage.Resize(68, 68, Image.Interpolation.Lanczos);
+            Texture2D triggerTexture = ImageTexture.CreateFromImage(triggerImage);
+            textures = new CachedPermanentRelicTextures(
+                artwork.ArtworkId,
+                artwork.PngBase64,
+                fullTexture,
+                triggerTexture);
+            PermanentRelicTextureCache[relicId] = textures;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn(
+                $"[DrawAndGuessMod] Failed to decode permanent relic artwork for {relicId}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool HasCollectedCardArtwork(string cardId)
+    {
+        return TryReadProfile(out MemorialSketchbookProfileData? profile) &&
+               profile?.PermanentArtworks?.Any(item =>
+                   string.Equals(item.CardId, cardId, StringComparison.Ordinal) &&
+                   !string.IsNullOrWhiteSpace(item.PngBase64)) == true;
+    }
+
+    private static bool HasCollectedRelicArtwork(string relicId)
+    {
+        return TryReadProfile(out MemorialSketchbookProfileData? profile) &&
+               profile?.PermanentRelicArtworks?.Any(item =>
+                   string.Equals(item.RelicId, relicId, StringComparison.Ordinal) &&
+                   !string.IsNullOrWhiteSpace(item.PngBase64)) == true;
+    }
+
+    private static bool TryGetCardArtwork(
+        string cardId,
+        string artworkId,
+        out PermanentCardArtworkData? artwork)
+    {
+        artwork = null;
+        if (!TryReadProfile(out MemorialSketchbookProfileData? profile))
+        {
+            return false;
+        }
+
+        artwork = profile?.PermanentArtworks?.FirstOrDefault(item =>
+            string.Equals(item.CardId, cardId, StringComparison.Ordinal) &&
+            string.Equals(item.ArtworkId, artworkId, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(item.PngBase64));
+        return artwork != null;
+    }
+
+    private static bool TryGetRelicArtwork(
+        string relicId,
+        string artworkId,
+        out PermanentRelicArtworkData? artwork)
+    {
+        artwork = null;
+        if (!TryReadProfile(out MemorialSketchbookProfileData? profile))
+        {
+            return false;
+        }
+
+        artwork = profile?.PermanentRelicArtworks?.FirstOrDefault(item =>
+            string.Equals(item.RelicId, relicId, StringComparison.Ordinal) &&
+            string.Equals(item.ArtworkId, artworkId, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(item.PngBase64));
+        return artwork != null;
+    }
+
+    private static bool TryGetActivePermanentArtwork(
+        string cardId,
+        out PermanentCardArtworkData? artwork)
+    {
+        artwork = null;
+        if (!TryReadProfile(out MemorialSketchbookProfileData? profile))
+        {
+            return false;
+        }
+
+        artwork = profile?.PermanentArtworks?.FirstOrDefault(item =>
+            string.Equals(item.CardId, cardId, StringComparison.Ordinal) &&
+            item.Enabled &&
+            !string.IsNullOrWhiteSpace(item.PngBase64));
+        return artwork != null;
+    }
+
+    private static bool TryGetActivePermanentRelicArtwork(
+        string relicId,
+        out PermanentRelicArtworkData? artwork)
+    {
+        artwork = null;
+        if (!TryReadProfile(out MemorialSketchbookProfileData? profile))
+        {
+            return false;
+        }
+
+        artwork = profile?.PermanentRelicArtworks?.FirstOrDefault(item =>
+            string.Equals(item.RelicId, relicId, StringComparison.Ordinal) &&
+            item.Enabled &&
+            !string.IsNullOrWhiteSpace(item.PngBase64));
+        return artwork != null;
+    }
+
+    private static bool TryReadProfile(out MemorialSketchbookProfileData? profile)
+    {
+        profile = null;
+        try
+        {
+            profile = RitsuLibFramework
                 .GetDataStore(Entry.ModId)
                 .Get<MemorialSketchbookProfileData>(ProfileDataKey);
-            artwork = profile?.PermanentArtworks?.FirstOrDefault(item =>
-                string.Equals(item.CardId, cardId, StringComparison.Ordinal) &&
-                !string.IsNullOrWhiteSpace(item.PngBase64));
-            return artwork != null;
+            return true;
         }
         catch
         {
@@ -517,4 +1038,10 @@ internal static class MemorialSketchbookStore
     }
 
     private readonly record struct CachedPermanentTexture(string ArtworkId, string PngBase64, Texture2D Texture);
+
+    private readonly record struct CachedPermanentRelicTextures(
+        string ArtworkId,
+        string PngBase64,
+        Texture2D Artwork,
+        Texture2D TriggerArtwork);
 }

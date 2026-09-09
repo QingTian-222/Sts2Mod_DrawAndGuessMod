@@ -117,17 +117,23 @@ internal static class RelicAppraisalFairArtworkStore
         RelicModel relic,
         out Texture2D texture)
     {
-        if (_triggerIconContext?.Id != relic.Id ||
-            !TryGetAwarded(
-                relic,
-                out RelicAppraisalFairPresentation? presentation))
+        if (_triggerIconContext?.Id != relic.Id)
         {
             texture = null!;
             return false;
         }
 
-        texture = presentation.TriggerArtwork;
-        return true;
+        if (TryGetAwarded(
+                relic,
+                out RelicAppraisalFairPresentation? presentation))
+        {
+            texture = presentation.TriggerArtwork;
+            return true;
+        }
+
+        return MemorialSketchbookStore.TryGetPermanentRelicTriggerTexture(
+            relic,
+            out texture);
     }
 
     public static void SetPickingActive(bool active)

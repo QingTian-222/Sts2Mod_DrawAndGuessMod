@@ -11,7 +11,6 @@ using MegaCrit.Sts2.Core.Nodes.Events;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes.Relics;
 using MegaCrit.Sts2.Core.Nodes.Screens.InspectScreens;
-using MegaCrit.Sts2.Core.Nodes.Screens.RelicCollection;
 using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
 using MegaCrit.Sts2.Core.Nodes.Vfx;
 using MegaCrit.Sts2.Core.Platform;
@@ -45,10 +44,10 @@ internal static class RelicAppraisalFairPortraitLayoutPatch
 [HarmonyPatch(typeof(NRelic), "Reload")]
 internal static class RelicAppraisalFairRelicIconPatch
 {
+    [HarmonyPriority(Priority.Last)]
     private static void Postfix(NRelic __instance)
     {
-        if (!__instance.IsNodeReady() ||
-            HasAncestor<NRelicCollectionEntry>(__instance))
+        if (!__instance.IsNodeReady())
         {
             return;
         }
@@ -70,22 +69,33 @@ internal static class RelicAppraisalFairRelicIconPatch
             RelicAppraisalFairArtworkStore.TryGetAwarded(
                 model,
                 out RelicAppraisalFairPresentation? awardedPresentation);
-        if (!isAppraisalStand &&
-            !isAwarded)
+        Texture2D? artwork = null;
+        if (isAppraisalStand)
+        {
+            if (RelicAppraisalFairArtworkStore.TryGet(
+                    model,
+                    out RelicAppraisalFairPresentation? standPresentation))
+            {
+                artwork = standPresentation.Artwork;
+            }
+        }
+        else if (isAwarded)
+        {
+            artwork = awardedPresentation.Artwork;
+        }
+        else if (MemorialSketchbookStore.TryGetPermanentRelicTexture(
+                     model,
+                     out Texture2D permanentArtwork))
+        {
+            artwork = permanentArtwork;
+        }
+
+        if (artwork == null)
         {
             return;
         }
 
-        RelicAppraisalFairPresentation? presentation =
-            awardedPresentation;
-        if (presentation == null &&
-            !RelicAppraisalFairArtworkStore.TryGet(
-                model,
-                out presentation))
-        {
-            return;
-        }
-        __instance.Icon.Texture = presentation.Artwork;
+        __instance.Icon.Texture = artwork;
         __instance.Outline.Visible = false;
     }
 
@@ -184,18 +194,35 @@ internal static class RelicAppraisalFairRelicNamePatch
         RelicModel __instance,
         ref HoverTip __result)
     {
-        if (!__instance.IsMutable ||
-            !RelicAppraisalFairArtworkStore.TryGetAwarded(
-                __instance,
-                out RelicAppraisalFairPresentation? presentation))
+        if (!__instance.IsMutable)
         {
             return;
         }
 
-        HoverTip renamed = new(
-            CreateWorkTitle(presentation.WorkTitle),
-            __result.Description,
-            presentation.Artwork);
+        HoverTip renamed;
+        if (RelicAppraisalFairArtworkStore.TryGetAwarded(
+                __instance,
+                out RelicAppraisalFairPresentation? presentation))
+        {
+            renamed = new HoverTip(
+                CreateWorkTitle(presentation.WorkTitle),
+                __result.Description,
+                presentation.Artwork);
+        }
+        else if (MemorialSketchbookStore.TryGetPermanentRelicTexture(
+                     __instance,
+                     out Texture2D permanentArtwork))
+        {
+            renamed = new HoverTip(
+                __instance.Title,
+                __result.Description,
+                permanentArtwork);
+        }
+        else
+        {
+            return;
+        }
+
         renamed.SetCanonicalModel(__instance.CanonicalInstance);
         __result = renamed;
     }
@@ -238,17 +265,28 @@ internal static class RelicAppraisalFairInspectRelicPatch
         int index = Index(__instance);
         if (relics == null ||
             index < 0 ||
-            index >= relics.Count ||
-            !relics[index].IsMutable ||
-            !RelicAppraisalFairArtworkStore.TryGetAwarded(
-                relics[index],
-                out RelicAppraisalFairPresentation? presentation))
+            index >= relics.Count)
         {
             return;
         }
 
-        NameLabel(__instance).SetTextAutoSize(presentation.WorkTitle);
-        RelicImage(__instance).Texture = presentation.Artwork;
+        RelicModel relic = relics[index];
+        if (relic.IsMutable &&
+            RelicAppraisalFairArtworkStore.TryGetAwarded(
+                relic,
+                out RelicAppraisalFairPresentation? presentation))
+        {
+            NameLabel(__instance).SetTextAutoSize(presentation.WorkTitle);
+            RelicImage(__instance).Texture = presentation.Artwork;
+            return;
+        }
+
+        if (MemorialSketchbookStore.TryGetPermanentRelicTexture(
+                relic,
+                out Texture2D permanentArtwork))
+        {
+            RelicImage(__instance).Texture = permanentArtwork;
+        }
     }
 }
 

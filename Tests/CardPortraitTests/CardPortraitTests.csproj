@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Sts2Dir Condition="'$(Sts2Dir)' == '' and '$(STS2_DIR)' != ''">$(STS2_DIR)</Sts2Dir>
+    <Sts2Dir Condition="'$(Sts2Dir)' == '' and Exists('G:\SteamLibrary\steamapps\common\Slay the Spire 2')">G:\SteamLibrary\steamapps\common\Slay the Spire 2</Sts2Dir>
+    <Sts2Dir Condition="'$(Sts2Dir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2')">C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2</Sts2Dir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Scripts\Patches\CardPortraitPatch.cs" Link="CardPortraitPatch.cs" />
+    <Reference Include="0Harmony" HintPath="$(Sts2Dir)\data_sts2_windows_x86_64\0Harmony.dll" />
+    <Reference Include="MonoMod.Backports" HintPath="$(Sts2Dir)\data_sts2_windows_x86_64\MonoMod.Backports.dll" />
+    <Reference Include="MonoMod.ILHelpers" HintPath="$(Sts2Dir)\data_sts2_windows_x86_64\MonoMod.ILHelpers.dll" />
+  </ItemGroup>
+</Project>
