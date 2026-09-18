@@ -1,0 +1,85 @@
+name: Build
+description: Build DrawAndGuessMod and output a ZIP artifact path
+
+outputs:
+  zip_path:
+    description: Full path to the generated ZIP file
+    value: ${{ steps.package.outputs.zip_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET 9
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 9.0.x
+
+    - name: Ensure Sts2Dir
+      shell: pwsh
+      run: |
+        $sts2Dir = "$env:GITHUB_WORKSPACE\Sts2Dir"
+        New-Item -ItemType Directory -Path "$sts2Dir\data_sts2_windows_x86_64" -Force | Out-Null
+        Write-Host "Created $sts2Dir"
+
+    - name: Download sts2.dll
+      shell: pwsh
+      run: |
+        $url = 'https://files.catbox.moe/84abry.dll'
+        $out = "$env:GITHUB_WORKSPACE\Sts2Dir\data_sts2_windows_x86_64\sts2.dll"
+        Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+        if (!(Test-Path $out)) {
+          Write-Error "Download failed: $out not found"
+          exit 1
+        }
+        $expected = '7C446EFABF80614C429B5088E87101423AA5BB4C04FC3E73393261F6E6D404FD'
+        $actual = (Get-FileHash -Algorithm SHA256 -Path $out).Hash.ToUpper()
+        Write-Host "Computed SHA256: $actual"
+        if ($actual -ne $expected) {
+          Write-Error "sts2.dll checksum mismatch. Expected $expected but got $actual"
+          exit 1
+        }
+
+    - name: Download 0Harmony.dll
+      shell: pwsh
+      run: |
+        $url = 'https://files.catbox.moe/wdevg5.dll'
+        $out = "$env:GITHUB_WORKSPACE\Sts2Dir\data_sts2_windows_x86_64\0Harmony.dll"
+        Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+        if (!(Test-Path $out)) {
+          Write-Error "Download failed: $out not found"
+          exit 1
+        }
+        $expected = 'EF1898322C9F5C86DC1B0758B272A9C440823B4A41CA9A0B82A3AA6B3D206387'
+        $actual = (Get-FileHash -Algorithm SHA256 -Path $out).Hash.ToUpper()
+        Write-Host "Computed SHA256: $actual"
+        if ($actual -ne $expected) {
+          Write-Error "0Harmony.dll checksum mismatch. Expected $expected but got $actual"
+          exit 1
+        }
+
+    - name: Restore
+      shell: pwsh
+      run: dotnet restore DrawAndGuessMod.csproj
+
+    - name: Build
+      shell: pwsh
+      run: dotnet build DrawAndGuessMod.csproj -c Release -p:Sts2Dir="$env:GITHUB_WORKSPACE\Sts2Dir"
+
+    - name: Package
+      id: package
+      shell: pwsh
+      run: |
+        $modDir = "$env:GITHUB_WORKSPACE\Sts2Dir\mods\DrawAndGuessMod"
+        if (!(Test-Path $modDir)) {
+          Write-Error "Mod output folder not found: $modDir"
+          exit 1
+        }
+        $refName = "${{ github.ref_name }}"
+        if ([string]::IsNullOrWhiteSpace($refName)) {
+          $refName = "${{ github.sha }}"
+        }
+        $safeRefName = $refName -replace '[^a-zA-Z0-9._-]', '_'
+        $zipPath = "$env:GITHUB_WORKSPACE\DrawAndGuessMod-$safeRefName.zip"
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($modDir, $zipPath)
+        "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
