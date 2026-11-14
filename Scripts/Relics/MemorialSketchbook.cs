@@ -15,9 +15,9 @@ public sealed class MemorialSketchbook : ModRelicTemplate
 
     public override RelicRarity Rarity => RelicRarity.Event;
 
-    public override bool IsAllowed(IRunState runState)
+    protected override bool IsAllowedInternal(IRunState runState)
     {
-        return DrawingRunRules.IsGameplayEnabled(runState) && base.IsAllowed(runState);
+        return DrawingRunRules.IsGameplayEnabled(runState) && base.IsAllowedInternal(runState);
     }
 
     public override RelicAssetProfile AssetProfile => new(

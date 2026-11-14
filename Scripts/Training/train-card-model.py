@@ -114,25 +114,32 @@ def extract_features(portrait: Image.Image, treat_as_sketch: bool = False) -> np
     return features.astype("<f4")
 
 
-def discover_samples(sts_source: Path) -> list[tuple[str, np.ndarray]]:
+def discover_portrait_paths(sts_source: Path) -> dict[str, Path]:
     portraits_dir = sts_source / "images" / "packed" / "card_portraits"
     if not portraits_dir.is_dir():
         raise FileNotFoundError(f"Packed card portrait directory not found: {portraits_dir}")
 
-    samples: dict[str, np.ndarray] = {}
+    portraits: dict[str, Path] = {}
+    beta_portraits: dict[str, Path] = {}
     for png_path in sorted(portraits_dir.rglob("*.png")):
         relative_parts = png_path.relative_to(portraits_dir).parts
-        if "beta" in relative_parts or png_path.stem in {"beta", "ancient_beta"}:
+        if png_path.stem in {"beta", "ancient_beta"}:
             continue
 
         card_id = png_path.stem.upper()
-        if card_id in samples:
-            continue
+        collection = beta_portraits if "beta" in relative_parts[:-1] else portraits
+        collection.setdefault(card_id, png_path)
 
+    return dict(sorted((beta_portraits | portraits).items()))
+
+
+def discover_samples(sts_source: Path) -> list[tuple[str, np.ndarray]]:
+    samples = []
+    for card_id, png_path in discover_portrait_paths(sts_source).items():
         with Image.open(png_path) as portrait:
-            samples[card_id] = extract_features(portrait)
+            samples.append((card_id, extract_features(portrait)))
 
-    return sorted(samples.items())
+    return samples
 
 
 def write_model(output_path: Path, samples: list[tuple[str, np.ndarray]]) -> None:
@@ -149,7 +156,7 @@ def write_model(output_path: Path, samples: list[tuple[str, np.ndarray]]) -> Non
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("sts_source", type=Path, help="Path to game-src/Sts111")
+    parser.add_argument("sts_source", type=Path, help="Path to the extracted game assets")
     parser.add_argument("output", type=Path, help="Output card_features.bin")
     args = parser.parse_args()
 

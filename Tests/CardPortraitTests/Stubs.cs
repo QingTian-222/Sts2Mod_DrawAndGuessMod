@@ -88,6 +88,13 @@ namespace MegaCrit.Sts2.Core.Nodes.Cards
         {
             if (Ready) UpdatePortrait();
         }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void SetPortraitTexture(Godot.Texture2D texture)
+        {
+            if (Model == null) return;
+            string path = Model.Rarity == Entities.Cards.CardRarity.Ancient ? "%AncientPortrait" : "%Portrait";
+            if (Nodes.TryGetValue(path, out var node)) node.Texture = texture;
+        }
     }
 }
 

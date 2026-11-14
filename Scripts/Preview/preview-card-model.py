@@ -24,7 +24,7 @@ SCRIPT_PATH = Path(__file__).resolve()
 MOD_ROOT = SCRIPT_PATH.parents[2]
 WORKSPACE_ROOT = SCRIPT_PATH.parents[4]
 TRAINING_SCRIPT = MOD_ROOT / "Scripts" / "Training" / "train-card-model.py"
-DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts111"
+DEFAULT_SOURCE = WORKSPACE_ROOT / "game-src" / "Sts113"
 DEFAULT_MODEL = MOD_ROOT / "Models" / "card_features.bin"
 DEFAULT_DINO_CACHE = MOD_ROOT / "Scripts" / "Preview" / ".semantic-cache" / "dinov2-vits14-lvd142m-224.npz"
 DEFAULT_RELIC_DINO_CACHE = (
@@ -54,21 +54,8 @@ TRAINING = load_training_module()
 
 class CardPortraitIndex:
     def __init__(self, sts_source: Path):
-        self._portraits_dir = sts_source / "images" / "packed" / "card_portraits"
-        sprites_dir = self._portraits_dir
-        if not sprites_dir.is_dir():
-            raise FileNotFoundError(f"找不到卡图索引目录：{sprites_dir}")
-
-        self._entries: dict[str, Path] = {}
+        self._entries = TRAINING.discover_portrait_paths(sts_source)
         self._lock = threading.Lock()
-        for png_path in sorted(sprites_dir.rglob("*.png")):
-            relative_parts = png_path.relative_to(sprites_dir).parts
-            if "beta" in relative_parts or png_path.stem in {"beta", "ancient_beta"}:
-                continue
-            card_id = png_path.stem.upper()
-            if card_id in self._entries:
-                continue
-            self._entries[card_id] = png_path
 
     @property
     def card_ids(self) -> set[str]:
@@ -718,7 +705,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DrawAndGuessMod 游戏外识别预览")
-    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="game-src/Sts111 路径")
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="解包游戏资源路径，默认 game-src/Sts113")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="card_features.bin 路径")
     parser.add_argument("--dino-model", default="vit_small_patch14_dinov2.lvd142m", help="timm DINOv2模型名")
     parser.add_argument("--dino-cache", type=Path, default=DEFAULT_DINO_CACHE, help="卡图DINOv2向量缓存")

@@ -871,6 +871,7 @@ public partial class DrawingScreen : Control
         AddStampButton(stampRow, ModelDb.Character<Defect>(), 2);
         AddStampButton(stampRow, ModelDb.Character<Necrobinder>(), 3);
         AddStampButton(stampRow, ModelDb.Character<Regent>(), 4);
+        AddStampButton(stampRow, ModelDb.Character<Fool>(), 5);
 
         _status = new Label
         {

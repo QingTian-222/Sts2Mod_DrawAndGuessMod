@@ -26,9 +26,9 @@ public sealed class DeathNote : ModRelicTemplate
     public override RelicRarity Rarity => RelicRarity.Ancient;
     public override bool HasUponPickupEffect => true;
 
-    public override bool IsAllowed(IRunState runState)
+    protected override bool IsAllowedInternal(IRunState runState)
     {
-        return DrawingRunRules.IsGameplayEnabled(runState) && base.IsAllowed(runState);
+        return DrawingRunRules.IsGameplayEnabled(runState) && base.IsAllowedInternal(runState);
     }
 
     public override RelicAssetProfile AssetProfile => new(
@@ -58,7 +58,7 @@ public sealed class DeathNote : ModRelicTemplate
     {
         List<CardModel> availableCurses = ModelDb.CardPool<CurseCardPool>()
             .GetUnlockedCards(Owner.UnlockState, Owner.RunState.CardMultiplayerConstraint)
-            .Where(card => card.CanBeGeneratedByModifiers)
+            .Where(card => card.CanBeGeneratedByModifiers && card.IsAllowedInRun(Owner.RunState))
             .OrderBy(card => card.Id)
             .ToList();
         if (availableCurses.Count == 0)

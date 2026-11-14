@@ -49,8 +49,8 @@
 
 ## 依赖
 
-- Slay the Spire 2 `0.111.0` 测试分支。
-- [STS2-RitsuLib](https://www.nuget.org/packages/STS2.RitsuLib/) `0.5.12` 或更高版本。
+- Slay the Spire 2 `0.113.0`。
+- [STS2-RitsuLib](https://github.com/BAKAOLC/STS2-RitsuLib/releases/tag/v0.6.13) `0.6.13` 或更高版本，安装支持 `0.113.0` 的完整运行库目录。
 - 游戏内 DINOv2 推理使用随模组发布的 ONNX Runtime，普通玩家不需要安装 Python、PyTorch 或其他 AI 环境。
 - Windows 上使用“鸡煲（DINOv2）”识别模型需要 [Microsoft Visual C++ 2015–2022 Redistributable（x64）](https://aka.ms/vc14/vc_redist.x64.exe)。
 - .NET 9 SDK（仅开发和编译时需要）。
@@ -99,8 +99,9 @@ Notebook 自带流程图、覆盖六张实际游戏卡图的低分辨率五种�
 重新生成模型：
 
 ```powershell
-python Scripts/Training/train-card-model.py <包含 images/atlases 的本地游戏资源目录> Models/card_features.bin
-python Scripts/Training/build-dino-model.py <包含 images/atlases 的本地游戏资源目录> Models/dinov2_vits14.onnx Models/card_dino_features.bin
+python Scripts/Training/train-card-model.py ../../game-src/Sts113 Models/card_features.bin
+python Scripts/Training/build-dino-model.py ../../game-src/Sts113 Models/dinov2_vits14.onnx Models/card_dino_features.bin --reuse-onnx
+python Scripts/Training/train-relic-model.py ../../game-src/Sts113 Models/relic_features.bin
 ```
 
 运行游戏外预览：
@@ -190,8 +191,8 @@ A drawing-based card guessing mod for *Slay the Spire 2*. After playing **Blank*
 
 ## Requirements
 
-- *Slay the Spire 2* `0.111.0` public-beta branch.
-- [STS2-RitsuLib](https://www.nuget.org/packages/STS2.RitsuLib/) `0.5.12` or later.
+- *Slay the Spire 2* `0.113.0`.
+- [STS2-RitsuLib](https://github.com/BAKAOLC/STS2-RitsuLib/releases/tag/v0.6.13) `0.6.13` or later. Install the complete runtime folder that supports `0.113.0`.
 - In-game DINOv2 inference uses the ONNX Runtime distributed with the mod. Regular players do not need Python, PyTorch, or any other AI development environment.
 - On Windows, the Defect (DINOv2) recognition model requires the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vc14/vc_redist.x64.exe).
 - .NET 9 SDK, required only for development and compilation.
@@ -242,8 +243,9 @@ The source portrait files and training dataset are not bundled.
 To regenerate the models:
 
 ```powershell
-python Scripts/Training/train-card-model.py <local game asset directory containing images/atlases> Models/card_features.bin
-python Scripts/Training/build-dino-model.py <local game asset directory containing images/atlases> Models/dinov2_vits14.onnx Models/card_dino_features.bin
+python Scripts/Training/train-card-model.py ../../game-src/Sts113 Models/card_features.bin
+python Scripts/Training/build-dino-model.py ../../game-src/Sts113 Models/dinov2_vits14.onnx Models/card_dino_features.bin --reuse-onnx
+python Scripts/Training/train-relic-model.py ../../game-src/Sts113 Models/relic_features.bin
 ```
 
 To run the external preview tool:

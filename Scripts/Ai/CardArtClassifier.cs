@@ -125,7 +125,7 @@ internal static class CardArtClassifier
             bool freshImageAvailable = false;
             try
             {
-                using Image? image = await imageLoader.LoadAsync(card.PortraitPath);
+                using Image? image = await imageLoader.LoadAsync(GetRecognitionPortraitPath(card));
                 if (image != null && !image.IsEmpty())
                 {
                     freshImageAvailable = true;
@@ -308,6 +308,10 @@ internal static class CardArtClassifier
     {
         IEnumerable<TrainingSample> candidates = _samples ?? Enumerable.Empty<TrainingSample>();
         candidates = candidates.Where(sample => !ErasedCardStore.IsErased(owner.RunState, sample.Card.Id));
+        if (owner.RunState.GameMode == MegaCrit.Sts2.Core.Runs.GameMode.Blitz)
+        {
+            candidates = candidates.Where(sample => sample.Card.IsAllowedInBlitz);
+        }
         HashSet<ModelId> excludedCardIds = DrawAndGuessSettings.GetCardIdsExcludedByAdvancedPoolSettings();
         if (excludedCardIds.Count > 0)
         {
@@ -650,12 +654,12 @@ internal static class CardArtClassifier
 
     private static string GetUserModelPath()
     {
-        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_features.local.v2.bin");
+        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_features.local.v3.bin");
     }
 
     private static string GetUserDinoModelPath()
     {
-        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_dino_features.local.v2.bin");
+        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_dino_features.local.v3.bin");
     }
 
     private static void SavePretrainedFeatures(string path, IReadOnlyDictionary<string, double[]> featuresByCardId)
@@ -729,6 +733,18 @@ internal static class CardArtClassifier
         File.Move(temporaryPath, path, overwrite: true);
     }
 
+    private static string GetRecognitionPortraitPath(CardModel card)
+    {
+        string portraitPath = card.PortraitPath;
+        if (!ResourceLoader.Exists(portraitPath) && card.HasBetaPortrait)
+        {
+            // Some cards have a standalone beta PNG but no corresponding atlas region.
+            return $"res://images/packed/card_portraits/{card.Pool.Title.ToLowerInvariant()}/beta/{card.Id.Entry.ToLowerInvariant()}.png";
+        }
+
+        return portraitPath;
+    }
+
     /// <summary>
     /// Loads a card's original portrait as a readable RGBA image, bypassing the
     /// patched <see cref="CardModel.Portrait"/> getter so the result is always
@@ -739,7 +755,7 @@ internal static class CardArtClassifier
         try
         {
             Texture2D? texture = ResourceLoader.Load<Texture2D>(
-                card.PortraitPath,
+                GetRecognitionPortraitPath(card),
                 null,
                 ResourceLoader.CacheMode.Reuse);
             Image? image = texture == null ? null : GetReadableImage(texture);

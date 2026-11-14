@@ -99,12 +99,18 @@ internal static class TreasureRoomRelicDrawingFlow
         List<Player> participants = runState.Players
             .Where(player => Hook.ShouldGenerateTreasure(runState, player))
             .ToList();
-        if (participants.Count != targets.Count)
+        if (participants.Count > targets.Count)
         {
             Entry.Logger.Warn(
-                $"[DrawAndGuessMod] Treasure drawing participant count {participants.Count} did not match " +
-                $"the vanilla candidate count {targets.Count}; falling back to run player order.");
-            participants = runState.Players.Take(targets.Count).ToList();
+                $"[DrawAndGuessMod] Treasure drawing participant count {participants.Count} exceeded " +
+                $"the vanilla candidate count {targets.Count}; only players with a target will draw.");
+            participants = participants.Take(targets.Count).ToList();
+        }
+
+        if (participants.Count == 0)
+        {
+            await InvokeOpenChestAsync(room);
+            return;
         }
 
         uint appraisalId = CreateSessionId(runState);
@@ -151,7 +157,7 @@ internal static class TreasureRoomRelicDrawingFlow
         ValidateSubmissions(participants, targets, submissions);
         RelicAppraisalFairArtworkStore.InstallPresentations(submissions);
         TreasureRoomRelicSynchronizer synchronizer = RunManager.Instance.TreasureRoomRelicSynchronizer;
-        void OnRelicsAwarded(List<RelicPickingResult> results)
+        void OnRelicsAwarded(List<RelicPickingResult> results, bool _)
         {
             foreach (RelicPickingResult result in results)
             {
@@ -251,7 +257,8 @@ internal static class TreasureRoomRelicDrawingFlow
 
     private static void ValidateSubmissions(IReadOnlyList<Player> participants, IReadOnlyList<RelicModel> targets, IReadOnlyList<RelicAppraisalFairSubmission> submissions)
     {
-        if (participants.Count != targets.Count || submissions.Count != targets.Count)
+        // Blitz can add extra relics to the chest beyond the player-assigned drawing targets.
+        if (participants.Count > targets.Count || submissions.Count != participants.Count)
         {
             throw new InvalidOperationException("Treasure-room relic drawing result counts do not match.");
         }

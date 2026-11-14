@@ -95,6 +95,19 @@ internal static class CardPortraitPatch
     }
 }
 
+[HarmonyPatch(typeof(NCard), nameof(NCard.SetPortraitTexture))]
+internal static class NCardInspectPortraitPatch
+{
+    [HarmonyPriority(Priority.Last)]
+    private static void Prefix(NCard __instance, ref Texture2D texture)
+    {
+        if (__instance.Model is CardModel card && CardPortraitPatch.TryGetOverrideTexture(card, out Texture2D artwork))
+        {
+            texture = artwork;
+        }
+    }
+}
+
 [HarmonyPatch]
 internal static class NCardPortraitPatch
 {

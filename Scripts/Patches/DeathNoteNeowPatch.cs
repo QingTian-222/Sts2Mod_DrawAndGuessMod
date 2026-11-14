@@ -17,7 +17,6 @@ namespace DrawAndGuessMod.Scripts.Patches;
 internal static class DeathNoteNeowPatch
 {
     private const string InitialPage = "INITIAL";
-    private const string CursedDonePage = "NEOW.pages.DONE.CURSED.description";
 
     private static void Postfix(Neow __instance, ref IEnumerable<EventOption> __result)
     {
@@ -34,7 +33,7 @@ internal static class DeathNoteNeowPatch
             MethodInfo? relicOptionMethod = AccessTools.Method(
                 typeof(AncientEventModel),
                 "RelicOption",
-                [typeof(RelicModel), typeof(string), typeof(string)]);
+                [typeof(RelicModel), typeof(string)]);
             if (relicOptionMethod == null)
             {
                 Entry.Logger.Warn("[DrawAndGuessMod] Could not locate Neow's relic-option factory.");
@@ -45,7 +44,7 @@ internal static class DeathNoteNeowPatch
             RelicModel relic = ModelDb.Relic<DeathNote>().ToMutable();
             object? created = relicOptionMethod.Invoke(
                 __instance,
-                [relic, InitialPage, CursedDonePage]);
+                [relic, InitialPage]);
             if (created is EventOption option)
             {
                 options.Add(option);

@@ -405,6 +405,7 @@ public sealed class RelicAppraisalFair : ModEventTemplate
         return RelicArtClassifier.GetEligibleRelics()
             .Where(relic =>
                 relic.Rarity != RelicRarity.Ancient &&
+                relic.IsAllowed(runState) &&
                 !ownedIds.Contains(relic.Id))
             .OrderBy(relic => relic.Id.Entry, StringComparer.Ordinal)
             .ToList();

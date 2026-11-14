@@ -22,6 +22,7 @@ internal static class RelicAppraisalFairTreasureFlow
     private static readonly FieldInfo VotesField = GetField("_votes");
     private static readonly FieldInfo PredictedVoteField = GetField("_predictedVote");
     private static readonly FieldInfo SingleplayerSkippedField = GetField("_singleplayerSkipped");
+    private static readonly FieldInfo RoundsLeftField = GetField("_roundsLeft");
 
     public static void Reset()
     {
@@ -60,7 +61,7 @@ internal static class RelicAppraisalFairTreasureFlow
             RunManager.Instance.TreasureRoomRelicSynchronizer;
         TaskCompletionSource<IReadOnlyDictionary<ulong, string>> resultCompletion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnRelicsAwarded(List<RelicPickingResult> results)
+        void OnRelicsAwarded(List<RelicPickingResult> results, bool isFinalRound)
         {
             foreach (RelicPickingResult result in results)
             {
@@ -77,7 +78,10 @@ internal static class RelicAppraisalFairTreasureFlow
                 .ToDictionary(
                     result => result.player!.NetId,
                     result => result.relic.Id.Entry);
-            resultCompletion.TrySetResult(awards);
+            if (isFinalRound)
+            {
+                resultCompletion.TrySetResult(awards);
+            }
         }
 
         synchronizer.RelicsAwarded += OnRelicsAwarded;
@@ -241,6 +245,7 @@ internal static class RelicAppraisalFairTreasureFlow
         }
         PredictedVoteField.SetValue(synchronizer, null);
         SingleplayerSkippedField.SetValue(synchronizer, false);
+        RoundsLeftField.SetValue(synchronizer, 1);
     }
 
     private static void ResetSynchronizer(
@@ -251,6 +256,7 @@ internal static class RelicAppraisalFairTreasureFlow
             VotesField.GetValue(synchronizer)!).Clear();
         PredictedVoteField.SetValue(synchronizer, null);
         SingleplayerSkippedField.SetValue(synchronizer, false);
+        RoundsLeftField.SetValue(synchronizer, 0);
     }
 
     private static RelicModel FindRelic(string relicId)

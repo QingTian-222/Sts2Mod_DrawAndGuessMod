@@ -21,6 +21,7 @@ regressionCard.UpdateVisuals();
 Assert(ReferenceEquals(regressionCard.Nodes["%Portrait"].Texture, regressionCard.Model.VanillaPortrait), "old Reload-only fallback loses artwork on later refresh");
 harmony.Unpatch(AccessTools.Method(typeof(NCard), "Reload"), HarmonyPatchType.Postfix, harmony.Id);
 harmony.CreateClassProcessor(typeof(NCardPortraitPatch)).Patch();
+harmony.CreateClassProcessor(typeof(NCardInspectPortraitPatch)).Patch();
 
 foreach (string method in new[] { "Reload", "UpdatePortrait" })
     Assert(Harmony.GetPatchInfo(AccessTools.Method(typeof(NCard), method))!.Postfixes.Any(p => p.owner == harmony.Id), $"real Harmony registered {method}");
@@ -40,6 +41,8 @@ foreach (bool bypassGetter in new[] { false, true })
     card.Reload();
     card.UpdateVisuals();
     Assert(ReferenceEquals(card.Nodes["%Portrait"].Texture, drawn.Artwork), $"drawn artwork survives refresh: {mode}");
+    card.SetPortraitTexture(new Texture2D());
+    Assert(ReferenceEquals(card.Nodes["%Portrait"].Texture, drawn.Artwork), $"drawn artwork survives inspect's full-size portrait: {mode}");
     int assignments = card.Nodes["%Portrait"].Assignments;
     portraitPostfix.Invoke(null, [card]);
     Assert(card.Nodes["%Portrait"].Assignments == assignments, $"unchanged override is idempotent: {mode}");
@@ -48,6 +51,9 @@ foreach (bool bypassGetter in new[] { false, true })
     card.Reload();
     card.UpdateVisuals();
     Assert(ReferenceEquals(card.Nodes["%Portrait"].Texture, card.Model.VanillaPortrait), $"pooled holder does not keep previous artwork: {mode}");
+    Texture2D fullSizePortrait = new();
+    card.SetPortraitTexture(fullSizePortrait);
+    Assert(ReferenceEquals(card.Nodes["%Portrait"].Texture, fullSizePortrait), $"inspect keeps vanilla full-size portrait without override: {mode}");
 
     card.Model = new CardModel { Rarity = CardRarity.Ancient, Artwork = new Texture2D() };
     Texture2D? standardBefore = card.Nodes["%Portrait"].Texture;
