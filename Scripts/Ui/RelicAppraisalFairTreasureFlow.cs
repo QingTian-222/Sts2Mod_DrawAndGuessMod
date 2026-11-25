@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection;
 using DrawAndGuessMod.Scripts.Networking;
 using DrawAndGuessMod.Scripts.State;
@@ -22,7 +23,9 @@ internal static class RelicAppraisalFairTreasureFlow
     private static readonly FieldInfo VotesField = GetField("_votes");
     private static readonly FieldInfo PredictedVoteField = GetField("_predictedVote");
     private static readonly FieldInfo SingleplayerSkippedField = GetField("_singleplayerSkipped");
-    private static readonly FieldInfo RoundsLeftField = GetField("_roundsLeft");
+    private static readonly FieldInfo RoundsField = GetField("_rounds");
+    private static readonly FieldInfo CurrentRoundField = GetField("_currentRound");
+    private static readonly FieldInfo BufferedVotesField = GetField("_bufferedVotes");
 
     public static void Reset()
     {
@@ -245,7 +248,9 @@ internal static class RelicAppraisalFairTreasureFlow
         }
         PredictedVoteField.SetValue(synchronizer, null);
         SingleplayerSkippedField.SetValue(synchronizer, false);
-        RoundsLeftField.SetValue(synchronizer, 1);
+        RoundsField.SetValue(synchronizer, 1);
+        CurrentRoundField.SetValue(synchronizer, 0);
+        ((IList)BufferedVotesField.GetValue(synchronizer)!).Clear();
     }
 
     private static void ResetSynchronizer(
@@ -256,7 +261,9 @@ internal static class RelicAppraisalFairTreasureFlow
             VotesField.GetValue(synchronizer)!).Clear();
         PredictedVoteField.SetValue(synchronizer, null);
         SingleplayerSkippedField.SetValue(synchronizer, false);
-        RoundsLeftField.SetValue(synchronizer, 0);
+        RoundsField.SetValue(synchronizer, 0);
+        CurrentRoundField.SetValue(synchronizer, 0);
+        ((IList)BufferedVotesField.GetValue(synchronizer)!).Clear();
     }
 
     private static RelicModel FindRelic(string relicId)

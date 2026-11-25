@@ -654,12 +654,12 @@ internal static class CardArtClassifier
 
     private static string GetUserModelPath()
     {
-        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_features.local.v3.bin");
+        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_features.local.v4.bin");
     }
 
     private static string GetUserDinoModelPath()
     {
-        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_dino_features.local.v3.bin");
+        return ProjectSettings.GlobalizePath($"user://mods/{Entry.ModId}/card_dino_features.local.v4.bin");
     }
 
     private static void SavePretrainedFeatures(string path, IReadOnlyDictionary<string, double[]> featuresByCardId)

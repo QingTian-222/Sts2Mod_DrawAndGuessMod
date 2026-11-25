@@ -11,7 +11,7 @@
     <Sts2Dir Condition="'$(Sts2Dir)' == '' and Exists('G:\SteamLibrary\steamapps\common\Slay the Spire 2')">G:\SteamLibrary\steamapps\common\Slay the Spire 2</Sts2Dir>
     <Sts2Dir Condition="'$(Sts2Dir)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2')">C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2</Sts2Dir>
     <Sts2DataDir>$(Sts2Dir)\data_sts2_windows_x86_64</Sts2DataDir>
-    <Sts2AssetSource Condition="'$(Sts2AssetSource)' == ''">$(MSBuildProjectDirectory)\..\..\game-src\Sts113</Sts2AssetSource>
+    <Sts2AssetSource Condition="'$(Sts2AssetSource)' == ''">$(MSBuildProjectDirectory)\..\..\game-src\Sts114</Sts2AssetSource>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,7 +27,7 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.27.1" GeneratePathProperty="true" />
     <PackageReference Include="System.Numerics.Tensors" Version="9.0.0" GeneratePathProperty="true" />
-    <PackageReference Include="STS2.RitsuLib" Version="0.6.13" />
+    <PackageReference Include="STS2.RitsuLib" Version="0.6.16" />
   </ItemGroup>
 
   <ItemGroup>
